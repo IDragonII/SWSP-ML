@@ -1,0 +1,16 @@
+# Diseño SQL de muestra (Django crea las tablas con migraciones)
+DB_sql/
+
+# Entorno y secretos
+.env
+backend/.env
+
+# Python / Django
+backend/venv/
+__pycache__/
+*.pyc
+backend/db.sqlite3
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
