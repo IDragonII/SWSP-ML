@@ -1,0 +1,809 @@
+{
+  "info": {
+    "_postman_id": "sigpa-ga-semana3-0001",
+    "name": "SIGPA-GA · Semana 3 — Ubicación y productores",
+    "description": "Colección de la Semana 3 (ubicación y productores): 36 peticiones en 4 carpetas, con pruebas embebidas (pm.test).\n\nVariables:\n- base_url: http://localhost:8000 (el backend debe estar en marcha: python manage.py runserver)\n- usuario_admin / usuario_coordinador: cuentas de prueba (admin, coordinador)\n- clave_admin / clave_coordinador: defínelas en Postman; los valores están en el archivo .credenciales del proyecto (ignorado por Git, nunca se sube aquí)\n- sufijo: cambia este texto si repites la ejecución y los nombres de ubicación ya existen\n- dni_productor: DNI de 8 dígitos para el alta de pruebas; cámbialo si se repite\n\nEl orden importa: se valida primero la respuesta 401 sin sesión, luego todo como administrador y, al final, las restricciones del Coordinador (solo lectura y datos enmascarados).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8000" },
+    { "key": "usuario_admin", "value": "admin" },
+    { "key": "clave_admin", "value": "" },
+    { "key": "usuario_coordinador", "value": "coordinador" },
+    { "key": "clave_coordinador", "value": "" },
+    { "key": "sufijo", "value": "PRUEBA" },
+    { "key": "dni_productor", "value": "77889900" }
+  ],
+  "item": [
+    {
+      "name": "001 · Sin sesión → 401",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 401', function () { pm.response.to.have.status(401); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{base_url}}/api/productores/" }
+      }
+    },
+    {
+      "name": "002 · Login administrador → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Devuelve rol y permisos', function () { pm.expect(pm.response.json().usuario.permisos.length).to.be.above(0); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"username\":\"{{usuario_admin}}\",\"password\":\"{{clave_admin}}\"}"
+        },
+        "url": { "raw": "{{base_url}}/api/auth/login/" }
+      }
+    },
+    {
+      "name": "003 · ¿Quién soy? → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Rol Administrador', function () { pm.expect(pm.response.json().usuario.rol.nombre).to.eql('Administrador'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{base_url}}/api/auth/me/" }
+      }
+    },
+    {
+      "name": "004 · Listar provincias (paginado) → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Respuesta paginada', function () { pm.expect(pm.response.json()).to.have.property('count'); pm.expect(pm.response.json()).to.have.property('results'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{base_url}}/api/ubicaciones/provincias/" }
+      }
+    },
+    {
+      "name": "005 · Crear provincia → 201",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 201', function () { pm.response.to.have.status(201); });",
+              "pm.environment.set('provincia_id', pm.response.json().id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"nombre\":\"Provincia Colección {{sufijo}}\",\"activo\":true}"
+        },
+        "url": { "raw": "{{base_url}}/api/ubicaciones/provincias/" }
+      }
+    },
+    {
+      "name": "006 · Ver provincia por id → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{base_url}}/api/ubicaciones/provincias/{{provincia_id}}/" }
+      }
+    },
+    {
+      "name": "007 · Editar provincia (PATCH) → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"nombre\":\"Provincia Colección {{sufijo}} Norte\"}"
+        },
+        "url": { "raw": "{{base_url}}/api/ubicaciones/provincias/{{provincia_id}}/" }
+      }
+    },
+    {
+      "name": "008 · Desactivar provincia → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Queda inactiva', function () { pm.expect(pm.response.json().activo).to.eql(false); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"activo\":false}"
+        },
+        "url": { "raw": "{{base_url}}/api/ubicaciones/provincias/{{provincia_id}}/estado/" }
+      }
+    },
+    {
+      "name": "009 · Reactivar provincia → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Queda activa', function () { pm.expect(pm.response.json().activo).to.eql(true); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"activo\":true}"
+        },
+        "url": { "raw": "{{base_url}}/api/ubicaciones/provincias/{{provincia_id}}/estado/" }
+      }
+    },
+    {
+      "name": "010 · DELETE de provincia → 405",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 405', function () { pm.response.to.have.status(405); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": { "raw": "{{base_url}}/api/ubicaciones/provincias/{{provincia_id}}/" }
+      }
+    },
+    {
+      "name": "011 · Nombre de provincia repetido → 400",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 400', function () { pm.response.to.have.status(400); });",
+              "pm.test('Error sobre nombre', function () { pm.expect(pm.response.text()).to.include('nombre'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"nombre\":\"Provincia Colección {{sufijo}} Norte\",\"activo\":true}"
+        },
+        "url": { "raw": "{{base_url}}/api/ubicaciones/provincias/" }
+      }
+    },
+    {
+      "name": "012 · Filtro ?activo inválido → 400",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 400', function () { pm.response.to.have.status(400); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{base_url}}/api/ubicaciones/provincias/?activo=quizas" }
+      }
+    },
+    {
+      "name": "013 · Crear distrito → 201",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 201', function () { pm.response.to.have.status(201); });",
+              "pm.environment.set('distrito_id', pm.response.json().id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"nombre\":\"Distrito Colección {{sufijo}}\",\"provincia\":{{provincia_id}},\"activo\":true}"
+        },
+        "url": { "raw": "{{base_url}}/api/ubicaciones/distritos/" }
+      }
+    },
+    {
+      "name": "014 · Distritos filtrados por provincia → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Pertenece a la provincia creada', function () { pm.expect(pm.response.json().results[0].provincia.id).to.eql(pm.environment.get('provincia_id')); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{base_url}}/api/ubicaciones/distritos/?provincia={{provincia_id}}" }
+      }
+    },
+    {
+      "name": "015 · Distrito repetido en la misma provincia → 400",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 400', function () { pm.response.to.have.status(400); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"nombre\":\"Distrito Colección {{sufijo}}\",\"provincia\":{{provincia_id}},\"activo\":true}"
+        },
+        "url": { "raw": "{{base_url}}/api/ubicaciones/distritos/" }
+      }
+    },
+    {
+      "name": "016 · Crear comunidad → 201",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 201', function () { pm.response.to.have.status(201); });",
+              "pm.environment.set('comunidad_id', pm.response.json().id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"nombre\":\"Comunidad Colección {{sufijo}}\",\"distrito\":{{distrito_id}},\"activo\":true}"
+        },
+        "url": { "raw": "{{base_url}}/api/ubicaciones/comunidades/" }
+      }
+    },
+    {
+      "name": "017 · Comunidades del distrito → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{base_url}}/api/ubicaciones/comunidades/?distrito={{distrito_id}}" }
+      }
+    },
+    {
+      "name": "018 · Desplegable solo activas → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Todas activas', function () { pm.response.json().results.forEach(function (c) { pm.expect(c.activo).to.eql(true); }); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{base_url}}/api/ubicaciones/comunidades/?activo=true" }
+      }
+    },
+    {
+      "name": "019 · Crear productor (código automático) → 201",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 201', function () { pm.response.to.have.status(201); });",
+              "pm.test('Código PROD-NNNN', function () { pm.expect(pm.response.json().codigo).to.match(/^PROD-\\d{4}$/); });",
+              "pm.environment.set('productor_id', pm.response.json().id);",
+              "pm.environment.set('productor_codigo', pm.response.json().codigo);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"nombres\":\"María Elena\",\"apellidos\":\"Colque Quispe\",\"dni\":\"{{dni_productor}}\",\"telefono\":\"987654321\",\"comunidad\":{{comunidad_id}}}"
+        },
+        "url": { "raw": "{{base_url}}/api/productores/" }
+      }
+    },
+    {
+      "name": "020 · DNI con 6 dígitos → 400",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 400', function () { pm.response.to.have.status(400); });",
+              "pm.test('Mensaje de DNI', function () { pm.expect(pm.response.text()).to.include('8 dígitos'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"nombres\":\"Dni\",\"apellidos\":\"Invalido\",\"dni\":\"123456\",\"comunidad\":{{comunidad_id}}}"
+        },
+        "url": { "raw": "{{base_url}}/api/productores/" }
+      }
+    },
+    {
+      "name": "021 · DNI duplicado → 400",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 400', function () { pm.response.to.have.status(400); });",
+              "pm.test('Mensaje de duplicado', function () { pm.expect(pm.response.text()).to.include('Ya existe'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"nombres\":\"Otra\",\"apellidos\":\"Persona\",\"dni\":\"{{dni_productor}}\",\"comunidad\":{{comunidad_id}}}"
+        },
+        "url": { "raw": "{{base_url}}/api/productores/" }
+      }
+    },
+    {
+      "name": "022 · Comunidad inexistente → 400",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 400', function () { pm.response.to.have.status(400); });",
+              "pm.test('Mensaje de comunidad', function () { pm.expect(pm.response.text()).to.include('no existe'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"nombres\":\"Sin\",\"apellidos\":\"Comunidad\",\"dni\":\"99001122\",\"comunidad\":999999}"
+        },
+        "url": { "raw": "{{base_url}}/api/productores/" }
+      }
+    },
+    {
+      "name": "023 · Listar productores (paginación) → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Respuesta paginada', function () { pm.expect(pm.response.json()).to.have.property('count'); pm.expect(pm.response.json().results[0]).to.have.property('nombre_completo'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{base_url}}/api/productores/" }
+      }
+    },
+    {
+      "name": "024 · Buscar por código → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Encuentra al productor', function () { pm.expect(pm.response.json().count).to.eql(1); pm.expect(pm.response.json().results[0].codigo).to.eql(pm.environment.get('productor_codigo')); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{base_url}}/api/productores/?busqueda={{productor_codigo}}" }
+      }
+    },
+    {
+      "name": "025 · Filtrar por comunidad → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Solo los de esa comunidad', function () { pm.response.json().results.forEach(function (p) { pm.expect(p.comunidad.id).to.eql(Number(pm.environment.get('comunidad_id'))); }); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{base_url}}/api/productores/?comunidad={{comunidad_id}}" }
+      }
+    },
+    {
+      "name": "026 · Estado inválido en filtro → 400",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 400', function () { pm.response.to.have.status(400); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{base_url}}/api/productores/?estado=MALO" }
+      }
+    },
+    {
+      "name": "027 · Ficha del productor → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Traza de quién lo creó', function () { pm.expect(pm.response.json().creado_por).to.eql(pm.environment.get('usuario_admin')); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{base_url}}/api/productores/{{productor_id}}/" }
+      }
+    },
+    {
+      "name": "028 · Editar teléfono (PATCH) → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Teléfono guardado', function () { pm.expect(pm.response.json().telefono).to.eql('911222333'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"telefono\":\"911222333\"}"
+        },
+        "url": { "raw": "{{base_url}}/api/productores/{{productor_id}}/" }
+      }
+    },
+    {
+      "name": "029 · El código no se modifica → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Código intacto', function () { pm.expect(pm.response.json().codigo).to.eql(pm.environment.get('productor_codigo')); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"codigo\":\"PROD-9999\"}"
+        },
+        "url": { "raw": "{{base_url}}/api/productores/{{productor_id}}/" }
+      }
+    },
+    {
+      "name": "030 · Desactivar productor → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Estado INACTIVO', function () { pm.expect(pm.response.json().estado).to.eql('INACTIVO'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"estado\":\"INACTIVO\"}"
+        },
+        "url": { "raw": "{{base_url}}/api/productores/{{productor_id}}/estado/" }
+      }
+    },
+    {
+      "name": "031 · Reactivar productor → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Estado ACTIVO', function () { pm.expect(pm.response.json().estado).to.eql('ACTIVO'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"estado\":\"ACTIVO\"}"
+        },
+        "url": { "raw": "{{base_url}}/api/productores/{{productor_id}}/estado/" }
+      }
+    },
+    {
+      "name": "032 · DELETE de productor → 405",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 405', function () { pm.response.to.have.status(405); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": { "raw": "{{base_url}}/api/productores/{{productor_id}}/" }
+      }
+    },
+    {
+      "name": "033 · Login coordinador → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"username\":\"{{usuario_coordinador}}\",\"password\":\"{{clave_coordinador}}\"}"
+        },
+        "url": { "raw": "{{base_url}}/api/auth/login/" }
+      }
+    },
+    {
+      "name": "034 · Coordinador: listado con DNI enmascarado → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('DNI enmascarado', function () { pm.expect(pm.response.text()).to.include('****'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{base_url}}/api/productores/" }
+      }
+    },
+    {
+      "name": "035 · Coordinador: crear productor → 403",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 403', function () { pm.response.to.have.status(403); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"nombres\":\"No\",\"apellidos\":\"Puede\",\"dni\":\"99008877\",\"comunidad\":{{comunidad_id}}}"
+        },
+        "url": { "raw": "{{base_url}}/api/productores/" }
+      }
+    },
+    {
+      "name": "036 · Coordinador: editar productor → 403",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 403', function () { pm.response.to.have.status(403); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"nombres\":\"Tampoco\"}"
+        },
+        "url": { "raw": "{{base_url}}/api/productores/{{productor_id}}/" }
+      }
+    }
+  ]
+}

@@ -119,8 +119,19 @@
 - **Frontend:** cliente Axios con `withCredentials` y renovación *single-flight* (una sola petición de refresh compartida, reintento único), `SesionProvider`/`useSesion`, pantalla de **Login**, rutas protegidas, **menú filtrado por permiso** (`opcionesMenu.js` genera menú y rutas), páginas 403 y 404, marca propia y tipografías Fraunces + Public Sans.
 - **20 pruebas verdes** (`manage.py test usuarios`: 8 de la Semana 1 + 12 de la Semana 2, incluidas 2 extra de tiempo de bloqueo y refresco de permisos), `manage.py check` en 0 issues, `npm run lint` y `npm run build` en 0 problemas.
 
+### Semana 3 (19–25 oct): ubicación y productores — COMPLETADA
+- **Decisiones documentadas** en `docs/decisiones_semana3.md` (7 decisiones): lista real de ubicación **pendiente** del responsable (mientras tanto, CSV de datos inventados), comando de carga CSV/Excel idempotente, desactivar sin borrar, enmascarado por rol ⚠️ pendiente de confirmar, filtro «solo mis productores» aplazado a la Semana 4, nada se borra (sin `DELETE`, responde 405) y paginación global de 20 con orden por apellidos y `?busqueda=`.
+- **App `backend/productores/`**: modelos `Provincia`, `Distrito`, `Comunidad` y `Productor` con `db_table` y restricciones del diseño (`uq_distrito`, `uq_comunidad`, `ck_productores_dni`, `ck_productores_estado`, índices `ix_distritos_provincia`, `ix_comunidades_distrito`, `ix_productores_comunidad/estado/apellidos`); **2 migraciones propias**: `0001` (tablas) y `0002` (funciones y triggers, reversible); panel admin con filtros, búsqueda y `creado_por` rellenado en el alta.
+- **Triggers con el texto literal de `02_reglas_y_vista.sql`:** `fn_set_actualizado_en` + `trg_productores_actualizado`, `fn_codigo_productor` + `seq_productor_codigo` + `trg_productores_codigo` (código `PROD-0001`, automático).
+- **Comando `cargar_ubicacion`** (`--archivo`, acepta `.csv` y `.xlsx` con `openpyxl`), **idempotente**, con informe de filas creadas, existentes y fallidas sin detenerse; datos de ejemplo inventados en `datos/ejemplo_ubicaciones.csv` (fuera de las migraciones).
+- **API** (`/api/ubicaciones/{provincias,distritos,comunidades}/` y `/api/productores/`): permisos por acción (`catalogos.*` y `productores.*` con la clase `TienePermiso`), paginación global (`API_PAGE_SIZE=20`), `?busqueda=`, filtros por jerarquía y estado, `PATCH …/estado/` para desactivar/reactivar, **sin `DELETE` (405)**, DNI/teléfono enmascarados por rol (`ROLES_CON_DATOS_COMPLETOS`: Administrador y Técnico completos, Coordinador `****5678`). Contrato completo en `docs/api_ubicacion_productores.md`.
+- **17 pruebas nuevas (21–37)** → **37 en total**; `manage.py check` en 0 issues; `makemigrations --check` sin cambios; la 33 usa `TransactionTestCase` porque `now()` es el tiempo de la transacción.
+- **Documentación:** `docs/comparacion_semana3.md` (diseño SQL vs migraciones: 4 tablas + 2 triggers), `docs/tablero.md` (HU-15..HU-22 con evidencias) y `docs/coleccion_api_semana3.json` (**36 peticiones validadas 36/36** contra el servidor, sin secretos).
+- **Migración desde BD vacía verificada:** base nueva `sigpa_ga_migracion` → 27 migraciones OK, 55 permisos / 3 roles / 101 asignaciones, las 4 tablas, 3 triggers, 3 funciones y la secuencia; prueba funcional en SQL crudo (`PROD-0001` generado y `actualizado_en` actualizado en otra transacción). Base de prueba borrada al terminar.
+
 ### No hecho todavía
-- Modelos y migraciones del resto de tablas (catálogos, productores, parcelas, campañas…), triggers adicionales y la vista del dataset.
+- Parcelas, campañas, catálogos y el resto de tablas (con sus triggers: `fn_codigo_parcela`, `fn_validar_campania`, …) y la vista del dataset.
+- Asignación de productores a técnicos (`asignaciones_tecnico`) y el filtro «solo mis productores».
 - Endpoints y pantallas de cada módulo (el menú/rutas de React ya filtran por permiso y esperan esas pantallas).
 - Administración de usuarios/roles desde React, cambio de contraseña y recuperación de acceso.
 - Diagrama entidad-relación y modelo lógico para el Capítulo IV.
@@ -330,7 +341,7 @@ Están en `DB_sql/02_reglas_y_vista.sql`: **13 funciones y 24 triggers**. Existe
 - El administrador no debe poder quitarse a sí mismo `roles.gestionar` (bloquearía la administración).
 - Los cambios en roles y permisos se registran en `auditoria`.
 
-**Estado (Semana 1):** implementado — modelos, migración `0002` con la configuración inicial de los tres roles y trigger `trg_roles_proteger` (migración `0003`); verificado con las 8 pruebas de `usuarios/tests.py`. La verificación de permisos **en cada petición** (DRF) sigue pendiente, como todo el login.
+**Estado:** **Semana 1** — modelos, migración `0002` con la configuración inicial de los tres roles y trigger `trg_roles_proteger` (migración `0003`). **Semana 2** — verificación de permisos en **cada petición** con la clase `TienePermiso` (1 consulta cacheada) y tasa de login. **Semana 3** — los endpoints nuevos exigen `catalogos.*` y `productores.*` según la acción, con las mismas respuestas 401/403. Todas estas reglas están cubiertas por pruebas (37 en total).
 
 ---
 
@@ -350,7 +361,7 @@ En `DB_sql/03_insert.sql`. Lo marcado **CONFIRMAR** es un supuesto a validar con
 | Etapas fenológicas | 6 de ejemplo para quinua y cañihua: siembra, emergencia, desarrollo vegetativo, floración, maduración, cosecha (**CONFIRMAR**) |
 | Parámetros | `dias_sin_actividad = 30`, `umbral_rendimiento_bajo = 800`, `rendimiento_min_plausible = 100`, `rendimiento_max_plausible = 5000` (**CONFIRMAR todos**) |
 
-**No hay datos precargados** de provincias, distritos, comunidades, variedades ni recursos: los aporta el proyecto.
+**No hay datos precargados** de provincias, distritos, comunidades, variedades ni recursos: los aporta el proyecto. La Semana 3 añadió el comando `cargar_ubicacion` (CSV/Excel, idempotente) y un CSV de **ejemplo inventado** (`datos/ejemplo_ubicaciones.csv`) para probar; se retira cuando el responsable entregue la lista real.
 
 **Estado:** los 3 roles, los 55 permisos y las 101 asignaciones **ya están cargados** en la base real por la migración `backend/usuarios/migrations/0002_datos_iniciales.py` (idempotente y reversible). El resto de los seeds (cultivos, tipos, unidades, parámetros…) depende de tablas de sprints posteriores y se cargará cuando esas migraciones existan.
 
@@ -410,7 +421,7 @@ No son fallas del diseño: son tareas del backend y del frontend.
 
 **Modelo de usuario.** Debe definirse **antes del primer `migrate`** y declararse con `AUTH_USER_MODEL = "usuarios.Usuario"`. Debe incluir `rol` como **clave foránea a `Rol`** (no un campo de texto) y `telefono`. Como los permisos son propios (`roles`/`permisos`), conviene no usar los grupos ni permisos de Django: al heredar de `AbstractUser`, se pueden eliminar asignando `groups = None` y `user_permissions = None` (verificar en la documentación de Django).
 
-> **Estado:** los cuatro pasos de este camino ya están hechos para el app `usuarios` (Semana 1): modelos con `db_table` del diseño, datos iniciales como migración, trigger como `RunSQL` y comparación en `docs/comparacion_sprint1.md`. `groups = None` / `user_permissions = None` **funciona en Django 5.2** y evita las tablas `auth_user_groups` y `auth_user_user_permissions`.
+> **Estado:** los cuatro pasos de este camino ya están hechos para el app `usuarios` (Semana 1) y para `productores` (Semana 3): modelos con `db_table` del diseño, datos iniciales como migración (solo usuarios), triggers como `RunSQL` y comparación en `docs/comparacion_sprint1.md` y `docs/comparacion_semana3.md`. `groups = None` / `user_permissions = None` **funciona en Django 5.2** y evita las tablas `auth_user_groups` y `auth_user_user_permissions`.
 
 **Notas útiles.**
 - Los códigos `PROD-0001` y `P-001` los genera la base si llegan vacíos; Django debe enviarlos como `NULL` o vacío para que el trigger actúe (o generarlos en la aplicación, pero no duplicar la lógica).
@@ -459,7 +470,7 @@ No son fallas del diseño: son tareas del backend y del frontend.
 2. ~~Modelo de usuario con rol (FK) y primera migración~~ (hecho: `usuarios.0001`–`0003`).
 3. ~~Endpoints de login y refresh, y vista con los permisos del usuario~~ (hecho en la Semana 2; ver `docs/api_autenticacion.md`).
 4. ~~Rate limit del login~~ (hecho en la Semana 2: throttle por IP + bloqueo por cuenta).
-5. Modelos de Django del resto de tablas, con triggers y vista como migraciones.
+5. Modelos de Django del resto de tablas, con triggers y vista como migraciones. ~~Los de ubicación y productores ya están (Semana 3);~~ quedan parcelas, campañas, catálogos, seguimiento, producción, ML y sistema.
 6. ~~Pantalla de login en React y rutas protegidas por permiso~~ (hecho en la Semana 2; el menú ya filtra por permiso).
 7. Pantallas de cada módulo y administración de usuarios/roles desde React (cambio de contraseña y recuperación pendientes).
 8. Diagrama entidad-relación y modelo lógico (Capítulo IV, 4.3.2 y 4.3.3).
@@ -473,6 +484,9 @@ No son fallas del diseño: son tareas del backend y del frontend.
 - ~~Actualizar el `README.md` con la sección de base de datos y Docker~~ (hecho en la Semana 1).
 
 ### Preguntas para el responsable del proyecto
+- **Entregar la lista real de provincias, distritos y comunidades** (la Semana 3 quedó con un CSV inventado en `datos/`; decisión 1).
+- **Confirmar la regla de enmascarado de DNI/teléfono por rol** (propuesta actual: Administrador y Técnico completos, Coordinador enmascarado; decisión 4).
+- ¿El productor que registra un técnico **se le asigna automáticamente**? (semana 4).
 - ¿Cuándo se hace la predicción dentro del ciclo del cultivo?
 - ¿Qué cultivos tendrán datos? (supuesto: quinua y cañihua)
 - ¿Cuántas campañas históricas con rendimiento conocido existen y en qué formato están?
@@ -527,6 +541,14 @@ No son fallas del diseño: son tareas del backend y del frontend.
 | `backend/usuarios/admin.py` | Panel con los 4 modelos + acción «Desbloquear acceso» |
 | `backend/usuarios/tests.py` | **20 pruebas** (`manage.py test usuarios`): Semana 1 y Semana 2 |
 | `backend/usuarios/management/commands/crear_superusuario.py` | Crea el admin inicial desde `ADMIN_USERNAME`/`ADMIN_PASSWORD` del `.env` (idempotente) |
+| `backend/productores/models.py` | `Provincia`, `Distrito`, `Comunidad`, `Productor` (Semana 3, `db_table` del diseño) |
+| `backend/productores/migrations/` | `0001_initial` (4 tablas), `0002_funciones_y_triggers` (fechas, código `PROD-…`, reversible) |
+| `backend/productores/serializers.py` | Lectura anidada, escritura con validaciones y enmascarado por rol (`ROLES_CON_DATOS_COMPLETOS`) |
+| `backend/productores/views.py` | 5 viewsets con permisos por acción, `?busqueda=`, filtros y `…/estado/` (sin `DELETE`) |
+| `backend/productores/urls.py` | `/api/ubicaciones/{provincias,distritos,comunidades}/` y `/api/productores/` |
+| `backend/productores/admin.py` | Panel con filtros por jerarquía/estado, búsqueda y `creado_por` en el alta |
+| `backend/productores/tests.py` | **17 pruebas** (numeradas 21–37); con las de `usuarios` suma 37 |
+| `backend/productores/management/commands/cargar_ubicacion.py` | Carga idempotente de ubicación desde CSV/Excel (`openpyxl`), con informe de fallidas |
 | `frontend/` | React con Vite (JavaScript), Axios y React Router (`node_modules/` ignorado en Git) |
 | `frontend/src/api/` | Cliente Axios con cookies y renove *single-flight* + `mensajeDeError` |
 | `frontend/src/context/` | `SesionProvider` (hidratación con `/me`) y `useSesion` |
@@ -535,6 +557,12 @@ No son fallas del diseño: son tareas del backend y del frontend.
 | `docs/api_autenticacion.md` | Contrato de la API de sesión, ejemplos curl y mapeo HU-07..HU-14 |
 | `docs/decisiones_seguridad.md` | Decisiones de la Semana 2 (tokens, cookies, rate limit, despliegue) |
 | `docs/comparacion_sprint1.md` | Comparación columna por columna: `01_tablas.sql` vs migraciones Django, con las diferencias justificadas |
+| `docs/decisiones_semana3.md` | Las 7 decisiones de la Semana 3 + preguntas abiertas |
+| `docs/comparacion_semana3.md` | Diseño vs migraciones de `provincias`, `distritos`, `comunidades`, `productores` y sus 2 triggers |
+| `docs/api_ubicacion_productores.md` | Contrato de los 4 recursos nuevos, errores verificados y ejemplos curl |
+| `docs/coleccion_api_semana3.json` | Colección de Postman: 36 peticiones con `pm.test`, validadas 36/36 (sin secretos) |
+| `docs/tablero.md` | Tablero de la Semana 3: HU-15..HU-22 con evidencias y próximos pasos |
+| `datos/ejemplo_ubicaciones.csv` | Datos de ubicación **inventados** (pruebas); se retira con la lista real |
 | `docker-compose.yml` | PostgreSQL 17 en Docker (en la raíz del proyecto) |
 | `.env` | Variables de entorno: `DB_*`, `SECRET_KEY`, `DEBUG`, `ALLOWED_HOSTS`, `CORS_*` y `ADMIN_*` (**no** se sube a Git) |
 | `.env.example` | Plantilla versionada de `.env` (sin secretos; sí va a Git) |

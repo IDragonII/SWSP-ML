@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt.token_blacklist',
     # Propias
     'usuarios',
+    'productores',
 ]
 
 # Modelo de usuario propio: DEBE declararse antes del primer migrate.
@@ -86,6 +87,9 @@ REST_FRAMEWORK = {
         'login': os.getenv('LOGIN_RATE_IP', '30/min'),
     },
     'EXCEPTION_HANDLER': 'usuarios.excepciones.manejar_excepciones',
+    # Listados paginados (Semana 3): 20 por página, configurable en el .env
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': int(os.getenv('API_PAGE_SIZE', '20')),
 }
 
 # Bloqueo de cuenta por intentos fallidos (.env; docs/decisiones_seguridad.md §6)
