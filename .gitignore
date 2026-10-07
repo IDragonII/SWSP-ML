@@ -4,6 +4,7 @@ DB_sql/
 # Entorno y secretos
 .env
 backend/.env
+.credenciales
 
 # Python / Django
 backend/venv/

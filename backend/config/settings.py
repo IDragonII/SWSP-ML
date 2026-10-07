@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 import os
+from datetime import timedelta
 from dotenv import load_dotenv
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -42,6 +43,8 @@ INSTALLED_APPS = [
     # Terceros
     'rest_framework',
     'corsheaders',
+    # simplejwt con lista de tokens invalidados (cierra sesión de verdad)
+    'rest_framework_simplejwt.token_blacklist',
     # Propias
     'usuarios',
 ]
@@ -66,15 +69,69 @@ CORS_ALLOWED_ORIGINS = [
     for o in os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:5173").split(",")
     if o.strip()
 ]
+# Las cookies httpOnly del login viajan cross-origin desde Vite: requieren credenciales
+CORS_ALLOW_CREDENTIALS = True
 
 # API REST: JWT y todo endpoint nace protegido (hay que abrirlo a propósito)
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        # Lee el token de la cabecera Authorization o de la cookie httpOnly sigpa_access
+        'usuarios.autenticacion.AutenticacionJWT',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
+    # Rate limit del login por IP (docs/decisiones_seguridad.md §5 y §6)
+    'DEFAULT_THROTTLE_RATES': {
+        'login': os.getenv('LOGIN_RATE_IP', '30/min'),
+    },
+    'EXCEPTION_HANDLER': 'usuarios.excepciones.manejar_excepciones',
+}
+
+# Bloqueo de cuenta por intentos fallidos (.env; docs/decisiones_seguridad.md §6)
+LOGIN_INTENTOS = int(os.getenv('LOGIN_INTENTOS', '5'))
+LOGIN_BLOQUEO_MINUTOS = int(os.getenv('LOGIN_BLOQUEO_MINUTOS', '15'))
+
+# Caché de Django: contadores del rate limit. En desarrollo LocMemCache basta;
+# con varios procesos/servidores hay que usar una caché compartida
+# (docs/decisiones_seguridad.md §8).
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'sigpa-ga',
+    },
+}
+
+# JWT: duración configurable desde el .env (docs/decisiones_seguridad.md §1)
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=int(os.getenv('JWT_ACCESS_MINUTOS', '15'))),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=int(os.getenv('JWT_REFRESCO_DIAS', '7'))),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+    'AUTH_HEADER_TYPES': ('Bearer',),
+    'UPDATE_LAST_LOGIN': False,
+}
+# Cookies Secure solo detrás de HTTPS en producción (docs/decisiones_seguridad.md §2)
+JWT_COOKIE_SECURE = os.getenv('JWT_COOKIE_SECURE', 'False').strip().lower() in ('1', 'true', 'yes', 'on')
+
+# Eventos de seguridad (login, bloqueos, desbloqueos) en el log de la consola.
+# La tabla de auditoría real llega en el Sprint 7 (docs/decisiones_seguridad.md §6).
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'seguridad': {'format': '[{asctime}] {levelname} {name}: {message}', 'style': '{'},
+    },
+    'handlers': {
+        'consola_seguridad': {'class': 'logging.StreamHandler', 'formatter': 'seguridad'},
+    },
+    'loggers': {
+        'sigpa.seguridad': {
+            'handlers': ['consola_seguridad'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
 }
 
 ROOT_URLCONF = 'config.urls'

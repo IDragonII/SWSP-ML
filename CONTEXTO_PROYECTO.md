@@ -59,7 +59,7 @@
 | Tema | Decisión |
 |---|---|
 | Backend | **Python 3.13 + Django 5.2 LTS + Django REST Framework** (API REST que devuelve JSON) |
-| Autenticación | JWT con `djangorestframework-simplejwt` |
+| Autenticación | JWT con `djangorestframework-simplejwt`: access y refresh en **cookies httpOnly** con rotación y blacklist (`docs/decisiones_seguridad.md`) |
 | CORS | `django-cors-headers` (React corre en `http://localhost:5173`) |
 | Variables de entorno | `python-dotenv`, un único archivo `.env` en la raíz (no se sube a Git) |
 | Frontend | **React con Vite** (JavaScript), Axios, React Router |
@@ -110,10 +110,19 @@
 - **8 pruebas** (`manage.py test usuarios`) verdes: semilla, asignaciones, trigger (mensaje exacto), rol normal borrable, `ProtectedError`, `IntegrityError` sin rol, `uq_rol_permiso` y panel admin. `manage.py check` en 0 issues.
 - **Comparación con el diseño:** `docs/comparacion_sprint1.md` (columna por columna vs `01_tablas.sql`; 5 diferencias documentadas: `BY DEFAULT`, sin `ON DELETE`, `statement_timestamp()`, nombres auto de constraints/índices, sin `COMMENT`).
 
+### Semana 2 (12–18 oct): autenticación, permisos, rate limit y login en React — COMPLETADA
+- **Decisiones documentadas** en `docs/decisiones_seguridad.md` (duración de tokens, cookies httpOnly, blacklist de refresh, rate limit comparado con `django-axes` y `django-ratelimit`, superusuario regido por su rol).
+- **Endpoints** (`backend/usuarios/`): `POST /api/auth/login/`, `refresh/`, `logout/`, `GET /api/auth/me/` y `POST /api/usuarios/`, todos bajo `/api/` (contrato completo en `docs/api_autenticacion.md`).
+- **Cookies httpOnly** (`sigpa_access` 15 min, `sigpa_refresh` 7 días con `Path=/api/auth/`); rotación con `token_blacklist` (2 tablas); se acepta `Authorization: Bearer` como alternativa.
+- **Permisos por vista:** clase reutilizable `TienePermiso` lee `permiso_requerido` de la vista y comprueba los códigos de la BD en **1 consulta por petición**; el superusuario no tiene atajos.
+- **Rate limit propio con DRF:** `ScopedRateThrottle` por IP (30/min) + bloqueo por cuenta (5 fallos → 15 min, caché), respuesta 429 en español con `Retry-After`, acción **«Desbloquear acceso»** en el panel admin y logger `sigpa.seguridad`.
+- **Frontend:** cliente Axios con `withCredentials` y renovación *single-flight* (una sola petición de refresh compartida, reintento único), `SesionProvider`/`useSesion`, pantalla de **Login**, rutas protegidas, **menú filtrado por permiso** (`opcionesMenu.js` genera menú y rutas), páginas 403 y 404, marca propia y tipografías Fraunces + Public Sans.
+- **20 pruebas verdes** (`manage.py test usuarios`: 8 de la Semana 1 + 12 de la Semana 2, incluidas 2 extra de tiempo de bloqueo y refresco de permisos), `manage.py check` en 0 issues, `npm run lint` y `npm run build` en 0 problemas.
+
 ### No hecho todavía
-- Endpoints de login/refresh, rate limit del login, y vista que devuelva los permisos del usuario.
 - Modelos y migraciones del resto de tablas (catálogos, productores, parcelas, campañas…), triggers adicionales y la vista del dataset.
-- Pantallas de React (login y rutas protegidas), módulos, reportes, dashboard, alertas.
+- Endpoints y pantallas de cada módulo (el menú/rutas de React ya filtran por permiso y esperan esas pantallas).
+- Administración de usuarios/roles desde React, cambio de contraseña y recuperación de acceso.
 - Diagrama entidad-relación y modelo lógico para el Capítulo IV.
 
 ### Ojo: cosas que quedaron superadas
@@ -448,11 +457,12 @@ No son fallas del diseño: son tareas del backend y del frontend.
 ### Pendientes técnicos
 1. ~~Completar `settings.py`~~ (hecho en la Semana 1).
 2. ~~Modelo de usuario con rol (FK) y primera migración~~ (hecho: `usuarios.0001`–`0003`).
-3. Endpoints de login y refresh, y vista con los permisos del usuario.
-4. Rate limit del login.
+3. ~~Endpoints de login y refresh, y vista con los permisos del usuario~~ (hecho en la Semana 2; ver `docs/api_autenticacion.md`).
+4. ~~Rate limit del login~~ (hecho en la Semana 2: throttle por IP + bloqueo por cuenta).
 5. Modelos de Django del resto de tablas, con triggers y vista como migraciones.
-6. Pantalla de login en React y rutas protegidas por permiso.
-7. Diagrama entidad-relación y modelo lógico (Capítulo IV, 4.3.2 y 4.3.3).
+6. ~~Pantalla de login en React y rutas protegidas por permiso~~ (hecho en la Semana 2; el menú ya filtra por permiso).
+7. Pantallas de cada módulo y administración de usuarios/roles desde React (cambio de contraseña y recuperación pendientes).
+8. Diagrama entidad-relación y modelo lógico (Capítulo IV, 4.3.2 y 4.3.3).
 
 ### Actualizar en el documento de requerimientos (`.tex`)
 - Subir el **bloqueo por intentos fallidos** de «deseable» a **esencial**.
@@ -507,10 +517,23 @@ No son fallas del diseño: son tareas del backend y del frontend.
 | `backend/` | Proyecto Django `config` + app `usuarios`, `manage.py`, `requirements.txt`, `venv/` (ignorado en Git) |
 | `backend/usuarios/models.py` | `Permiso`, `Rol`, `RolPermiso`, `Usuario` (Semana 1) |
 | `backend/usuarios/migrations/` | `0001_initial` (4 tablas), `0002_datos_iniciales` (3 roles, 55 permisos, 101 asignaciones), `0003_trigger_rol_sistema` |
-| `backend/usuarios/admin.py` | Panel con los 4 modelos (permisos solo lectura, rol del sistema protegido) |
-| `backend/usuarios/tests.py` | 8 pruebas de la Semana 1 (`manage.py test usuarios`) |
+| `backend/usuarios/views.py` | Login, renovación, cierre de sesión, `/me` y alta de usuarios (Semana 2) |
+| `backend/usuarios/permisos.py` | `TienePermiso` (clase reutilizable) y `permisos_de_peticion` (1 consulta) |
+| `backend/usuarios/ratelimit.py` | Contador de fallos y bloqueo temporal del login (caché) |
+| `backend/usuarios/excepciones.py` | `manejar_excepciones`: 429 en español con cabecera `Retry-After` |
+| `backend/usuarios/autenticacion.py` | Lee el access desde la cookie `sigpa_access` (o Bearer) |
+| `backend/usuarios/serializers.py` | Datos de sesión (`DatosUsuarioSerializer`) y alta (`CrearUsuarioSerializer`) |
+| `backend/usuarios/urls.py` | `/api/auth/*` y `/api/usuarios/` |
+| `backend/usuarios/admin.py` | Panel con los 4 modelos + acción «Desbloquear acceso» |
+| `backend/usuarios/tests.py` | **20 pruebas** (`manage.py test usuarios`): Semana 1 y Semana 2 |
 | `backend/usuarios/management/commands/crear_superusuario.py` | Crea el admin inicial desde `ADMIN_USERNAME`/`ADMIN_PASSWORD` del `.env` (idempotente) |
-| `frontend/` | Proyecto React con Vite (JavaScript), Axios y React Router (`node_modules/` ignorado en Git) |
+| `frontend/` | React con Vite (JavaScript), Axios y React Router (`node_modules/` ignorado en Git) |
+| `frontend/src/api/` | Cliente Axios con cookies y renove *single-flight* + `mensajeDeError` |
+| `frontend/src/context/` | `SesionProvider` (hidratación con `/me`) y `useSesion` |
+| `frontend/src/routes/` | `RutaProtegida`, `RutaSoloInvitado` y `opcionesMenu.js` (menú = rutas, con permisos) |
+| `frontend/src/pages/` | Login, Inicio, módulo en preparación, 403 y 404 |
+| `docs/api_autenticacion.md` | Contrato de la API de sesión, ejemplos curl y mapeo HU-07..HU-14 |
+| `docs/decisiones_seguridad.md` | Decisiones de la Semana 2 (tokens, cookies, rate limit, despliegue) |
 | `docs/comparacion_sprint1.md` | Comparación columna por columna: `01_tablas.sql` vs migraciones Django, con las diferencias justificadas |
 | `docker-compose.yml` | PostgreSQL 17 en Docker (en la raíz del proyecto) |
 | `.env` | Variables de entorno: `DB_*`, `SECRET_KEY`, `DEBUG`, `ALLOWED_HOSTS`, `CORS_*` y `ADMIN_*` (**no** se sube a Git) |

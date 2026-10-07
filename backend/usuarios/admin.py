@@ -1,7 +1,21 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 
+from . import ratelimit
 from .models import Permiso, Rol, RolPermiso, Usuario
+
+
+@admin.action(description="Desbloquear acceso de los usuarios seleccionados")
+def desbloquear_acceso(modeladmin, request, queryset):
+    """Desbloqueo manual del login desde el panel (docs/decisiones_seguridad.md §6)."""
+    bloqueados = 0
+    for usuario in queryset:
+        if ratelimit.limpiar_acceso(usuario.username, motivo='manual'):
+            bloqueados += 1
+    modeladmin.message_user(
+        request,
+        f"Se procesaron {queryset.count()} usuario(s); {bloqueados} estaban bloqueados.",
+    )
 
 
 @admin.register(Permiso)
@@ -73,6 +87,7 @@ class UsuarioAdmin(DjangoUserAdmin):
             },
         ),
     )
+    actions = (desbloquear_acceso,)
 
 
 admin.site.site_header = "SIGPA-GA · Administración"
