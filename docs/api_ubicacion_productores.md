@@ -43,7 +43,7 @@ acción → `403` (clase `TienePermiso`, `permiso_requerido` por acción en
 | Rol | Sobre estos recursos |
 |---|---|
 | Administrador | Las 4 acciones (55 permisos) |
-| Técnico de campo | Ver, crear y editar productores; **no** desactivar (32 permisos) |
+| Técnico de campo | Ver, crear y editar productores; **no** desactivar (32 permisos). Desde la **Semana 4 (F5)** solo ve y edita **sus** productores (los demás responden 404) |
 | Coordinador | Solo lectura (14 permisos): `*.ver`; `POST`/`PATCH` → `403` |
 
 ## Parámetros de consulta
@@ -162,7 +162,7 @@ La lista de roles con datos completos es la constante
 | 401 | `{"detail": "Las credenciales de autenticación no se proveyeron."}` | Sin sesión |
 | 403 | `{"detail": "No tienes permiso para realizar esta acción."}` | Permiso faltante |
 | 400 | `{"<campo>": ["mensaje…"]}` o `{"non_field_errors": […]}` | Validaciones (tabla anterior) |
-| 404 | `{"detail": "No Productor matches the given query."}` | Id inexistente *(mensaje por defecto de DRF, aún sin traducir)* |
+| 404 | `{"detail": "No encontrado."}` | Id inexistente o recurso fuera del ámbito del técnico *(decisión 11 de la Semana 4: handler propio; antes devolvía el mensaje por defecto de DRF en inglés)* |
 | 405 | `{"detail": "Método \"DELETE\" no permitido."}` | Cualquier `DELETE` |
 | 429 | `{"detail": "…", "retry_after": N}` | Rate limit global (Semana 2) |
 

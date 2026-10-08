@@ -18,7 +18,7 @@ from django.test import TestCase, TransactionTestCase
 from usuarios.models import Rol, Usuario
 from usuarios.tests import _post_login
 
-from .models import Comunidad, Distrito, Productor, Provincia
+from .models import AsignacionTecnico, Comunidad, Distrito, Productor, Provincia
 
 
 class ProductorApiTests(TestCase):
@@ -377,6 +377,10 @@ class ProductorApiTests(TestCase):
         self.assertEqual(admin_lista["results"][0]["dni"], "11111111")
 
         self.client.logout()
+        # F5: el técnico solo ve SUS productores, así que le asignamos este
+        AsignacionTecnico.objects.create(
+            tecnico=self.tecnico, productor=Productor.objects.get(pk=productor["id"])
+        )
         self._entrar("tec_pruebas", "Tec2026!")
         tecnico_lista = self._json(self._ubicacion("get", "/api/productores/"))
         self.assertEqual(tecnico_lista["results"][0]["dni"], "11111111")

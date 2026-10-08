@@ -5,12 +5,17 @@ import Inicio from './pages/Inicio.jsx'
 import Login from './pages/Login.jsx'
 import Modulo from './pages/Modulo.jsx'
 import NoEncontrado from './pages/NoEncontrado.jsx'
+import Parcelas from './pages/Parcelas.jsx'
+import Productores from './pages/Productores.jsx'
 import RutaProtegida from './routes/RutaProtegida.jsx'
 import RutaSoloInvitado from './routes/RutaSoloInvitado.jsx'
 import { opcionesMenu } from './routes/opcionesMenu.js'
 import './App.css'
 
-const modulos = opcionesMenu.filter((opcion) => opcion.ruta !== '/')
+const rutasConPantalla = new Set(['/', '/productores', '/parcelas'])
+const modulos = opcionesMenu.filter(
+  (opcion) => !rutasConPantalla.has(opcion.ruta),
+)
 
 export default function App() {
   return (
@@ -33,6 +38,25 @@ export default function App() {
           }
         >
           <Route index element={<Inicio />} />
+
+          <Route
+            path="/productores"
+            element={
+              <RutaProtegida permiso="productores.ver">
+                <Productores />
+              </RutaProtegida>
+            }
+          />
+
+          <Route
+            path="/parcelas"
+            element={
+              <RutaProtegida permiso="parcelas.ver">
+                <Parcelas />
+              </RutaProtegida>
+            }
+          />
+
           {modulos.map((modulo) => (
             <Route
               key={modulo.ruta}

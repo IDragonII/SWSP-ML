@@ -1,28 +1,37 @@
-"""API de ubicación y productores (Semana 3).
+"""API de ubicación y productores (Semana 3) y de parcelas (Semana 4).
 
 Ubicación: provincias, distritos y comunidades — listar, ver detalle,
 crear, editar y desactivar/reactivar. Productores: además, alta con código
 automático, validación de DNI, búsqueda general, filtros por jerarquía y
-estado, y DNI/teléfono enmascarados por rol.
+estado, y DNI/teléfono enmascarados por rol. Parcelas: alta con código
+P-00N, validaciones de terreno, filtros por jerarquía/productor/estado y
+desactivación sin borrar.
 
 Ningún recurso ofrece borrado: la API no ofrece DELETE (decisión 6 de
 docs/decisiones_semana3.md). La paginación es global (20 por página,
 API_PAGE_SIZE) y el orden de productores es por apellidos.
 """
+from django.db import transaction
 from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.filters import SearchFilter
 from rest_framework.response import Response
 
+from usuarios.models import Usuario
 from usuarios.permisos import TienePermiso
 
-from .models import Comunidad, Distrito, Productor, Provincia
+from .models import AsignacionTecnico, Comunidad, Distrito, Parcela, Productor, Provincia
 from .serializers import (
+    AsignacionEscrituraSerializer,
+    AsignacionSerializer,
     ComunidadEscrituraSerializer,
     ComunidadSerializer,
     DistritoEscrituraSerializer,
     DistritoSerializer,
+    ParcelaDetalleSerializer,
+    ParcelaEscrituraSerializer,
+    ParcelaListaSerializer,
     ProductorDetalleSerializer,
     ProductorEscrituraSerializer,
     ProductorListaSerializer,
@@ -43,6 +52,26 @@ class BusquedaPorNombre(SearchFilter):
     """?busqueda=... (en vez del ?search= por defecto de DRF)."""
 
     search_param = "busqueda"
+
+
+class SoloSusProductores:
+    """Filtro «solo mis productores» (decisión 6 de la Semana 4).
+
+    Solo aplica a los roles con limita_a_asignados (Técnico de campo): su
+    queryset queda reducido a los productores con una asignación ACTIVA.
+    Como todo detalle/edición pasa por get_queryset, un productor ajeno
+    responde 404 —nunca 403— y el listado solo muestra los suyos.
+    Los demás roles (Administrador, Coordinador) no se ven limitados.
+    """
+
+    def _filtrar_asignados(self, queryset, campo="pk"):
+        rol = getattr(self.request.user, "rol", None)
+        if rol is None or not rol.limita_a_asignados:
+            return queryset
+        asignados = AsignacionTecnico.objects.filter(
+            tecnico=self.request.user, activo=True
+        ).values("productor_id")
+        return queryset.filter(**{f"{campo}__in": asignados})
 
 
 class PermisosPorAccion:
@@ -195,6 +224,7 @@ class ComunidadViewSet(_VistaUbicacion):
 
 class ProductorViewSet(
     PermisosProductor,
+    SoloSusProductores,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     mixins.CreateModelMixin,
@@ -223,7 +253,7 @@ class ProductorViewSet(
         return self.serializer_class
 
     def get_queryset(self):
-        queryset = super().get_queryset()
+        queryset = self._filtrar_asignados(super().get_queryset())
         params = self.request.query_params
         if params.get("comunidad"):
             queryset = queryset.filter(
@@ -247,7 +277,16 @@ class ProductorViewSet(
         return queryset
 
     def perform_create(self, serializer):
-        serializer.save(creado_por=self.request.user)
+        # Decisión 4: si el alta la hace un técnico, su asignación se crea
+        # en la MISMA transacción: o se hace todo o no se hace nada. Si la
+        # hace el Administrador, no se asigna a nadie.
+        with transaction.atomic():
+            productor = serializer.save(creado_por=self.request.user)
+            rol = getattr(self.request.user, "rol", None)
+            if rol is not None and rol.limita_a_asignados:
+                AsignacionTecnico.objects.create(
+                    tecnico=self.request.user, productor=productor
+                )
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -282,3 +321,213 @@ class ProductorViewSet(
 
     def _detalle(self, obj):
         return ProductorDetalleSerializer(obj, context=self.get_serializer_context())
+
+
+class PermisosParcela(PermisosPorAccion):
+    """Permisos de parcelas: parcelas.ver/crear/editar/desactivar."""
+
+    permiso_requerido = "parcelas.ver"
+    PERMISOS = {
+        "list": "parcelas.ver",
+        "retrieve": "parcelas.ver",
+        "create": "parcelas.crear",
+        "update": "parcelas.editar",
+        "partial_update": "parcelas.editar",
+        "estado": "parcelas.desactivar",
+    }
+
+
+class ParcelaViewSet(
+    PermisosParcela,
+    SoloSusProductores,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin,
+    mixins.UpdateModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Alta/edición sin DELETE (405). El código P-00N lo genera la base de
+    datos y creado_por lo pone el servidor; ambos se releen tras guardar.
+    El productor de una parcela existente no se puede cambiar (decisión 1)."""
+
+    queryset = Parcela.objects.select_related(
+        "productor",
+        "comunidad",
+        "comunidad__distrito",
+        "comunidad__distrito__provincia",
+        "creado_por",
+    )
+    serializer_class = ParcelaDetalleSerializer
+    escritura_serializer = ParcelaEscrituraSerializer
+    filter_backends = (BusquedaPorNombre,)
+    search_fields = (
+        "codigo",
+        "referencia_ubicacion",
+        "productor__nombres",
+        "productor__apellidos",
+    )
+
+    def get_serializer_class(self):
+        if self.action in ("create", "update", "partial_update"):
+            return self.escritura_serializer
+        if self.action == "list":
+            return ParcelaListaSerializer
+        return self.serializer_class
+
+    def get_queryset(self):
+        queryset = self._filtrar_asignados(super().get_queryset(), "productor_id")
+        params = self.request.query_params
+        if params.get("productor"):
+            queryset = queryset.filter(
+                productor_id=_id_numerico(params["productor"], "productor")
+            )
+        if params.get("comunidad"):
+            queryset = queryset.filter(
+                comunidad_id=_id_numerico(params["comunidad"], "comunidad")
+            )
+        if params.get("distrito"):
+            queryset = queryset.filter(
+                comunidad__distrito_id=_id_numerico(params["distrito"], "distrito")
+            )
+        if params.get("provincia"):
+            queryset = queryset.filter(
+                comunidad__distrito__provincia_id=_id_numerico(
+                    params["provincia"], "provincia"
+                )
+            )
+        estado = params.get("estado")
+        if estado:
+            if estado not in ("ACTIVA", "INACTIVA"):
+                raise ValidationError({"estado": "Use ACTIVA o INACTIVA."})
+            queryset = queryset.filter(estado=estado)
+        return queryset
+
+    def perform_create(self, serializer):
+        serializer.save(creado_por=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        # El trigger rellena el código después del INSERT
+        serializer.instance.refresh_from_db()
+        return Response(self._detalle(serializer.instance).data, status=201)
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        # El trigger mantiene actualizado_en: se releen las fechas
+        serializer.instance.refresh_from_db()
+        return Response(self._detalle(serializer.instance).data)
+
+    @action(detail=True, methods=("patch",), url_path="estado")
+    def estado(self, request, pk=None):
+        """Desactiva o reactiva sin perder datos (decisión 3)."""
+        valor = request.data.get("estado")
+        if valor not in ("ACTIVA", "INACTIVA"):
+            raise ValidationError({"estado": "Use ACTIVA o INACTIVA."})
+        parcela = self.get_object()
+        if parcela.estado != valor:
+            parcela.estado = valor
+            parcela.save(update_fields=("estado",))
+            parcela.refresh_from_db()
+        return Response(self._detalle(parcela).data)
+
+    def _detalle(self, obj):
+        return ParcelaDetalleSerializer(obj, context=self.get_serializer_context())
+
+
+class PermisosAsignacion(PermisosPorAccion):
+    """Gestionar asignaciones: solo quien tiene asignaciones.gestionar
+    (Administrador). Técnico y Coordinador reciben 403 en todas las
+    acciones de /api/asignaciones/."""
+
+    permiso_requerido = "asignaciones.gestionar"
+    PERMISOS = {}
+
+
+class AsignacionViewSet(
+    PermisosAsignacion,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Alta y consulta de asignaciones de técnico (decisiones 5 y 8).
+
+    Sin PUT/PATCH completos ni DELETE (405): reasignar = desactivar +
+    crear otra y nada se borra. El estado se cambia con
+    PATCH /{id}/estado/ {"activo": true|false}.
+    Filtros: ?tecnico=ID y ?productor=ID.
+    """
+
+    queryset = AsignacionTecnico.objects.select_related("tecnico", "productor")
+    serializer_class = AsignacionSerializer
+
+    def get_serializer_class(self):
+        if self.action == "create":
+            return AsignacionEscrituraSerializer
+        return AsignacionSerializer
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        params = self.request.query_params
+        if params.get("tecnico"):
+            queryset = queryset.filter(
+                tecnico_id=_id_numerico(params["tecnico"], "tecnico")
+            )
+        if params.get("productor"):
+            queryset = queryset.filter(
+                productor_id=_id_numerico(params["productor"], "productor")
+            )
+        return queryset
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        asignacion = serializer.save()
+        # Responde con el serializador de lectura (con id y anidados)
+        return Response(
+            AsignacionSerializer(
+                asignacion, context=self.get_serializer_context()
+            ).data,
+            status=201,
+        )
+
+    @action(detail=True, methods=("patch",), url_path="estado")
+    def estado(self, request, pk=None):
+        """Desactivar o reactivar sin perder el registro (decisión 5)."""
+        activo = request.data.get("activo")
+        if not isinstance(activo, bool):
+            raise ValidationError({"activo": "Debe ser true o false."})
+        asignacion = self.get_object()
+        if asignacion.activo != activo:
+            asignacion.activo = activo
+            asignacion.save(update_fields=("activo",))
+        return Response(
+            AsignacionSerializer(
+                asignacion, context=self.get_serializer_context()
+            ).data
+        )
+
+    @action(detail=False, methods=("get",), url_path="tecnicos-disponibles")
+    def tecnicos_disponibles(self, request):
+        """Usuarios activos cuyo rol tiene limita_a_asignados: la API solo
+        ofrece técnicos válidos (el trigger sería la red de seguridad)."""
+        usuarios = (
+            Usuario.objects.filter(is_active=True, rol__limita_a_asignados=True)
+            .select_related("rol")
+            .order_by("username")
+        )
+        return Response(
+            [
+                {
+                    "id": u.id,
+                    "username": u.username,
+                    "nombre_completo": u.get_full_name() or u.username,
+                }
+                for u in usuarios
+            ]
+        )

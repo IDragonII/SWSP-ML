@@ -113,7 +113,6 @@
 
 .contenido {
   padding: 1.75rem;
-  max-width: 1080px;
   width: 100%;
 }
 
@@ -282,7 +281,8 @@
   font-weight: 500;
 }
 
-.campo input {
+.campo input,
+.campo select {
   width: 100%;
   padding: 0.6rem 0.75rem;
   border: 1px solid var(--linea);
@@ -291,8 +291,27 @@
   color: var(--tinta);
 }
 
-.campo input:focus-visible {
+.campo input:focus-visible,
+.campo select:focus-visible {
   border-color: var(--helecho);
+}
+
+.campo input:disabled,
+.campo select:disabled {
+  background: var(--crema);
+  color: var(--apagado);
+}
+
+.campo-error {
+  margin: 0.35rem 0 0;
+  font-size: 0.875rem;
+  color: var(--error-texto);
+}
+
+.campo-ayuda {
+  margin: 0.35rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--apagado);
 }
 
 .error {
@@ -394,5 +413,563 @@
     height: 11rem;
     right: -2.5rem;
     bottom: -2.5rem;
+  }
+}
+
+/* ---------- Módulos: listados, fichas y formularios (Semana 4) ---------- */
+
+.visualmente-oculto {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.pagina-cabecera {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.pagina-cabecera h1 {
+  margin-bottom: 0;
+}
+
+.conteo {
+  margin: 0.2rem 0 0;
+  font-size: 0.9375rem;
+  color: var(--apagado);
+}
+
+.ruta-volver {
+  margin: 0 0 0.4rem;
+  font-size: 0.875rem;
+  color: var(--apagado);
+}
+
+/* --- Botones --- */
+
+.boton-primario,
+.boton-secundario,
+.boton-peligro {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 40px;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.boton-primario {
+  background: var(--marigold);
+  border: 1px solid var(--marigold);
+  color: var(--tinta);
+}
+
+.boton-primario:hover:not(:disabled) {
+  filter: brightness(0.96);
+}
+
+.boton-secundario {
+  background: var(--blanco);
+  border: 1px solid var(--linea);
+  color: var(--tinta);
+}
+
+.boton-secundario:hover:not(:disabled) {
+  background: var(--crema);
+  border-color: var(--helecho);
+}
+
+.boton-peligro {
+  background: var(--error-fondo);
+  border: 1px solid var(--error-borde);
+  color: var(--error-texto);
+}
+
+.boton-peligro:hover:not(:disabled) {
+  filter: brightness(0.97);
+}
+
+.boton-primario:disabled,
+.boton-secundario:disabled,
+.boton-peligro:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.boton-texto {
+  padding: 0.2rem 0.35rem;
+  background: none;
+  border: none;
+  color: var(--bosque);
+  font-size: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.aviso-ok {
+  padding: 0.6rem 0.85rem;
+  margin-bottom: 1rem;
+  background: #e6efe7;
+  border: 1px solid #bcd4bf;
+  border-radius: 6px;
+  color: var(--bosque);
+  font-size: 0.9375rem;
+}
+
+/* --- Chips --- */
+
+.chip {
+  display: inline-block;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.chip-activo {
+  background: #e4efe6;
+  border: 1px solid #bcd4bf;
+  color: var(--bosque);
+}
+
+.chip-inactivo {
+  background: #eceee9;
+  border: 1px solid var(--linea);
+  color: var(--apagado);
+}
+
+.chip-codigo {
+  display: inline-block;
+  padding: 0.1rem 0.55rem;
+  background: rgba(249, 166, 32, 0.12);
+  border: 1px solid var(--marigold);
+  border-radius: 6px;
+  color: var(--bosque);
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+/* --- Filtros --- */
+
+.filtros {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  align-items: end;
+  gap: 0.85rem 1rem;
+  margin-top: 1.25rem;
+  padding: 1rem 1.25rem;
+  background: var(--blanco);
+  border: 1px solid var(--linea);
+  border-radius: 10px;
+}
+
+.filtros .campo {
+  margin-bottom: 0;
+}
+
+.filtros-acciones {
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* --- Tablas que se vuelven tarjetas en móvil --- */
+
+.tabla-envoltura {
+  margin-top: 1.25rem;
+  background: var(--blanco);
+  border: 1px solid var(--linea);
+  border-radius: 10px;
+  overflow-x: auto;
+  transition: opacity 0.15s ease;
+}
+
+.tabla-envoltura.refrescando {
+  opacity: 0.55;
+}
+
+.tabla {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.tabla th {
+  padding: 0.7rem 0.9rem;
+  text-align: left;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--apagado);
+  background: var(--crema);
+  border-bottom: 1px solid var(--linea);
+  overflow-wrap: anywhere;
+}
+
+.tabla td {
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid var(--linea);
+  overflow-wrap: anywhere;
+}
+
+.tabla tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.tabla tbody tr:hover {
+  background: #fafaf6;
+}
+
+.celda-acciones {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* --- Ficha --- */
+
+.ficha-cabecera {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.ficha-cabecera h1 {
+  font-size: clamp(1.5rem, 3vw, 2.1rem);
+  margin-bottom: 0.35rem;
+}
+
+.ficha-estado {
+  margin: 0;
+}
+
+.ficha-acciones {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.datos-rejilla {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 0.75rem 1.5rem;
+  margin: 0;
+}
+
+.datos-rejilla dt {
+  margin-bottom: 0.1rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--apagado);
+}
+
+.datos-rejilla dd {
+  margin: 0;
+}
+
+.resumen-lista {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.75rem;
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+}
+
+.resumen-lista strong {
+  font-family: var(--fuente-display);
+  font-size: 1.7rem;
+  color: var(--bosque);
+}
+
+.asignaciones-lista {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+}
+
+.asignaciones-lista li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--linea);
+}
+
+.asignar-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+  padding-top: 0.5rem;
+}
+
+.asignar-form .campo {
+  flex: 1 1 240px;
+  margin-bottom: 0;
+}
+
+/* --- Formularios --- */
+
+.formulario-pagina {
+  max-width: 640px;
+}
+
+.formulario-acciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+
+/* --- Paginación --- */
+
+.paginacion {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+
+.paginacion-info {
+  font-size: 0.9375rem;
+  color: var(--apagado);
+}
+
+/* --- Modal de confirmación (edición y acciones) --- */
+
+.modal-fondo {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(20, 33, 26, 0.55);
+}
+
+.modal {
+  display: flex;
+  flex-direction: column;
+  width: min(26rem, 100%);
+  max-height: 86vh;
+  padding: 1.25rem 1.35rem;
+  background: var(--blanco);
+  border: 1px solid var(--linea);
+  border-radius: 12px;
+  box-shadow: 0 18px 40px rgba(20, 33, 26, 0.28);
+}
+
+.modal--formulario {
+  width: min(42rem, 100%);
+}
+
+.modal--ficha {
+  width: min(58rem, 100%);
+}
+
+.modal-cabecera {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.modal-cerrar {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--apagado);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.modal-cerrar:hover:not(:disabled) {
+  background: var(--crema);
+  border-color: var(--linea);
+  color: var(--tinta);
+}
+
+.modal-cerrar:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.modal-cuerpo {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin-top: 0.35rem;
+  padding-right: 0.25rem;
+}
+
+.modal-cuerpo:focus {
+  outline: none;
+}
+
+.modal-titulo {
+  margin: 0 0 0.5rem;
+  font-family: var(--fuente-display);
+  font-size: 1.25rem;
+}
+
+.modal-texto {
+  margin: 0 0 1.1rem;
+  line-height: 1.5;
+  color: var(--tinta);
+}
+
+.modal-acciones {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.6rem;
+}
+
+/* --- Móvil: tarjetas, 1 columna y 44 px táctiles --- */
+
+@media (max-width: 860px) {
+  .filtros {
+    grid-template-columns: 1fr;
+    padding: 1rem;
+  }
+
+  .filtros-acciones .boton-primario,
+  .filtros-acciones .boton-secundario {
+    flex: 1;
+  }
+
+  .tabla-envoltura {
+    background: transparent;
+    border: none;
+    overflow-x: visible;
+  }
+
+  .tabla thead {
+    display: none;
+  }
+
+  .tabla,
+  .tabla tbody,
+  .tabla tr,
+  .tabla td {
+    display: block;
+    width: 100%;
+  }
+
+  .tabla tr {
+    margin-bottom: 0.75rem;
+    padding: 0.35rem 0.9rem;
+    background: var(--blanco);
+    border: 1px solid var(--linea);
+    border-radius: 10px;
+  }
+
+  .tabla td {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.5rem 0;
+    text-align: right;
+    border-bottom: 1px solid var(--linea);
+  }
+
+  .tabla td:last-child {
+    border-bottom: none;
+  }
+
+  .tabla td::before {
+    content: attr(data-rotulo);
+    flex-shrink: 0;
+    font-weight: 600;
+    color: var(--apagado);
+    text-align: left;
+  }
+
+  .tabla td:not([data-rotulo])::before {
+    content: none;
+  }
+
+  .tabla .celda-acciones {
+    justify-content: flex-end;
+  }
+
+  .boton-primario,
+  .boton-secundario,
+  .boton-peligro,
+  .boton-texto {
+    min-height: 44px;
+  }
+
+  .filtros-acciones {
+    width: 100%;
+  }
+
+  .pagina-cabecera {
+    align-items: flex-start;
+  }
+
+  .ficha-acciones {
+    width: 100%;
+  }
+
+  .ficha-acciones .boton-secundario,
+  .ficha-acciones .boton-primario,
+  .ficha-acciones .boton-peligro {
+    flex: 1;
+  }
+
+  .asignar-form .boton-primario {
+    width: 100%;
+  }
+
+  .formulario-acciones .boton-primario,
+  .formulario-acciones .boton-secundario {
+    flex: 1;
+  }
+
+  .modal-acciones {
+    flex-direction: column;
+  }
+
+  .modal-acciones .boton-primario,
+  .modal-acciones .boton-secundario,
+  .modal-acciones .boton-peligro {
+    width: 100%;
+  }
+
+  .modal {
+    max-height: 92vh;
+    padding: 1rem;
+  }
+
+  .modal-cerrar {
+    width: 2.75rem;
+    height: 2.75rem;
   }
 }
