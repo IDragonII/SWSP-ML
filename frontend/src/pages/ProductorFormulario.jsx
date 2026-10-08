@@ -11,6 +11,8 @@ import Aviso from '../components/Aviso.jsx'
 import Campo from '../components/Campo.jsx'
 import Cargando from '../components/Cargando.jsx'
 import Modal from '../components/Modal.jsx'
+import RuedaCarga from '../components/RuedaCarga.jsx'
+import { useToast } from '../context/useToast.js'
 
 const VACIO = {
   nombres: '',
@@ -26,6 +28,7 @@ const VACIO = {
 
 export default function ProductorFormulario({ id, abierto, onGuardado, onCancelar }) {
   const esEdicion = Boolean(id)
+  const { avisar } = useToast()
 
   const [form, setForm] = useState(VACIO)
   const [provincias, setProvincias] = useState([])
@@ -130,7 +133,6 @@ export default function ProductorFormulario({ id, abierto, onGuardado, onCancela
   async function enviar(event) {
     event.preventDefault()
     setErrores({})
-    setError(null)
     if (!form.comunidad) {
       setErrores({ comunidad: 'La comunidad es obligatoria.' })
       return
@@ -148,12 +150,16 @@ export default function ProductorFormulario({ id, abierto, onGuardado, onCancela
     setGuardando(true)
     try {
       const guardado = await guardarProductor(id, datos)
+      avisar(esEdicion ? 'Cambios guardados.' : 'Productor creado.')
       onGuardado?.(guardado)
     } catch (e) {
       if (e.response?.status === 400) {
-        setErrores(erroresDeCampo(e.response.data))
+        const campos = erroresDeCampo(e.response.data)
+        setErrores(campos)
+        // Con errores de campo ya se ven junto al campo: no se duplican.
+        if (Object.keys(campos).length > 0) return
       }
-      setError(mensajeDeError(e))
+      avisar(mensajeDeError(e), 'error')
     } finally {
       setGuardando(false)
     }
@@ -314,11 +320,16 @@ export default function ProductorFormulario({ id, abierto, onGuardado, onCancela
 
         <div className="formulario-acciones">
           <button className="boton-primario" type="submit" disabled={guardando}>
-            {guardando
-              ? 'Guardando…'
-              : esEdicion
-                ? 'Guardar cambios'
-                : 'Crear productor'}
+            {guardando ? (
+              <>
+                <RuedaCarga etiqueta="Guardando…" />
+                Guardando…
+              </>
+            ) : esEdicion ? (
+              'Guardar cambios'
+            ) : (
+              'Crear productor'
+            )}
           </button>
           <button className="boton-secundario" type="button" onClick={onCancelar}>
             Cancelar

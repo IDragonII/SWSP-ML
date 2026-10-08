@@ -547,7 +547,8 @@
             "type": "text/javascript",
             "exec": [
               "pm.test('Estado 400', function () { pm.response.to.have.status(400); });",
-              "pm.test('Mensaje de duplicada', function () { pm.expect(pm.response.text()).to.include('Esa asignación ya existe'); });"
+              "pm.test('Mensaje de duplicada', function () { pm.expect(pm.response.text()).to.include('Esa asignación ya existe'); });",
+              "pm.test('Sin ruta en el mensaje (seguridad)', function () { pm.expect(pm.response.text()).to.not.include('/api/'); });"
             ]
           }
         }

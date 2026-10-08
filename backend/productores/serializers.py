@@ -571,8 +571,10 @@ class AsignacionEscrituraSerializer(serializers.ModelSerializer):
             tecnico=attrs["tecnico"], productor=attrs["productor"]
         ).exists()
         if duplicada:
+            # Sin rutas ni verbos HTTP en el mensaje (seguridad: no se
+            # revela la superficie de la API en errores de usuario).
             raise serializers.ValidationError(
                 "Esa asignación ya existe (activa o desactivada): "
-                "reactiva la existente con PATCH /api/asignaciones/{id}/estado/."
+                "ve a la ficha del productor y reactiva la existente."
             )
         return attrs

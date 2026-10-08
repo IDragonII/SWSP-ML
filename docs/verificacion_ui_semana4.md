@@ -69,7 +69,7 @@ cd frontend && npm run dev
 - [ ] DNI duplicado → error de campo en español.
 - [ ] Campos vacíos obligatorios → «El productor…» / mensajes 400 por campo.
 - [ ] Alta exitosa → cierra el modal, refresca el listado y se abre la **ficha** del
-      productor nuevo (con su código PRO-000N ya generado).
+      productor nuevo (con su código PRO-000N ya generado); aparece el **toast** de éxito.
 - [ ] Edición: la comunidad aparece pre-cargada (cascada completa hidratada) y al guardar
       se cierra el modal y la ficha muestra los cambios.
 
@@ -95,7 +95,7 @@ cd frontend && npm run dev
 - [ ] Edición: cabecera con chip de estado + botón Desactivar/Reactivar (admin) que abre
       el **modal de confirmación**; el estado cambia y la lista lo refleja.
 - [ ] Alta exitosa → cierra el modal y refresca el listado (o la ficha, si se abrió
-      desde ella) con la parcela nueva.
+      desde ella) con la parcela nueva; aparece el **toast** de éxito.
 
 ## 2. Edge — igual que Chrome (1366×768)
 
@@ -135,6 +135,10 @@ cd frontend && npm run dev
 
 ## 5. Estados de UI (Chrome, con admin)
 
+- [ ] **Rueda de carga** (`components/RuedaCarga.jsx`, ver `AGENTS.md`): todo botón
+      de guardar/confirmar/entrar/asignar muestra la rueda **dentro del botón** con
+      el texto de la acción («Guardando…», «Procesando…», «Entrando…»,
+      «Asignando…») y queda deshabilitado mientras procesa.
 - [ ] Cargando inicial: muestra el spinner (`Cargando…`) y no parpadean datos viejos.
 - [ ] Error de red/servidor: aviso rojo con mensaje legible y la lista conserva lo último.
 - [ ] Con el backend caído (parar el runserver), abrir la ficha desde el listado: el
@@ -142,12 +146,21 @@ cd frontend && npm run dev
 - [ ] 404 en español vía consola:
       `fetch('http://localhost:8000/api/productores/999999/', { credentials: 'include' }).then(r => r.json())`
       → `{"detail": "No encontrado."}`.
-- [ ] Aviso verde de éxito tras activar/desactivar y tras asignar técnico.
+- [ ] **Toasts** (`context/ToastProvider.jsx`, decisión 20): tras guardar, activar/
+      desactivar o asignar/quitar técnico aparece la notificación **flotante arriba a la
+      derecha** (ancho completo en móvil ≤860 px) — éxito verde **auto-cierra a los 4 s**,
+      error rojo **se queda hasta pulsar la ✕** (≥44 px), máximo 3 visibles; se ve
+      **incluso con el modal abierto y sin mover el scroll**.
+- [ ] **Caso del duplicado**: en la ficha, asignar el mismo técnico dos veces → **toast de
+      error** «Esa asignación ya existe (activa o desactivada): ve a la ficha del productor
+      y reactiva la existente.» — el texto **no contiene** rutas ni verbos (`/api/`, `PATCH`).
+- [ ] Errores de **carga** (backend caído al abrir listado/ficha) siguen siendo el aviso
+      rojo en la página, no un toast.
 - [ ] **Modales** (`components/Modal.jsx`): ningún diálogo nativo del navegador
       (`window.confirm`/`alert`). Confirmación: se abre desde Desactivar/Reactivar
       (ficha, asignaciones, edición de parcela); Escape o clic en el fondo lo cierra;
       mientras muestra «Procesando…» los botones están deshabilitados y no se cierra;
-      al terminar aparece el aviso verde en la página de fondo.
+      al terminar aparece el toast de éxito.
 - [ ] **Modales apilados**: listado → «Ver ficha» → «Editar» → «Desactivar»
       (confirmación encima). Escape o ✕ cierran **solo el de arriba**; al cerrarlos
       todos, la página de fondo conserva el scroll y el listado se refrescó.

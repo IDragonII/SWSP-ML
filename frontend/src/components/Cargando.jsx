@@ -1,8 +1,8 @@
-export default function Cargando() {
+export default function Cargando({ texto = 'Cargando…' }) {
   return (
     <div className="cargando" role="status">
       <div className="cargando-anillo" />
-      <p>Cargando tu sesión…</p>
+      <p>{texto}</p>
     </div>
   )
 }

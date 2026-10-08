@@ -206,6 +206,22 @@
   }
 }
 
+/* Rueda de carga dentro de botones (components/RuedaCarga.jsx) */
+
+.rueda {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 1em;
+  height: 1em;
+  margin-right: 0.45em;
+  vertical-align: -0.15em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  opacity: 0.75;
+  animation: girar 0.9s linear infinite;
+}
+
 /* ---------- Login ---------- */
 
 .login {
@@ -850,6 +866,80 @@
   gap: 0.6rem;
 }
 
+/* --- Toasts: notificaciones de acción (decisión 20) --- */
+
+.toasts {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 70; /* por encima de los modales (60) */
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  width: min(24rem, calc(100vw - 2rem));
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.6rem 0.5rem 0.6rem 0.9rem;
+  background: var(--blanco);
+  border: 1px solid var(--linea);
+  border-left: 4px solid var(--helecho);
+  border-radius: 8px;
+  box-shadow: 0 10px 26px rgba(20, 33, 26, 0.22);
+  color: var(--tinta);
+  font-size: 0.9375rem;
+  animation: toast-entra 160ms ease-out;
+}
+
+.toast-error {
+  background: var(--error-fondo);
+  border-color: var(--error-borde);
+  border-left-color: var(--error-texto);
+  color: var(--error-texto);
+}
+
+.toast span {
+  flex: 1;
+  padding-top: 0.45rem;
+}
+
+.toast-cerrar {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  margin: -0.2rem -0.3rem -0.2rem 0;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: inherit;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.toast-cerrar:hover {
+  background: rgba(45, 74, 43, 0.1);
+}
+
+@keyframes toast-entra {
+  from {
+    opacity: 0;
+    transform: translateY(-0.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 /* --- Móvil: tarjetas, 1 columna y 44 px táctiles --- */
 
 @media (max-width: 860px) {
@@ -971,5 +1061,11 @@
   .modal-cerrar {
     width: 2.75rem;
     height: 2.75rem;
+  }
+
+  .toasts {
+    left: 1rem;
+    right: 1rem;
+    width: auto;
   }
 }

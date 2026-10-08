@@ -14,8 +14,10 @@ import Campo from '../components/Campo.jsx'
 import Cargando from '../components/Cargando.jsx'
 import Chip from '../components/Chip.jsx'
 import Modal from '../components/Modal.jsx'
+import RuedaCarga from '../components/RuedaCarga.jsx'
 import Tabla from '../components/Tabla.jsx'
 import { useSesion } from '../context/useSesion.js'
+import { useToast } from '../context/useToast.js'
 import ParcelaFormulario from './ParcelaFormulario.jsx'
 import ProductorFormulario from './ProductorFormulario.jsx'
 
@@ -37,14 +39,15 @@ function Dato({ rotulo, valor }) {
 
 export default function ProductorFicha({ id, abierto, onCerrar }) {
   const { tienePermiso } = useSesion()
+  const { avisar } = useToast()
   const [ficha, setFicha] = useState(null)
   const [comunidad, setComunidad] = useState(null)
   const [asignaciones, setAsignaciones] = useState([])
   const [tecnicos, setTecnicos] = useState([])
   const [tecnicoElegido, setTecnicoElegido] = useState('')
   const [error, setError] = useState(null)
-  const [aviso, setAviso] = useState(null)
   const [ocupado, setOcupado] = useState(false)
+  const [asignando, setAsignando] = useState(false)
   const [recarga, setRecarga] = useState(0)
   const [confirmacion, setConfirmacion] = useState(null)
   const [editando, setEditando] = useState(false)
@@ -107,14 +110,12 @@ export default function ProductorFicha({ id, abierto, onCerrar }) {
 
   async function cambiarEstadoProductor(nuevo) {
     setOcupado(true)
-    setError(null)
-    setAviso(null)
     try {
       await estadoProductor(id, nuevo)
-      setAviso(nuevo === 'INACTIVO' ? 'Productor desactivado.' : 'Productor reactivado.')
+      avisar(nuevo === 'INACTIVO' ? 'Productor desactivado.' : 'Productor reactivado.')
       recargar()
     } catch (e) {
-      setError(mensajeDeError(e))
+      avisar(mensajeDeError(e), 'error')
     } finally {
       setOcupado(false)
     }
@@ -123,18 +124,16 @@ export default function ProductorFicha({ id, abierto, onCerrar }) {
   async function asignar(event) {
     event.preventDefault()
     if (!tecnicoElegido) return
-    setOcupado(true)
-    setError(null)
-    setAviso(null)
+    setAsignando(true)
     try {
       await asignarTecnico({ tecnico: Number(tecnicoElegido), productor: Number(id) })
-      setAviso('Técnico asignado.')
+      avisar('Técnico asignado.')
       setTecnicoElegido('')
       recargar()
     } catch (e) {
-      setError(mensajeDeError(e))
+      avisar(mensajeDeError(e), 'error')
     } finally {
-      setOcupado(false)
+      setAsignando(false)
     }
   }
 
@@ -152,14 +151,12 @@ export default function ProductorFicha({ id, abierto, onCerrar }) {
 
   async function alternarAsignacion(asignacion) {
     setOcupado(true)
-    setError(null)
-    setAviso(null)
     try {
       await estadoAsignacion(asignacion.id, !asignacion.activo)
-      setAviso(asignacion.activo ? 'Asignación desactivada.' : 'Asignación reactivada.')
+      avisar(asignacion.activo ? 'Asignación desactivada.' : 'Asignación reactivada.')
       recargar()
     } catch (e) {
-      setError(mensajeDeError(e))
+      avisar(mensajeDeError(e), 'error')
     } finally {
       setOcupado(false)
     }
@@ -224,7 +221,6 @@ export default function ProductorFicha({ id, abierto, onCerrar }) {
         </div>
       </div>
 
-      <Aviso nivel="ok">{aviso}</Aviso>
       <Aviso>{error}</Aviso>
 
       <section className="panel">
@@ -348,9 +344,16 @@ export default function ProductorFicha({ id, abierto, onCerrar }) {
                 <button
                   className="boton-primario"
                   type="submit"
-                  disabled={ocupado || !tecnicoElegido}
+                  disabled={asignando || ocupado || !tecnicoElegido}
                 >
-                  Asignar
+                  {asignando ? (
+                    <>
+                      <RuedaCarga etiqueta="Asignando…" />
+                      Asignando…
+                    </>
+                  ) : (
+                    'Asignar'
+                  )}
                 </button>
               </form>
 

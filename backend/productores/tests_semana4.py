@@ -550,7 +550,11 @@ class AsignacionApiTests(Semana4Base):
         self.assertEqual(self._asignar_api().status_code, 201)
         r = self._asignar_api()
         self.assertEqual(r.status_code, 400)
-        self.assertIn("ya existe", str(self._json(r)))
+        mensaje = str(self._json(r))
+        self.assertIn("ya existe", mensaje)
+        # El mensaje de usuario no revela rutas ni verbos HTTP (seguridad)
+        self.assertNotIn("/api/", mensaje)
+        self.assertNotIn("PATCH", mensaje)
         self.assertEqual(
             AsignacionTecnico.objects.filter(
                 tecnico=self.tecnico, productor=self.p1

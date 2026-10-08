@@ -21,6 +21,8 @@ import Campo from '../components/Campo.jsx'
 import Cargando from '../components/Cargando.jsx'
 import Chip from '../components/Chip.jsx'
 import Modal from '../components/Modal.jsx'
+import RuedaCarga from '../components/RuedaCarga.jsx'
+import { useToast } from '../context/useToast.js'
 
 const VACIO = {
   productor: '',
@@ -55,6 +57,7 @@ export default function ParcelaFormulario({
   onCancelar,
 }) {
   const esEdicion = Boolean(id)
+  const { avisar } = useToast()
 
   const [form, setForm] = useState(() => ({
     ...VACIO,
@@ -73,7 +76,6 @@ export default function ParcelaFormulario({
   const [estado, setEstado] = useState(null)
   const [errores, setErrores] = useState({})
   const [error, setError] = useState(null)
-  const [aviso, setAviso] = useState(null)
   const [catalogosListos, setCatalogosListos] = useState(false)
   const [hidratado, setHidratado] = useState(!esEdicion)
   const [guardando, setGuardando] = useState(false)
@@ -210,7 +212,6 @@ export default function ParcelaFormulario({
     event.preventDefault()
     setErrores({})
     setError(null)
-    setAviso(null)
 
     if (!form.productor) {
       setErrores({ productor: 'El productor es obligatorio.' })
@@ -244,12 +245,16 @@ export default function ParcelaFormulario({
     setGuardando(true)
     try {
       const guardada = await guardarParcela(id, datos)
+      avisar(esEdicion ? 'Parcela guardada.' : 'Parcela creada.')
       onGuardado?.(guardada)
     } catch (e) {
       if (e.response?.status === 400) {
-        setErrores(erroresDeCampo(e.response.data))
+        const campos = erroresDeCampo(e.response.data)
+        setErrores(campos)
+        // Con errores de campo ya se ven junto al campo: no se duplican.
+        if (Object.keys(campos).length > 0) return
       }
-      setError(mensajeDeError(e))
+      avisar(mensajeDeError(e), 'error')
     } finally {
       setGuardando(false)
     }
@@ -271,14 +276,12 @@ export default function ParcelaFormulario({
 
   async function alternarEstado(nuevo) {
     setGuardando(true)
-    setError(null)
-    setAviso(null)
     try {
       const actualizada = await estadoParcela(id, nuevo)
       setEstado(actualizada.estado)
-      setAviso(nuevo === 'INACTIVA' ? 'Parcela desactivada.' : 'Parcela reactivada.')
+      avisar(nuevo === 'INACTIVA' ? 'Parcela desactivada.' : 'Parcela reactivada.')
     } catch (e) {
-      setError(mensajeDeError(e))
+      avisar(mensajeDeError(e), 'error')
     } finally {
       setGuardando(false)
     }
@@ -302,7 +305,6 @@ export default function ParcelaFormulario({
       ocupado={guardando}
       onCerrar={onCancelar}
     >
-      <Aviso nivel="ok">{aviso}</Aviso>
       <Aviso>{error}</Aviso>
 
       {esEdicion && estado && (
@@ -562,11 +564,16 @@ export default function ParcelaFormulario({
 
         <div className="formulario-acciones">
           <button className="boton-primario" type="submit" disabled={guardando}>
-            {guardando
-              ? 'Guardando…'
-              : esEdicion
-                ? 'Guardar cambios'
-                : 'Crear parcela'}
+            {guardando ? (
+              <>
+                <RuedaCarga etiqueta="Guardando…" />
+                Guardando…
+              </>
+            ) : esEdicion ? (
+              'Guardar cambios'
+            ) : (
+              'Crear parcela'
+            )}
           </button>
           <button className="boton-secundario" type="button" onClick={onCancelar}>
             Cancelar

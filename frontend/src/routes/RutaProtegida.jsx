@@ -6,7 +6,7 @@ export default function RutaProtegida({ permiso, children }) {
   const { usuario, cargando, tienePermiso } = useSesion()
   const ubicacion = useLocation()
 
-  if (cargando) return <Cargando />
+  if (cargando) return <Cargando texto="Cargando tu sesión…" />
   if (!usuario) {
     return <Navigate to="/login" state={{ desde: ubicacion }} replace />
   }

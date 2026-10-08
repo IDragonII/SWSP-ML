@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import RuedaCarga from './RuedaCarga.jsx'
 
 // Pila de modales abiertos: Escape solo cierra el de arriba y el scroll
 // del body se bloquea mientras haya al menos uno (se restaura al cerrar el último).
@@ -113,7 +114,14 @@ export default function Modal({
               disabled={ocupado}
               onClick={onConfirmar}
             >
-              {ocupado ? 'Procesando…' : confirmar}
+              {ocupado ? (
+                <>
+                  <RuedaCarga etiqueta="Procesando…" />
+                  Procesando…
+                </>
+              ) : (
+                confirmar
+              )}
             </button>
           </div>
         )}

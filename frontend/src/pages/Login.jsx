@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { mensajeDeError } from '../api/errores.js'
 import Marca from '../components/Marca.jsx'
+import RuedaCarga from '../components/RuedaCarga.jsx'
 import { useSesion } from '../context/useSesion.js'
 
 export default function Login() {
@@ -76,7 +77,14 @@ export default function Login() {
           </div>
 
           <button type="submit" className="boton-entrar" disabled={enviando}>
-            {enviando ? 'Entrando…' : 'Entrar'}
+            {enviando ? (
+              <>
+                <RuedaCarga etiqueta="Entrando…" />
+                Entrando…
+              </>
+            ) : (
+              'Entrar'
+            )}
           </button>
         </form>
       </main>
