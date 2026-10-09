@@ -29,3 +29,32 @@ export function obtenerComunidades(distrito) {
 export function tecnicosDisponibles() {
   return cliente.get('/asignaciones/tecnicos-disponibles/').then((r) => r.data)
 }
+
+// API de un catálogo de la Semana 5: recibe la ruta base
+// ('/cultivos/', '/unidades/', …) y devuelve el CRUD sin DELETE.
+export function apiCatalogo(ruta) {
+  return {
+    listar(params = {}) {
+      return cliente.get(ruta, { params }).then((r) => r.data)
+    },
+    obtener(id) {
+      return cliente.get(`${ruta}${id}/`).then((r) => r.data)
+    },
+    guardar(id, datos) {
+      const peticion = id
+        ? cliente.patch(`${ruta}${id}/`, datos)
+        : cliente.post(ruta, datos)
+      return peticion.then((r) => r.data)
+    },
+    cambiarEstado(id, activo) {
+      return cliente
+        .patch(`${ruta}${id}/estado/`, { activo })
+        .then((r) => r.data)
+    },
+    desplegable(params = {}) {
+      return cliente
+        .get(ruta, { params: { ...params, desplegable: 1 } })
+        .then((r) => r.data)
+    },
+  }
+}

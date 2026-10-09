@@ -298,7 +298,8 @@
 }
 
 .campo input,
-.campo select {
+.campo select,
+.campo textarea {
   width: 100%;
   padding: 0.6rem 0.75rem;
   border: 1px solid var(--linea);
@@ -308,12 +309,14 @@
 }
 
 .campo input:focus-visible,
-.campo select:focus-visible {
+.campo select:focus-visible,
+.campo textarea:focus-visible {
   border-color: var(--helecho);
 }
 
 .campo input:disabled,
-.campo select:disabled {
+.campo select:disabled,
+.campo textarea:disabled {
   background: var(--crema);
   color: var(--apagado);
 }
@@ -600,6 +603,37 @@
 .filtros-acciones {
   display: flex;
   gap: 0.5rem;
+}
+
+/* --- Pestañas de la pantalla de catálogos (Semana 5) --- */
+
+.pestanas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1.25rem;
+}
+
+.pestana {
+  min-height: 40px;
+  padding: 0.5rem 1rem;
+  background: var(--blanco);
+  border: 1px solid var(--linea);
+  border-radius: 999px;
+  color: var(--tinta);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pestana:hover {
+  background: var(--crema);
+  border-color: var(--helecho);
+}
+
+.pestana.activa {
+  background: var(--marigold);
+  border-color: var(--marigold);
 }
 
 /* --- Tablas que se vuelven tarjetas en móvil --- */
@@ -1013,6 +1047,10 @@
   .boton-secundario,
   .boton-peligro,
   .boton-texto {
+    min-height: 44px;
+  }
+
+  .pestana {
     min-height: 44px;
   }
 

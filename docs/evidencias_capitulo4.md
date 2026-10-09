@@ -3,7 +3,7 @@
 > Qué artefacto del repositorio respalda cada sección del Capítulo IV
 > (Diseño e implementación del sistema), cómo se regeneró y qué **sigue
 > pendiente**. Se actualiza al cierre de cada semana.
-> **Estado: Semana 4 completada — 53 pruebas verdes.**
+> **Estado: Semana 5 completada — 67 pruebas verdes.**
 
 Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
 
@@ -13,9 +13,9 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
   y los `Meta.db_table`/`related_name` de los modelos Django).
 - [x] Lista y descripción de las 32 tablas agrupadas por módulo →
   `CONTEXTO_PROYECTO.md` §5.
-- Nota: hasta la Semana 4 existen **10 tablas** en la BD real (4 de usuarios +
-  4 de ubicación/productores + `parcelas` y `asignaciones_tecnico`); el
-  diagrama completo se dibuja con el diseño completo.
+- Nota: hasta la Semana 5 existen **18 tablas** en la BD real (4 de usuarios +
+  4 de ubicación/productores + `parcelas` y `asignaciones_tecnico` + las
+  **8 de catálogos**); el diagrama completo se dibuja con el diseño completo.
 
 ## 4.3.3 Modelo lógico
 
@@ -41,10 +41,15 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
   (Semana 4):** `docs/comparacion_semana4.md` (2 tablas columna por columna +
   secuencia, 2 funciones y 3 triggers; verificado con `pg_constraint`,
   `pg_indexes`, `pg_sequences` y `pg_trigger` sobre la BD real).
-- [x] **Migraciones propias:** `backend/usuarios/migrations/` (0001–0003) y
-  `backend/productores/migrations/` (0001–0004, las dos últimas reversibles).
-  La creación del BD de pruebas en cada `manage.py test` aplica las 29
-  migraciones desde cero.
+- [x] **Comparación diseño vs implementación — catálogos (Semana 5):**
+  `docs/comparacion_semana5.md` (8 tablas, **37/37 columnas, 28/28
+  restricciones y 44/44 datos**; verificado con `pg_constraint`/`pg_indexes`
+  sobre la BD real, más las dos pasadas idempotentes del comando).
+- [x] **Migraciones propias:** `backend/usuarios/migrations/` (0001–0003),
+  `backend/productores/migrations/` (0001–0004, las dos últimas reversibles) y
+  `backend/catalogos/migrations/` (0001–0002; `0002` reversible sin borrar lo
+  referenciado). La creación de la BD de pruebas en cada `manage.py test`
+  aplica las **39 migraciones** desde cero (incluidas las de terceros).
 
 ## Reglas de negocio y triggers
 
@@ -62,18 +67,24 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
   `PROD-0001` y actualizó `actualizado_en` en otra transacción (Semana 3).
   Reproducible: crear BD, `DB_NAME=<nombre> python manage.py migrate`, borrar.
   Desde la Semana 4, la BD de pruebas que crea cada `manage.py test` vuelve a
-  aplicar las 29 migraciones desde cero en cada ejecución.
+  aplicar todas las migraciones desde cero en cada ejecución (hoy 39).
 
 ## Requerimientos funcionales verificados (RF/RN)
 
 - [x] Matriz de decisiones por semana → `docs/decisiones_seguridad.md`
   (Semana 2), `docs/decisiones_semana3.md` (Semana 3, 7 decisiones con sus
-  preguntas abiertas) y `docs/decisiones_semana4.md` (Semana 4, 19
-  decisiones, incluidas las de parcelas, asignaciones y CRUD en modales).
+  preguntas abiertas), `docs/decisiones_semana4.md` (Semana 4, 19
+  decisiones, incluidas las de parcelas, asignaciones y CRUD en modales) y
+  `docs/decisiones_semana5.md` (Semana 5, 17 decisiones: catálogos, datos
+  CONFIRMAR por comando y pantalla con pestañas).
 - [x] RN «el DNI debe ser único y tener 8 dígitos» → pruebas 23 y 24.
 - [x] RN «no se eliminan físicamente; se desactivan» → sin `DELETE` (405),
   prueba 28, FK `PROTECT`; en la Semana 4 el mismo patrón para parcelas
-  (prueba 41) y asignaciones (prueba 48).
+  (prueba 41) y asignaciones (prueba 48); en la Semana 5 para los **8
+  catálogos** (colección 073) y `POST` de tipos de actividad → 405.
+- [x] RN de catálogos: unidad base no se crea/convierte/desactiva, Siembra y
+  Cosecha protegidas, etapas sin estado y unicidad normalizada en la API →
+  pruebas 54–67 · colección 064, 065, 069, 076, 077, 081, 083.
 - [x] RF «registrar un productor con código automático (PROD-0001)» →
   triggers + pruebas 21 y 22.
 - [x] RF «registrar parcelas con código automático (P-001)» y sus
@@ -98,18 +109,23 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
 - [x] Contrato de la API de ubicación y productores →
   `docs/api_ubicacion_productores.md` (errores con cuerpos verificados;
   404 en español desde la Semana 4, decisión 11).
+- [x] Contrato de la API de catálogos → `docs/api_catalogos.md` (los 8
+  recursos, mensajes 400 exactos, reordenado de etapas y desplegables).
 - [x] **Colecciones ejecutables** → `docs/coleccion_api_semana3.json`
-  (36 peticiones) y `docs/coleccion_api_semana4.json`
-  (**48 peticiones** con `pm.test`, validadas **48/48** contra el servidor;
-  sin secretos: las claves se toman de `.credenciales`).
-- [x] **Suite de pruebas:** `python manage.py test` → **53 verdes**
-  (8 Semana 1 + 12 Semana 2 + 17 Semana 3 + 16 Semana 4); `manage.py check`
-  en 0 issues; `makemigrations --check` sin cambios. Comandos en
-  `comparacion_sprint1.md` §6, `comparacion_semana3.md` §6 y
-  `comparacion_semana4.md` §6.
+  (36 peticiones), `docs/coleccion_api_semana4.json`
+  (**48 peticiones** con `pm.test`, validadas **48/48** contra el servidor) y
+  `docs/coleccion_api_semana5.json` (**93 peticiones** = 48 + 45 de catálogos,
+  validadas **93/93**; sin secretos: las claves se toman de `.credenciales`).
+- [x] **Suite de pruebas:** `python manage.py test` → **67 verdes**
+  (8 Semana 1 + 12 Semana 2 + 17 Semana 3 + 16 Semana 4 + 14 Semana 5);
+  `manage.py check` en 0 issues; `makemigrations --check` sin cambios.
+  Comandos en `comparacion_sprint1.md` §6, `comparacion_semana3.md` §6,
+  `comparacion_semana4.md` §6 y `comparacion_semana5.md` §6.
 - [x] **Pantallas React:** `npm run lint` y `npm run build` en 0 problemas;
-  checklist de ejecución manual en `docs/verificacion_ui_semana4.md`
-  (decisión 16, **pendiente de ejecutar por el responsable**).
+  checklist de ejecución manual en `docs/verificacion_ui_semana4.md` y
+  `docs/verificacion_ui_semana5.md` (decisión 17, **pendientes de ejecutar
+  por el responsable**). De la Semana 5: pantalla `/catalogos` con CRUD en
+  modales.
 
 ## Usuarios, roles y permisos (evidencia funcional)
 
@@ -118,14 +134,17 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
 - [x] Panel de administración (roles protegidos, permisos con autocompletado,
   acción «Desbloquear acceso», catálogos de ubicación y productores con
   filtros) → `backend/usuarios/admin.py`, `backend/productores/admin.py`.
+  Desde la Semana 5, los **8 catálogos de campañas** también están registrados
+  con listado, filtros y búsqueda → `backend/catalogos/admin.py`.
 - [ ] **Capturas de pantalla** del panel y de la API en Postman (para el
   documento): ejecutar la colección y capturar respuestas 201/400/403/405.
 
 ## Bitácora de trabajo (Scrum)
 
-- [x] Tablero con HU-15..HU-22 → `docs/tablero.md` (Semana 3) y HU-23..HU-28
-  con estado y evidencias (Semana 4; HU-01..HU-14 resumidos ahí mismo:
-  textos originales de HU no están en el repositorio: mapeo propuesto).
+- [x] Tablero con HU-15..HU-22 → `docs/tablero.md` (Semana 3), HU-23..HU-28
+  con estado y evidencias (Semana 4) y las **8 fases F1–F8** de la Semana 5
+  (HU-01..HU-14 resumidos ahí mismo: textos originales de HU no están en el
+  repositorio: mapeo propuesto).
 - [x] Calendario y orden de sprints → `CONTEXTO_PROYECTO.md` §13.
 - [x] Contexto completo del proyecto (para que el responsable pueda defender
   cada decisión) → `CONTEXTO_PROYECTO.md` completo.
@@ -134,10 +153,13 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
 
 - [ ] Diagramas ER y modelo lógico (4.3.2 / 4.3.3).
 - [ ] Capturas de pantalla de pantallas y endpoints (incluye login de React).
-- [ ] Ejecutar el checklist de UI de la Semana 4 en Chrome/Edge/móvil
-  (`docs/verificacion_ui_semana4.md`) y anotar los resultados.
-- [ ] Pantallas de los módulos en React (hoy: login, 403, 404, productores y
-  parcelas con CRUD en modales; faltan los demás módulos del menú).
+- [ ] Ejecutar los checklists de UI de la Semana 4
+  (`docs/verificacion_ui_semana4.md`) y de la Semana 5
+  (`docs/verificacion_ui_semana5.md`) en Chrome/Edge/móvil y anotar los
+  resultados.
+- [ ] Pantallas de los módulos en React (hoy: login, 403, 404, productores,
+  parcelas y **catálogos** con CRUD en modales; faltan los demás módulos del
+  menú).
 - [ ] Manual de usuario y evidencia de la demo.
 - [ ] Copia de `DB_sql/` fuera del repositorio antes de cualquier entrega
   (está ignorado en Git).

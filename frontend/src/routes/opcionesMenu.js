@@ -2,6 +2,7 @@ export const opcionesMenu = [
   { ruta: '/', nombre: 'Inicio' },
   { ruta: '/productores', nombre: 'Productores', permiso: 'productores.ver' },
   { ruta: '/parcelas', nombre: 'Parcelas', permiso: 'parcelas.ver' },
+  { ruta: '/catalogos', nombre: 'Catálogos', permiso: 'catalogos.editar' },
   { ruta: '/campanias', nombre: 'Campañas', permiso: 'campanias.ver' },
   { ruta: '/produccion', nombre: 'Producción', permiso: 'produccion.ver' },
   { ruta: '/prediccion', nombre: 'Predicción', permiso: 'ml.ver_predicciones' },

@@ -1,0 +1,2592 @@
+{
+  "info": {
+    "_postman_id": "sigpa-ga-semana5-0001",
+    "name": "SIGPA-GA · Semana 5 — Catálogos de campañas",
+    "description": "Colección de la Semana 5 (catálogos de campañas): 93 peticiones con pruebas embebidas (pm.test) — las 48 de la Semana 4 más 45 nuevas de los 8 catálogos.\n\nVariables:\n- base_url: http://localhost:8000 (el backend debe estar en marcha: python manage.py runserver)\n- usuario_admin / clave_admin, usuario_coordinador / clave_coordinador, usuario_tecnico / clave_tecnico: los valores están en el archivo .credenciales del proyecto (ignorado por Git, nunca se sube aquí)\n- sufijo: cambia este texto si repites la ejecución (los nombres creados llevan el sufijo propio y, con el mismo, el alta se declara duplicada)\n\nEl orden importa y hay que ejecutar la colección completa: 001–048 son las peticiones de la Semana 4 (terminan con la sesión del Técnico); la 049 cierra esa sesión, la 050 comprueba el 401 sin sesión y desde la 051 se entra como administrador para recorrer los catálogos: cultivos (alta, edición, duplicado, desactivación y filtro activo), variedades (cultivo anidado y unicidad por cultivo), etapas fenológicas (orden, reordenado atómico y el rechazo de ?activo=), unidades (reglas de la unidad base y desplegable sin paginar), tipos de actividad (sin altas: 405, y Siembra protegida), recursos, tipos de incidencia y agentes. Cierra con el Coordinador: solo lectura (200) y 403 al crear.\n\nEsta colección crea sus propios datos; las de la Semana 3 (coleccion_api_semana3.json) y la Semana 4 (coleccion_api_semana4.json) quedan intactas.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000"
+    },
+    {
+      "key": "usuario_admin",
+      "value": "admin"
+    },
+    {
+      "key": "clave_admin",
+      "value": ""
+    },
+    {
+      "key": "usuario_coordinador",
+      "value": "coordinador"
+    },
+    {
+      "key": "clave_coordinador",
+      "value": ""
+    },
+    {
+      "key": "usuario_tecnico",
+      "value": "tecnico"
+    },
+    {
+      "key": "clave_tecnico",
+      "value": ""
+    },
+    {
+      "key": "sufijo",
+      "value": "SEMANA5"
+    },
+    {
+      "key": "dni_productor",
+      "value": "91827364"
+    }
+  ],
+  "item": [
+    {
+      "name": "001 · Sin sesión → 401",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 401', function () { pm.response.to.have.status(401); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/productores/"
+        }
+      }
+    },
+    {
+      "name": "002 · Login administrador → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"username\":\"{{usuario_admin}}\",\"password\":\"{{clave_admin}}\"}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/auth/login/"
+        }
+      }
+    },
+    {
+      "name": "003 · ¿Quién soy? → 200 (rol Administrador)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Rol Administrador', function () { pm.expect(pm.response.json().usuario.rol.nombre).to.eql('Administrador'); });",
+              "pm.environment.set('admin_id', pm.response.json().usuario.id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/auth/me/"
+        }
+      }
+    },
+    {
+      "name": "004 · Crear provincia → 201",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 201', function () { pm.response.to.have.status(201); });",
+              "pm.environment.set('provincia_id', pm.response.json().id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"nombre\":\"Provincia S4 {{sufijo}}\",\"activo\":true}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/ubicaciones/provincias/"
+        }
+      }
+    },
+    {
+      "name": "005 · Crear distrito → 201",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 201', function () { pm.response.to.have.status(201); });",
+              "pm.environment.set('distrito_id', pm.response.json().id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"nombre\":\"Distrito S4 {{sufijo}}\",\"provincia\":{{provincia_id}},\"activo\":true}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/ubicaciones/distritos/"
+        }
+      }
+    },
+    {
+      "name": "006 · Crear comunidad → 201",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 201', function () { pm.response.to.have.status(201); });",
+              "pm.environment.set('comunidad_id', pm.response.json().id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"nombre\":\"Comunidad S4 {{sufijo}}\",\"distrito\":{{distrito_id}},\"activo\":true}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/ubicaciones/comunidades/"
+        }
+      }
+    },
+    {
+      "name": "007 · Crear productor (código automático) → 201",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 201', function () { pm.response.to.have.status(201); });",
+              "pm.test('Código PROD-NNNN', function () { pm.expect(pm.response.json().codigo).to.match(/^PROD-\\d{4}$/); });",
+              "pm.environment.set('productor_id', pm.response.json().id);",
+              "pm.environment.set('productor_codigo', pm.response.json().codigo);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"nombres\":\"Rosa Milagros\",\"apellidos\":\"Paredes Loayza\",\"dni\":\"{{dni_productor}}\",\"telefono\":\"911223344\",\"comunidad\":{{comunidad_id}}}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/productores/"
+        }
+      }
+    },
+    {
+      "name": "008 · Listar parcelas (paginado) → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Respuesta paginada', function () { pm.expect(pm.response.json()).to.have.property('count'); pm.expect(pm.response.json()).to.have.property('results'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/parcelas/"
+        }
+      }
+    },
+    {
+      "name": "009 · Crear parcela (código P-00N) → 201",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 201', function () { pm.response.to.have.status(201); });",
+              "pm.test('Código P-NNN', function () { pm.expect(pm.response.json().codigo).to.match(/^P-\\d{3}$/); });",
+              "pm.test('Estado ACTIVA y trazabilidad', function () { pm.expect(pm.response.json().estado).to.eql('ACTIVA'); pm.expect(pm.response.json().creado_por).to.eql(pm.environment.get('usuario_admin')); });",
+              "pm.environment.set('parcela_id', pm.response.json().id);",
+              "pm.environment.set('parcela_codigo', pm.response.json().codigo);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"productor\":{{productor_id}},\"comunidad\":{{comunidad_id}},\"referencia_ubicacion\":\"Al costado del camino principal\",\"superficie_ha\":\"1.50\",\"altitud_msnm\":1250,\"latitud\":\"-13.521000\",\"longitud\":\"-71.968000\",\"tipo_suelo\":\"FRANCO\",\"pendiente\":\"SUAVE\",\"disponibilidad_agua\":\"MEDIA\",\"sistema_riego\":\"GRAVEDAD\"}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/parcelas/"
+        }
+      }
+    },
+    {
+      "name": "010 · Ver parcela por id → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Productor anidado correcto', function () { pm.expect(pm.response.json().productor.id).to.eql(pm.environment.get('productor_id')); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/parcelas/{{parcela_id}}/"
+        }
+      }
+    },
+    {
+      "name": "011 · Editar parcela (PATCH) → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Superficie actualizada', function () { pm.expect(pm.response.json().superficie_ha).to.eql('2.25'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"referencia_ubicacion\":\"Ronda norte de la comunidad S4 {{sufijo}}\",\"superficie_ha\":\"2.25\"}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/parcelas/{{parcela_id}}/"
+        }
+      }
+    },
+    {
+      "name": "012 · Desactivar parcela → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Estado INACTIVA', function () { pm.expect(pm.response.json().estado).to.eql('INACTIVA'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"estado\":\"INACTIVA\"}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/parcelas/{{parcela_id}}/estado/"
+        }
+      }
+    },
+    {
+      "name": "013 · Estado con valor no permitido → 400",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 400', function () { pm.response.to.have.status(400); });",
+              "pm.test('Mensaje en español', function () { pm.expect(pm.response.text()).to.include('Use ACTIVA o INACTIVA.'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"estado\":\"BORRADA\"}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/parcelas/{{parcela_id}}/estado/"
+        }
+      }
+    },
+    {
+      "name": "014 · Reactivar parcela → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Estado ACTIVA', function () { pm.expect(pm.response.json().estado).to.eql('ACTIVA'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"estado\":\"ACTIVA\"}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/parcelas/{{parcela_id}}/estado/"
+        }
+      }
+    },
+    {
+      "name": "015 · DELETE parcela → 405 (nada se borra)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 405', function () { pm.response.to.have.status(405); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/parcelas/{{parcela_id}}/"
+        }
+      }
+    },
+    {
+      "name": "016 · Parcela inexistente → 404 en español",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 404', function () { pm.response.to.have.status(404); });",
+              "pm.test('Detalle en español', function () { pm.expect(pm.response.json().detail).to.eql('No encontrado.'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/parcelas/999999/"
+        }
+      }
+    },
+    {
+      "name": "017 · Filtro por productor y estado=ACTIVA → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Todas del productor y ACTIVAS', function () { pm.response.json().results.forEach(function (p) { pm.expect(p.productor.id).to.eql(pm.environment.get('productor_id')); pm.expect(p.estado).to.eql('ACTIVA'); }); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/parcelas/?productor={{productor_id}}&estado=ACTIVA"
+        }
+      }
+    },
+    {
+      "name": "018 · Búsqueda por código de parcela → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Encuentra la parcela creada', function () { pm.expect(pm.response.json().results[0].codigo).to.eql(pm.environment.get('parcela_codigo')); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/parcelas/?busqueda={{parcela_codigo}}"
+        }
+      }
+    },
+    {
+      "name": "019 · Parcela sin superficie → 400",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 400', function () { pm.response.to.have.status(400); });",
+              "pm.test('Mensaje de superficie', function () { pm.expect(pm.response.text()).to.include('La superficie es obligatoria.'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"productor\":{{productor_id}},\"comunidad\":{{comunidad_id}},\"altitud_msnm\":1250}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/parcelas/"
+        }
+      }
+    },
+    {
+      "name": "020 · Solo latitud (coordenadas a medias) → 400",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 400', function () { pm.response.to.have.status(400); });",
+              "pm.test('Mensaje de coordenadas', function () { pm.expect(pm.response.text()).to.include('Indica latitud y longitud'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"productor\":{{productor_id}},\"comunidad\":{{comunidad_id}},\"superficie_ha\":\"1.00\",\"altitud_msnm\":1250,\"latitud\":\"-13.521000\"}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/parcelas/"
+        }
+      }
+    },
+    {
+      "name": "021 · Altitud fuera de rango → 400",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 400', function () { pm.response.to.have.status(400); });",
+              "pm.test('Mensaje de altitud', function () { pm.expect(pm.response.text()).to.include('La altitud debe estar entre 0 y 6500 msnm.'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"productor\":{{productor_id}},\"comunidad\":{{comunidad_id}},\"superficie_ha\":\"1.00\",\"altitud_msnm\":7000}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/parcelas/"
+        }
+      }
+    },
+    {
+      "name": "022 · Técnicos disponibles → 200 (lista plana)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Incluye al técnico de pruebas', function () { var nombres = pm.response.json().map(function (t) { return t.username; }); pm.expect(nombres).to.include(pm.environment.get('usuario_tecnico')); });",
+              "pm.environment.set('tecnico_id', pm.response.json()[0].id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/asignaciones/tecnicos-disponibles/"
+        }
+      }
+    },
+    {
+      "name": "023 · Crear asignación → 201",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 201', function () { pm.response.to.have.status(201); });",
+              "pm.test('Asignación activa', function () { pm.expect(pm.response.json().activo).to.eql(true); pm.expect(pm.response.json().productor.id).to.eql(pm.environment.get('productor_id')); });",
+              "pm.environment.set('asignacion_id', pm.response.json().id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"tecnico\":{{tecnico_id}},\"productor\":{{productor_id}}}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/asignaciones/"
+        }
+      }
+    },
+    {
+      "name": "024 · Asignación duplicada → 400",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 400', function () { pm.response.to.have.status(400); });",
+              "pm.test('Mensaje de duplicada', function () { pm.expect(pm.response.text()).to.include('Esa asignación ya existe'); });",
+              "pm.test('Sin ruta en el mensaje (seguridad)', function () { pm.expect(pm.response.text()).to.not.include('/api/'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"tecnico\":{{tecnico_id}},\"productor\":{{productor_id}}}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/asignaciones/"
+        }
+      }
+    },
+    {
+      "name": "025 · Asignar a un rol sin limita_a_asignados → 400",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 400', function () { pm.response.to.have.status(400); });",
+              "pm.test('Mensaje de rol (decisión 8)', function () { pm.expect(pm.response.text()).to.include('no tiene un rol que trabaje con productores asignados'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"tecnico\":{{admin_id}},\"productor\":{{productor_id}}}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/asignaciones/"
+        }
+      }
+    },
+    {
+      "name": "026 · Asignaciones del productor → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Una sola y del productor', function () { pm.expect(pm.response.json().count).to.eql(1); pm.expect(pm.response.json().results[0].productor.id).to.eql(pm.environment.get('productor_id')); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/asignaciones/?productor={{productor_id}}"
+        }
+      }
+    },
+    {
+      "name": "027 · Asignaciones del técnico → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Pertenece al técnico', function () { pm.expect(pm.response.json().results[0].tecnico.id).to.eql(pm.environment.get('tecnico_id')); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/asignaciones/?tecnico={{tecnico_id}}"
+        }
+      }
+    },
+    {
+      "name": "028 · Desactivar asignación → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Registro conservado inactivo', function () { pm.expect(pm.response.json().activo).to.eql(false); pm.expect(pm.response.json()).to.have.property('id'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"activo\":false}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/asignaciones/{{asignacion_id}}/estado/"
+        }
+      }
+    },
+    {
+      "name": "029 · Reactivar asignación → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('De nuevo activa', function () { pm.expect(pm.response.json().activo).to.eql(true); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"activo\":true}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/asignaciones/{{asignacion_id}}/estado/"
+        }
+      }
+    },
+    {
+      "name": "030 · activo no booleano → 400",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 400', function () { pm.response.to.have.status(400); });",
+              "pm.test('Mensaje de booleano', function () { pm.expect(pm.response.text()).to.include('Debe ser true o false.'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"activo\":\"si\"}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/asignaciones/{{asignacion_id}}/estado/"
+        }
+      }
+    },
+    {
+      "name": "031 · DELETE asignación → 405 (nada se borra)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 405', function () { pm.response.to.have.status(405); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/asignaciones/{{asignacion_id}}/"
+        }
+      }
+    },
+    {
+      "name": "032 · Login coordinador → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"username\":\"{{usuario_coordinador}}\",\"password\":\"{{clave_coordinador}}\"}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/auth/login/"
+        }
+      }
+    },
+    {
+      "name": "033 · Coordinador consulta asignaciones → 403",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 403', function () { pm.response.to.have.status(403); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/asignaciones/"
+        }
+      }
+    },
+    {
+      "name": "034 · Coordinador crea asignación → 403",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 403', function () { pm.response.to.have.status(403); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"tecnico\":{{tecnico_id}},\"productor\":{{productor_id}}}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/asignaciones/"
+        }
+      }
+    },
+    {
+      "name": "035 · Coordinador lista parcelas → 200 (solo lectura)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/parcelas/"
+        }
+      }
+    },
+    {
+      "name": "036 · Coordinador edita parcela → 403",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 403', function () { pm.response.to.have.status(403); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"referencia_ubicacion\":\"No debería guardarse\"}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/parcelas/{{parcela_id}}/"
+        }
+      }
+    },
+    {
+      "name": "037 · Login técnico → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"username\":\"{{usuario_tecnico}}\",\"password\":\"{{clave_tecnico}}\"}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/auth/login/"
+        }
+      }
+    },
+    {
+      "name": "038 · Técnico ve su productor asignado → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Ficha con parcelas y resumen', function () { pm.expect(pm.response.json().parcelas.length).to.be.above(0); pm.expect(pm.response.json().resumen).to.have.property('parcelas_activas'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/productores/{{productor_id}}/"
+        }
+      }
+    },
+    {
+      "name": "039 · Técnico lista las parcelas de su productor → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Solo las de su productor', function () { pm.response.json().results.forEach(function (p) { pm.expect(p.productor.id).to.eql(pm.environment.get('productor_id')); }); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/parcelas/?productor={{productor_id}}"
+        }
+      }
+    },
+    {
+      "name": "040 · Técnico no gestiona asignaciones → 403",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 403', function () { pm.response.to.have.status(403); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/asignaciones/"
+        }
+      }
+    },
+    {
+      "name": "041 · Login administrador (para desactivar) → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"username\":\"{{usuario_admin}}\",\"password\":\"{{clave_admin}}\"}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/auth/login/"
+        }
+      }
+    },
+    {
+      "name": "042 · Desactivar la asignación del técnico → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Queda inactiva', function () { pm.expect(pm.response.json().activo).to.eql(false); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"activo\":false}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/asignaciones/{{asignacion_id}}/estado/"
+        }
+      }
+    },
+    {
+      "name": "043 · Login técnico (de nuevo) → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"username\":\"{{usuario_tecnico}}\",\"password\":\"{{clave_tecnico}}\"}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/auth/login/"
+        }
+      }
+    },
+    {
+      "name": "044 · Asignación desactivada → 404 en español (pérdida de acceso)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 404', function () { pm.response.to.have.status(404); });",
+              "pm.test('Detalle en español', function () { pm.expect(pm.response.json().detail).to.eql('No encontrado.'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/productores/{{productor_id}}/"
+        }
+      }
+    },
+    {
+      "name": "045 · Login administrador (para reactivar) → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"username\":\"{{usuario_admin}}\",\"password\":\"{{clave_admin}}\"}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/auth/login/"
+        }
+      }
+    },
+    {
+      "name": "046 · Reactivar la asignación → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('De nuevo activa', function () { pm.expect(pm.response.json().activo).to.eql(true); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"activo\":true}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/asignaciones/{{asignacion_id}}/estado/"
+        }
+      }
+    },
+    {
+      "name": "047 · Login técnico (tras reactivar) → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"username\":\"{{usuario_tecnico}}\",\"password\":\"{{clave_tecnico}}\"}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/auth/login/"
+        }
+      }
+    },
+    {
+      "name": "048 · Técnico recupera el acceso → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Otra vez su productor', function () { pm.expect(pm.response.json().id).to.eql(pm.environment.get('productor_id')); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/productores/{{productor_id}}/"
+        }
+      }
+    },
+    {
+      "name": "049 · Cerrar sesión del técnico (fin de la Semana 4) → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/auth/logout/"
+        }
+      }
+    },
+    {
+      "name": "050 · Listar cultivos sin sesión → 401",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 401', function () { pm.response.to.have.status(401); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/cultivos/"
+        }
+      }
+    },
+    {
+      "name": "051 · Login administrador → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/auth/login/"
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"username\": \"{{usuario_admin}}\", \"password\": \"{{clave_admin}}\"}"
+        }
+      }
+    },
+    {
+      "name": "052 · Listar cultivos (paginado) → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Respuesta paginada', function () { pm.expect(pm.response.json()).to.have.property('count'); pm.expect(pm.response.json()).to.have.property('results'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/cultivos/"
+        }
+      }
+    },
+    {
+      "name": "053 · Crear cultivo → 201",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 201', function () { pm.response.to.have.status(201); });",
+              "pm.test('Creado activo', function () { pm.expect(pm.response.json().activo).to.eql(true); });",
+              "pm.environment.set('cultivo_id', pm.response.json().id);",
+              "pm.environment.set('cultivo_nombre', pm.response.json().nombre);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/cultivos/"
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"nombre\": \"Cultivo S5 {{sufijo}}\", \"descripcion\": \"Creado por la colección de la Semana 5\", \"activo\": true}"
+        }
+      }
+    },
+    {
+      "name": "054 · Ver cultivo por id → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Devuelve el cultivo creado', function () { pm.expect(pm.response.json().nombre).to.eql(pm.environment.get('cultivo_nombre')); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/cultivos/{{cultivo_id}}/"
+        }
+      }
+    },
+    {
+      "name": "055 · Editar cultivo (PATCH) → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Descripción actualizada', function () { pm.expect(pm.response.json().descripcion).to.eql('Descripción actualizada por la colección'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/cultivos/{{cultivo_id}}/"
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"descripcion\": \"Descripción actualizada por la colección\"}"
+        }
+      }
+    },
+    {
+      "name": "056 · Cultivo con el mismo nombre → 400 (normalizado en español)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 400', function () { pm.response.to.have.status(400); });",
+              "pm.expect(pm.response.text()).to.include('Ya existe un cultivo con ese nombre.');"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/cultivos/"
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"nombre\": \"Cultivo S5 {{sufijo}}\"}"
+        }
+      }
+    },
+    {
+      "name": "057 · Crear variedad (cultivo anidado) → 201",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 201', function () { pm.response.to.have.status(201); });",
+              "pm.test('Pertenece al cultivo creado', function () { pm.expect(pm.response.json().cultivo.id).to.eql(pm.environment.get('cultivo_id')); });",
+              "pm.environment.set('variedad_id', pm.response.json().id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/variedades/"
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"cultivo\": {{cultivo_id}}, \"nombre\": \"Variedad S5 {{sufijo}}\", \"descripcion\": \"Variedad de prueba de la colección\", \"activo\": true}"
+        }
+      }
+    },
+    {
+      "name": "058 · Listar variedades (paginado) → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Respuesta paginada', function () { pm.expect(pm.response.json()).to.have.property('count'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/variedades/"
+        }
+      }
+    },
+    {
+      "name": "059 · Filtrar variedades por cultivo → 200 (solo la del cultivo)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Una sola variedad', function () { pm.expect(pm.response.json().count).to.eql(1); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/variedades/?cultivo={{cultivo_id}}"
+        }
+      }
+    },
+    {
+      "name": "060 · Variedad sin cultivo → 400",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 400', function () { pm.response.to.have.status(400); });",
+              "pm.expect(pm.response.text()).to.include('Este campo es obligatorio.');"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/variedades/"
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"nombre\": \"Variedad sin cultivo S5 {{sufijo}}\"}"
+        }
+      }
+    },
+    {
+      "name": "061 · Desactivar variedad → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Queda inactiva', function () { pm.expect(pm.response.json().activo).to.eql(false); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/variedades/{{variedad_id}}/estado/"
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"activo\": false}"
+        }
+      }
+    },
+    {
+      "name": "062 · Listar etapas → 200 (sin campo activo)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.expect(pm.response.text()).to.not.include('\"activo\"');"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/etapas-fenologicas/"
+        }
+      }
+    },
+    {
+      "name": "063 · Crear etapa (orden 1) → 201",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 201', function () { pm.response.to.have.status(201); });",
+              "pm.test('Orden guardado', function () { pm.expect(pm.response.json().orden).to.eql(1); });",
+              "pm.environment.set('etapa_id', pm.response.json().id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/etapas-fenologicas/"
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"cultivo\": {{cultivo_id}}, \"nombre\": \"Etapa S5 {{sufijo}}\", \"orden\": 1}"
+        }
+      }
+    },
+    {
+      "name": "064 · Orden duplicado en el mismo cultivo → 400",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 400', function () { pm.response.to.have.status(400); });",
+              "pm.expect(pm.response.text()).to.include('Ya existe otra etapa con el orden 1 para ese cultivo.');"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/etapas-fenologicas/"
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"cultivo\": {{cultivo_id}}, \"nombre\": \"Otra etapa S5 {{sufijo}}\", \"orden\": 1}"
+        }
+      }
+    },
+    {
+      "name": "065 · Orden fuera de rango → 400",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 400', function () { pm.response.to.have.status(400); });",
+              "pm.expect(pm.response.text()).to.include('El orden debe ser un número entre 1 y 1000.');"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/etapas-fenologicas/"
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"cultivo\": {{cultivo_id}}, \"nombre\": \"Tercera etapa S5 {{sufijo}}\", \"orden\": 0}"
+        }
+      }
+    },
+    {
+      "name": "066 · Editar etapa (PATCH orden) → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Orden actualizado', function () { pm.expect(pm.response.json().orden).to.eql(2); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/etapas-fenologicas/{{etapa_id}}/"
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"orden\": 2}"
+        }
+      }
+    },
+    {
+      "name": "067 · Reordenar etapas del cultivo (atómico) → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Ocupa la posición 1', function () { pm.expect(pm.response.json()[0].orden).to.eql(1); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/etapas-fenologicas/reordenar/"
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"cultivo\": {{cultivo_id}}, \"orden\": [{{etapa_id}}]}"
+        }
+      }
+    },
+    {
+      "name": "068 · Reordenar sin la lista completa → 400",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 400', function () { pm.response.to.have.status(400); });",
+              "pm.expect(pm.response.text()).to.include('Debe ser la lista completa de ids de etapas.');"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/etapas-fenologicas/reordenar/"
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"cultivo\": {{cultivo_id}}, \"orden\": []}"
+        }
+      }
+    },
+    {
+      "name": "069 · ?activo=true en etapas → 400 (no tienen estado)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 400', function () { pm.response.to.have.status(400); });",
+              "pm.expect(pm.response.text()).to.include('Las etapas no tienen estado.');"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/etapas-fenologicas/?activo=true"
+        }
+      }
+    },
+    {
+      "name": "070 · Desactivar cultivo → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Queda inactivo', function () { pm.expect(pm.response.json().activo).to.eql(false); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/cultivos/{{cultivo_id}}/estado/"
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"activo\": false}"
+        }
+      }
+    },
+    {
+      "name": "071 · Filtrar cultivos activos → 200 (no aparece el desactivado)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Sin el cultivo desactivado', function () { pm.expect(pm.response.text()).to.not.include('pm.environment.get('cultivo_nombre')'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/cultivos/?activo=true"
+        }
+      }
+    },
+    {
+      "name": "072 · Variedad sobre cultivo inactivo → 400",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 400', function () { pm.response.to.have.status(400); });",
+              "pm.expect(pm.response.text()).to.include('El cultivo indicado no existe o está inactivo.');"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/variedades/"
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"cultivo\": {{cultivo_id}}, \"nombre\": \"Variedad inactiva S5 {{sufijo}}\"}"
+        }
+      }
+    },
+    {
+      "name": "073 · DELETE cultivo → 405 (nada se borra)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 405', function () { pm.response.to.have.status(405); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/cultivos/{{cultivo_id}}/"
+        }
+      }
+    },
+    {
+      "name": "074 · Listar unidades (paginado) → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Respuesta paginada', function () { pm.expect(pm.response.json()).to.have.property('count'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/unidades/"
+        }
+      }
+    },
+    {
+      "name": "075 · Crear unidad (no base) → 201",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 201', function () { pm.response.to.have.status(201); });",
+              "pm.test('No es base', function () { pm.expect(pm.response.json().es_base).to.eql(false); });",
+              "pm.environment.set('unidad_id', pm.response.json().id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/unidades/"
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"nombre\": \"Unidad S5 {{sufijo}}\", \"simbolo\": \"u5\", \"tipo\": \"MASA\", \"factor_a_base\": \"0.02\", \"es_base\": false}"
+        }
+      }
+    },
+    {
+      "name": "076 · Convertir una unidad existente en base → 400",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 400', function () { pm.response.to.have.status(400); });",
+              "pm.expect(pm.response.text()).to.include('No se puede convertir una unidad existente en base.');"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/unidades/{{unidad_id}}/"
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"es_base\": true}"
+        }
+      }
+    },
+    {
+      "name": "077 · Crear una unidad base nueva → 400",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 400', function () { pm.response.to.have.status(400); });",
+              "pm.expect(pm.response.text()).to.include('No se pueden crear unidades base: cada tipo ya tiene la suya.');"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/unidades/"
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"nombre\": \"Base S5 {{sufijo}}\", \"simbolo\": \"b5\", \"tipo\": \"VOLUMEN\", \"factor_a_base\": 1, \"es_base\": true}"
+        }
+      }
+    },
+    {
+      "name": "078 · Desplegable de unidades → 200 (lista corta sin paginar)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.expect(pm.response.text()).to.include('\"simbolo\"');",
+              "pm.expect(pm.response.text()).to.not.include('\"count\"');"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/unidades/?desplegable=1"
+        }
+      }
+    },
+    {
+      "name": "079 · Desactivar unidad → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Queda inactiva', function () { pm.expect(pm.response.json().activo).to.eql(false); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/unidades/{{unidad_id}}/estado/"
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"activo\": false}"
+        }
+      }
+    },
+    {
+      "name": "080 · Listar tipos de actividad (código fijo) → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Séptimo y último: Siembra', function () { pm.expect(pm.response.json().results[6].codigo).to.eql('SIEMBRA'); });",
+              "pm.environment.set('siembra_id', pm.response.json().results[6].id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/tipos-actividad/"
+        }
+      }
+    },
+    {
+      "name": "081 · Crear tipo de actividad (POST) → 405 (código fijo)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 405', function () { pm.response.to.have.status(405); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/tipos-actividad/"
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"nombre\": \"Alta no permitida\"}"
+        }
+      }
+    },
+    {
+      "name": "082 · Editar tipo de actividad (PATCH) → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Nombre conservado', function () { pm.expect(pm.response.json().nombre).to.eql('Siembra'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/tipos-actividad/{{siembra_id}}/"
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"nombre\": \"Siembra\"}"
+        }
+      }
+    },
+    {
+      "name": "083 · Desactivar Siembra → 400 (protegida)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 400', function () { pm.response.to.have.status(400); });",
+              "pm.expect(pm.response.text()).to.include('Siembra y Cosecha no se pueden desactivar.');"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/tipos-actividad/{{siembra_id}}/estado/"
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"activo\": false}"
+        }
+      }
+    },
+    {
+      "name": "084 · Listar recursos (paginado) → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Respuesta paginada', function () { pm.expect(pm.response.json()).to.have.property('count'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/recursos/"
+        }
+      }
+    },
+    {
+      "name": "085 · Crear recurso → 201",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 201', function () { pm.response.to.have.status(201); });",
+              "pm.test('Categoría guardada', function () { pm.expect(pm.response.json().categoria).to.eql('SEMILLA'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/recursos/"
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"nombre\": \"Recurso S5 {{sufijo}}\", \"categoria\": \"SEMILLA\", \"tipo_unidad\": \"MASA\", \"activo\": true}"
+        }
+      }
+    },
+    {
+      "name": "086 · Filtrar recursos por categoría → 200 (solo SEMILLA)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Todos de esa categoría', function () { pm.expect(pm.response.json().results[0].categoria).to.eql('SEMILLA'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/recursos/?categoria=SEMILLA"
+        }
+      }
+    },
+    {
+      "name": "087 · Listar tipos de incidencia (paginado) → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Respuesta paginada', function () { pm.expect(pm.response.json()).to.have.property('count'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/tipos-incidencia/"
+        }
+      }
+    },
+    {
+      "name": "088 · Crear tipo de incidencia → 201",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 201', function () { pm.response.to.have.status(201); });",
+              "pm.test('Categoría guardada', function () { pm.expect(pm.response.json().categoria).to.eql('CLIMATICA'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/tipos-incidencia/"
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"nombre\": \"Incidencia S5 {{sufijo}}\", \"categoria\": \"CLIMATICA\", \"activo\": true}"
+        }
+      }
+    },
+    {
+      "name": "089 · Listar agentes (paginado) → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Respuesta paginada', function () { pm.expect(pm.response.json()).to.have.property('count'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/agentes/"
+        }
+      }
+    },
+    {
+      "name": "090 · Crear agente → 201",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 201', function () { pm.response.to.have.status(201); });",
+              "pm.test('Tipo guardado', function () { pm.expect(pm.response.json().tipo).to.eql('PLAGA'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/agentes/"
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"nombre\": \"Agente S5 {{sufijo}}\", \"tipo\": \"PLAGA\", \"activo\": true}"
+        }
+      }
+    },
+    {
+      "name": "091 · Login coordinador → 200",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/auth/login/"
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"username\": \"{{usuario_coordinador}}\", \"password\": \"{{clave_coordinador}}\"}"
+        }
+      }
+    },
+    {
+      "name": "092 · Coordinador lista cultivos → 200 (solo lectura: catalogos.ver)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('Respuesta paginada', function () { pm.expect(pm.response.json()).to.have.property('count'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/cultivos/"
+        }
+      }
+    },
+    {
+      "name": "093 · Coordinador crea cultivo → 403 (no tiene catalogos.crear)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Estado 403', function () { pm.response.to.have.status(403); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/cultivos/"
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"nombre\": \"No debe crearse {{sufijo}}\", \"activo\": true}"
+        }
+      }
+    }
+  ]
+}

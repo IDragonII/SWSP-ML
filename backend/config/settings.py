@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     # Propias
     'usuarios',
     'productores',
+    'catalogos',
 ]
 
 # Modelo de usuario propio: DEBE declararse antes del primer migrate.

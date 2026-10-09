@@ -1,6 +1,7 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import Layout from './components/Layout.jsx'
 import AccesoDenegado from './pages/AccesoDenegado.jsx'
+import Catalogos from './pages/Catalogos.jsx'
 import Inicio from './pages/Inicio.jsx'
 import Login from './pages/Login.jsx'
 import Modulo from './pages/Modulo.jsx'
@@ -12,7 +13,12 @@ import RutaSoloInvitado from './routes/RutaSoloInvitado.jsx'
 import { opcionesMenu } from './routes/opcionesMenu.js'
 import './App.css'
 
-const rutasConPantalla = new Set(['/', '/productores', '/parcelas'])
+const rutasConPantalla = new Set([
+  '/',
+  '/productores',
+  '/parcelas',
+  '/catalogos',
+])
 const modulos = opcionesMenu.filter(
   (opcion) => !rutasConPantalla.has(opcion.ruta),
 )
@@ -53,6 +59,15 @@ export default function App() {
             element={
               <RutaProtegida permiso="parcelas.ver">
                 <Parcelas />
+              </RutaProtegida>
+            }
+          />
+
+          <Route
+            path="/catalogos"
+            element={
+              <RutaProtegida permiso="catalogos.editar">
+                <Catalogos />
               </RutaProtegida>
             }
           />

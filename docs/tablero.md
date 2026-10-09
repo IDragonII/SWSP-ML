@@ -1,12 +1,36 @@
-# Tablero SIGPA-GA — Semana 4: parcelas, asignaciones y pantallas
+# Tablero SIGPA-GA — Semana 5: catálogos de campañas
 
-> Tablero de la semana del **26 de octubre al 1 de noviembre** (calendario referencial).
+> Tablero de la semana del **2 al 8 de noviembre** (calendario referencial).
 > Sustituye mientras tanto a Trello/GitHub Projects (decisión de metodología:
 > se confirmará con el responsable qué herramienta usa él).
 > Los textos originales de las historias de usuario **no están en este
 > repositorio**: las descripciones siguientes son el **mapeo propuesto**
 > (igual que en semanas anteriores), anclado a los RF/RN del documento de
 > requerimientos.
+
+## Semana 5 — 8/8 fases terminadas
+
+El tema «Catálogos de campañas» no tiene HU propia en el mapeo propuesto, así
+que esta semana se ejecutó **por fases F1–F8** acordadas con el responsable.
+
+| Fase | Contenido | Estado | Evidencia |
+|---|---|---|---|
+| **F1** | Estructura: app **`catalogos/`** con 8 modelos y 2 migraciones (`0001` con los constraints del diseño, `0002` con las 26 filas fijas) | ✅ Hecha | `backend/catalogos/models.py`, `migrations/0001_initial.py`, `0002_datos_iniciales.py` |
+| **F2** | API de los 8 catálogos (listado, detalle, alta, edición, estado, desplegables y reordenado de etapas) con los permisos `catalogos.*` y pruebas | ✅ Hecha | `views.py`, `serializers.py`, `urls.py` · pruebas 54–67 · colección 049–093 |
+| **F3** | Comando **`cargar_catalogos`** con los 18 datos CONFIRMAR, idempotente y sin pisar ediciones (44 filas en total) | ✅ Hecha | `management/commands/cargar_catalogos.py` · prueba 67 |
+| **F4** | Comparación con el diseño SQL (columnas, constraints y datos) | ✅ Hecha | `docs/comparacion_semana5.md` — **37/37 columnas, 28/28 restricciones, 44/44 datos** |
+| **F5** | Pantalla **`/catalogos`** con 8 pestañas, filtros en URL, alta/edición en modal y permisos en el botón | ✅ Hecha | `pages/Catalogos.jsx`, `CatalogoFormulario.jsx`, `catalogosConfig.js`, `api/catalogos.js` · checklist `verificacion_ui_semana5.md` |
+| **F6** | Colección de Postman: 48 de la Semana 4 + 45 nuevas de catálogos | ✅ Hecha | `docs/coleccion_api_semana5.json` — **validada 93/93** |
+| **F7** | Documentación de la semana | ✅ Hecha | `decisiones_semana5.md` (17 decisiones), `api_catalogos.md`, `verificacion_ui_semana5.md` |
+| **F8** | Cierre y verificación | ✅ Hecha | este tablero + `evidencias_capitulo4.md` |
+
+**Cierre de la semana:** 67 pruebas verdes (`manage.py test`),
+`manage.py check` en 0 issues, `makemigrations --check` sin cambios, colección
+de **93 peticiones validada 93/93** contra el servidor (estados y aserciones),
+`npm run lint` y `npm run build` en 0 problemas, y documentación en
+`decisiones_semana5.md` (17 decisiones), `comparacion_semana5.md`,
+`verificacion_ui_semana5.md`, `api_catalogos.md` y
+`coleccion_api_semana5.json`.
 
 ## Semana 4 — 6/6 terminadas
 
@@ -34,13 +58,13 @@ de **48 peticiones validada 48/48** contra el servidor (estados y aserciones),
 | 2 (12–18 oct) — autenticación y permisos | HU-07..HU-14 (login, refresh, logout, `/me`, permisos, rate limit, sesión y menú en React) | ✅ 20 pruebas · `api_autenticacion.md` |
 | 3 (19–25 oct) — ubicación y productores | HU-15..HU-22 (ubicación con `cargar_ubicacion`, productor con código PROD-000N, filtros, enmascarado, ficha parcial) | ✅ 37 pruebas · `api_ubicacion_productores.md` |
 
-## Siguiente (Semana 5, 2–8 nov)
+## Siguiente (Semana 6, 9–15 nov)
 
 | Tema | Nota |
 |---|---|
-| Catálogos de campañas (cultivos, unidades, tipos…) | Pendiente desde el «Siguiente» de la Semana 3; permisos `catalogos.*` ya existen |
-| Esqueleto de campañas (`campanias`, ciclo por parcela) | Tabla central del diseño; bloqueada por catálogos |
+| Esqueleto de campañas (`campanias`, ciclo por parcela) | Tabla central del diseño; ya **no bloqueada**: los catálogos están terminados (Semana 5) |
 | Preguntas abiertas A, B y D | Lista de ubicaciones real, regla de enmascarado y botón «usar mi ubicación» |
+| Checklists de UI de las Semanas 4 y 5 | Ejecutar en navegador (Chrome/Edge/móvil) y anotar los resultados en cada documento |
 
 ## Preguntas abiertas que bloquean decisiones
 
