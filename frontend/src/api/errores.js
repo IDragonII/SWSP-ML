@@ -12,9 +12,13 @@ export function mensajeDeError(error) {
       return data.non_field_errors[0]
     }
     const primerCampo = Object.entries(data).find(
-      ([, mensajes]) => Array.isArray(mensajes) && mensajes.length > 0,
+      ([, mensajes]) =>
+        (Array.isArray(mensajes) && mensajes.length > 0) ||
+        (typeof mensajes === 'string' && mensajes.length > 0),
     )
-    if (primerCampo) return primerCampo[1][0]
+    if (primerCampo) {
+      return Array.isArray(primerCampo[1]) ? primerCampo[1][0] : primerCampo[1]
+    }
   }
 
   if (status === 401) return 'Sesión expirada. Vuelve a iniciar sesión.'

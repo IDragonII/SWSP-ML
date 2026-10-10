@@ -129,12 +129,33 @@
 - **Documentación:** `docs/comparacion_semana3.md` (diseño SQL vs migraciones: 4 tablas + 2 triggers), `docs/tablero.md` (HU-15..HU-22 con evidencias) y `docs/coleccion_api_semana3.json` (**36 peticiones validadas 36/36** contra el servidor, sin secretos).
 - **Migración desde BD vacía verificada:** base nueva `sigpa_ga_migracion` → 27 migraciones OK, 55 permisos / 3 roles / 101 asignaciones, las 4 tablas, 3 triggers, 3 funciones y la secuencia; prueba funcional en SQL crudo (`PROD-0001` generado y `actualizado_en` actualizado en otra transacción). Base de prueba borrada al terminar.
 
+### Semana 4 (26 oct - 1 nov): parcelas y asignaciones - COMPLETADA
+- **Decisiones documentadas** en `docs/decisiones_semana4.md` (19 decisiones): desactivar sin borrar, CRUD en modales (decisión 19), responsive siempre (14), toasts (20), auto-asignación del técnico al crear el productor (4, cierra la pregunta C).
+- **Tablas:** `parcelas` y `asignaciones_tecnico` en la app `productores` (migraciones `0003` y `0004`, reversibles) con `fn_codigo_parcela` + secuencia (`P-0001`), `trg_parcelas_actualizado`, `trg_parcelas_codigo` y `fn_validar_asignacion` + `trg_asignaciones_validar`.
+- **API:** `/api/parcelas/` (filtros jerárquicos, `?desplegable=1`, sin `DELETE`, `./estado/`) y `/api/asignaciones/` (`tecnicos-disponibles`, `./estado/`, reasignar = desactivar + crear); el ámbito del Técnico (`SoloSusProductores`) reutilizado desde entonces en todas las APIs; ficha del productor completa (`parcelas`, `resumen`, `tecnicos_asignados`).
+- **Frontend:** pantallas `Productores` y `Parcelas` con ficha y formularios en modales, filtros en URL, checklist `docs/verificacion_ui_semana4.md`.
+- **Cierre:** **53 pruebas** (16 nuevas), `check` en 0 issues, colección `coleccion_api_semana4.json` validada **48/48**, `lint`/`build` en 0; comparación `comparacion_semana4.md` (2 tablas, 2 funciones y 3 triggers).
+
+### Semana 5 (2-8 nov): catálogos de campañas - COMPLETADA
+- **Decisiones documentadas** en `docs/decisiones_semana5.md` (17 decisiones): los 8 catálogos, datos CONFIRMAR solo por comando, nada se borra, etapas sin estado, unidad base protegida, unicidad normalizada en español.
+- **App `catalogos/`** con 2 migraciones (`0001` con las 8 tablas y sus constraints, `0002` con las 26 filas fijas) + comando idempotente **`cargar_catalogos`** (18 datos CONFIRMAR → 44 filas en total).
+- **API de los 8 recursos** con `VistaCatalogo`/`VistaCatalogoConEstado`, `?desplegable=1`, reordenado de etapas atómico y mensajes `Ya existe…` por recurso; contrato en `docs/api_catalogos.md`.
+- **Frontend:** pantalla `/catalogos` con 8 pestañas en la URL, configuración declarativa `catalogosConfig.js`, alta/edición en modal; checklist `docs/verificacion_ui_semana5.md`.
+- **Cierre:** **67 pruebas** (14 nuevas), `check` en 0 issues, colección `coleccion_api_semana5.json` validada **93/93**, `lint`/`build` en 0; comparación `comparacion_semana5.md` (37/37 columnas, 28/28 restricciones, 44/44 datos).
+
+### Semana 6 (9-15 nov): campañas de producción - COMPLETADA
+- **Decisiones documentadas** en `docs/decisiones_semana6.md` (18 decisiones, mapeo HU-38..HU-46): 5 estados con máquina de transiciones, período `AAAA-AAAA` con fechas dentro del rango 1 ene año₁ – 31 dic año₂ (solo API, **pregunta F pendiente de confirmar**), una campaña activa por parcela y período, bloqueo de la desactivación de productor/parcela con campañas activas (**pregunta G pendiente de confirmar**), edición por estado y cancelación con motivo.
+- **App `campanias/`** con 2 migraciones: `0001_initial.py` (tabla de 14 columnas, FK compuesta `fk_campania_variedad_cultivo`, `ck_campania_periodo`, `ck_campania_fechas`, 6 índices del diseño) y `0002_funciones_y_triggers.py` (`fn_validar_campania` **parcial** + `trg_campanias_validar` + `trg_campanias_actualizado`); las transiciones de estado completas quedan para el Sprint 4 (`campanias.0003`; nunca se edita una migración aplicada).
+- **API** `/api/campanias/` (listado con filtros, detalle, alta, edición por estado, `iniciar/` y `cancelar/` con motivo) con permisos `campanias.*` por acción (`PermisosCampania`), ámbito del Técnico (campaña ajena → 404) y, en `productores`, los bloqueos HU-45/HU-46 al desactivar con campañas activas; contrato completo en `docs/api_campanias.md`.
+- **Frontend:** pantalla `/campanias` (listado con filtros en URL, `Tabla` + `Paginacion`), alta/edición en modal con las acciones de estado, y sección **Campañas** en las fichas de productor y parcela (HU-44); permisos siempre en el botón (el botón «Cancelar campaña» exige `campanias.desactivar`); checklist `docs/verificacion_ui_semana6.md`.
+- **Cierre:** **86 pruebas** (19 nuevas, 68–86), `check` en 0 issues, colección `coleccion_api_semana6.json` validada **127/127 (221/221 aserciones)**, `lint`/`build` en 0; comparación `comparacion_semana6.md` (14/14 columnas, 9/9 restricciones, 6/6 índices + 1 extra documentado, 2/2 triggers).
+
 ### No hecho todavía
-- Parcelas, campañas, catálogos y el resto de tablas (con sus triggers: `fn_codigo_parcela`, `fn_validar_campania`, …) y la vista del dataset.
-- Asignación de productores a técnicos (`asignaciones_tecnico`) y el filtro «solo mis productores».
-- Endpoints y pantallas de cada módulo (el menú/rutas de React ya filtran por permiso y esperan esas pantallas).
+- Actividades, recursos, clima, incidencias, producción, reportes, alertas y el resto de tablas (con sus triggers: `fn_validar_fecha_campania`, `fn_validar_etapa`, `fn_validar_incidencia`, `fn_uso_recurso`, `fn_actividad_siembra`, `fn_validar_produccion`, `fn_produccion_post`) y la vista del dataset. La `fn_validar_campania` **completa** (transiciones `COSECHADA`/`CERRADA`) también queda pendiente para el Sprint 4 (`campanias.0003`).
+- Pantallas React de los módulos que faltan (Producción, Predicción, Reportes, Usuarios, Auditoría; hoy: login, 403, 404, productores, parcelas, catálogos y **campañas**).
 - Administración de usuarios/roles desde React, cambio de contraseña y recuperación de acceso.
 - Diagrama entidad-relación y modelo lógico para el Capítulo IV.
+- Ejecutar los checklists de UI de las Semanas 4, 5 y 6 en navegador.
 
 ### Ojo: cosas que quedaron superadas
 - Antes se propuso un modelo `Usuario` con un campo de texto `rol` (ADMIN/TECNICO/COORDINADOR). **Está descartado.** El diseño vigente usa `rol_id` → tabla `roles` con permisos (secciones 5.C y 8).
@@ -284,7 +305,7 @@ Están en `DB_sql/02_reglas_y_vista.sql`: **13 funciones y 24 triggers**. Existe
 | `fn_codigo_parcela` + secuencia | parcelas | Genera `P-001`, `P-002`… | Ídem |
 | `fn_proteger_rol_sistema` | roles | Impide borrar los roles del sistema | Que nadie deje el sistema sin roles base. **Implementada** en la migración `usuarios.0003_trigger_rol_sistema` |
 | `fn_validar_asignacion` | asignaciones_tecnico | Solo permite asignar productores a usuarios cuyo rol tenga `limita_a_asignados` | Coherencia: no se asigna a un administrador |
-| `fn_validar_campania` | campanias | Superficie sembrada ≤ superficie de la parcela; estado inicial solo `PLANIFICADA` o `EN_PRODUCCION`; **transiciones de estado válidas**; no cerrar sin producción | Regla central del modelo de datos |
+| `fn_validar_campania` | campanias | Superficie sembrada ≤ superficie de la parcela; estado inicial solo `PLANIFICADA` o `EN_PRODUCCION`; **transiciones de estado válidas**; no cerrar sin producción | Regla central del modelo de datos. **Implementada en versión parcial** en `campanias.0002_funciones_y_triggers` (Semana 6, con `trg_campanias_validar` y `trg_campanias_actualizado`): cubre lo que ya existe en la API; las transiciones completas entran en el Sprint 4 con `campanias.0003` |
 | `fn_validar_fecha_campania` (4 triggers) | actividades, uso_recursos, incidencias, seguimiento_etapas | La fecha debe estar dentro del período de la campaña (`fecha_inicio` a `fecha_fin_prevista`) y la campaña no puede estar cerrada ni cancelada | Todo dato debe ubicarse dentro del ciclo del cultivo |
 | `fn_validar_etapa` | seguimiento_etapas | La etapa debe ser del cultivo de la campaña | Evita registrar «floración de tarwi» en una campaña de quinua |
 | `fn_validar_incidencia` | incidencias | Superficie afectada ≤ superficie sembrada; solo incidencias biológicas pueden llevar `agente_id` | Datos coherentes |
@@ -294,6 +315,7 @@ Están en `DB_sql/02_reglas_y_vista.sql`: **13 funciones y 24 triggers**. Existe
 | `fn_produccion_post` | producciones (AFTER) | Pasa la campaña a `COSECHADA`; **rellena `rendimiento_real`, `error_abs` y `error_pct`** de las predicciones previas | Comparación predicho vs. real sin trabajo manual |
 
 **Detalles que conviene recordar.**
+- Desde la Semana 6, los triggers **implementados** en las migraciones propias son 8 de 24 (`trg_roles_proteger`, `trg_productores_actualizado`, `trg_productores_codigo`, `trg_parcelas_actualizado`, `trg_parcelas_codigo`, `trg_asignaciones_validar`, `trg_campanias_validar` y `trg_campanias_actualizado`); el detalle está en `docs/evidencias_capitulo4.md`.
 - Las fechas de actividades se validan de forma estricta contra `fecha_fin_prevista`. Si una cosecha se retrasa, hay que ampliar esa fecha (se puede relajar la regla más adelante).
 - Si el rendimiento cae fuera de `rendimiento_min_plausible` o `rendimiento_max_plausible`, la producción queda marcada para revisión y **el administrador decide** si se incluye en el entrenamiento (`incluir_en_entrenamiento`).
 - La densidad de siembra tiene un CHECK (número y unidad van juntos), pero **no** se obliga a que solo la actividad de siembra la use.

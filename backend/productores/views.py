@@ -18,6 +18,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.filters import SearchFilter
 from rest_framework.response import Response
 
+from campanias.models import Campania
 from usuarios.models import Usuario
 from usuarios.permisos import TienePermiso
 
@@ -30,6 +31,7 @@ from .serializers import (
     DistritoEscrituraSerializer,
     DistritoSerializer,
     ParcelaDetalleSerializer,
+    ParcelaDesplegableSerializer,
     ParcelaEscrituraSerializer,
     ParcelaListaSerializer,
     ProductorDetalleSerializer,
@@ -308,11 +310,30 @@ class ProductorViewSet(
 
     @action(detail=True, methods=("patch",), url_path="estado")
     def estado(self, request, pk=None):
-        """Desactiva o reactiva sin perder datos (decisión 6)."""
+        """Desactiva o reactiva sin perder datos (decisión 6). Desde la
+        Semana 6 no se desactiva un productor con campañas activas
+        (HU-46; decisión pendiente de confirmar con el responsable:
+        docs/decisiones_semana6.md)."""
         valor = request.data.get("estado")
         if valor not in ("ACTIVO", "INACTIVO"):
             raise ValidationError({"estado": "Use ACTIVO o INACTIVO."})
         productor = self.get_object()
+        if valor == "INACTIVO":
+            activas = Campania.objects.filter(
+                parcela__productor=productor, estado__in=Campania.ESTADOS_ACTIVOS
+            )
+            if activas.exists():
+                primera = activas.first()
+                raise ValidationError(
+                    {
+                        "estado": (
+                            f"No se puede desactivar el productor: tiene "
+                            f"{activas.count()} campaña(s) activa(s) "
+                            f"(id {primera.pk}, {primera.periodo}). Cancela o "
+                            "cierra esas campañas primero."
+                        )
+                    }
+                )
         if productor.estado != valor:
             productor.estado = valor
             productor.save(update_fields=("estado",))
@@ -359,6 +380,7 @@ class ParcelaViewSet(
     )
     serializer_class = ParcelaDetalleSerializer
     escritura_serializer = ParcelaEscrituraSerializer
+    desplegable_serializer = ParcelaDesplegableSerializer
     filter_backends = (BusquedaPorNombre,)
     search_fields = (
         "codigo",
@@ -367,15 +389,32 @@ class ParcelaViewSet(
         "productor__apellidos",
     )
 
+    def _es_desplegable(self):
+        return (
+            self.request.query_params.get("desplegable", "").strip().lower()
+            in _BOOLEANOS_SI
+        )
+
     def get_serializer_class(self):
+        if self.action == "list" and self._es_desplegable():
+            return self.desplegable_serializer
         if self.action in ("create", "update", "partial_update"):
             return self.escritura_serializer
         if self.action == "list":
             return ParcelaListaSerializer
         return self.serializer_class
 
+    def paginate_queryset(self, queryset):
+        # Los desplegables son listas cortas: sin paginación
+        if self._es_desplegable():
+            return None
+        return super().paginate_queryset(queryset)
+
     def get_queryset(self):
         queryset = self._filtrar_asignados(super().get_queryset(), "productor_id")
+        if self._es_desplegable():
+            # El selector de campañas solo ofrece parcelas activas
+            queryset = queryset.filter(estado=Parcela.ESTADO_ACTIVA)
         params = self.request.query_params
         if params.get("productor"):
             queryset = queryset.filter(
@@ -425,11 +464,28 @@ class ParcelaViewSet(
 
     @action(detail=True, methods=("patch",), url_path="estado")
     def estado(self, request, pk=None):
-        """Desactiva o reactiva sin perder datos (decisión 3)."""
+        """Desactiva o reactiva sin perder datos (decisión 3). Desde la
+        Semana 6 no se desactiva una parcela con campaña activa (HU-45);
+        con solo campañas canceladas sí se puede."""
         valor = request.data.get("estado")
         if valor not in ("ACTIVA", "INACTIVA"):
             raise ValidationError({"estado": "Use ACTIVA o INACTIVA."})
         parcela = self.get_object()
+        if valor == "INACTIVA":
+            activa = parcela.campanias.filter(
+                estado__in=Campania.ESTADOS_ACTIVOS
+            ).first()
+            if activa is not None:
+                raise ValidationError(
+                    {
+                        "estado": (
+                            f"No se puede desactivar la parcela: tiene una "
+                            f"campaña activa (id {activa.pk}, {activa.periodo}, "
+                            f"{activa.cultivo.nombre}). Cancela esa campaña "
+                            "primero."
+                        )
+                    }
+                )
         if parcela.estado != valor:
             parcela.estado = valor
             parcela.save(update_fields=("estado",))

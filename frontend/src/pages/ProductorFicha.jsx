@@ -18,6 +18,7 @@ import RuedaCarga from '../components/RuedaCarga.jsx'
 import Tabla from '../components/Tabla.jsx'
 import { useSesion } from '../context/useSesion.js'
 import { useToast } from '../context/useToast.js'
+import CampaniaFormulario from './CampaniaFormulario.jsx'
 import ParcelaFormulario from './ParcelaFormulario.jsx'
 import ProductorFormulario from './ProductorFormulario.jsx'
 
@@ -53,6 +54,8 @@ export default function ProductorFicha({ id, abierto, onCerrar }) {
   const [editando, setEditando] = useState(false)
   const [nuevaParcela, setNuevaParcela] = useState(false)
   const [parcelaEditando, setParcelaEditando] = useState(null)
+  const [nuevaCampania, setNuevaCampania] = useState(false)
+  const [campaniaEditando, setCampaniaEditando] = useState(null)
 
   const gestionaAsignaciones = tienePermiso('asignaciones.gestionar')
   const puedeEditar = tienePermiso('productores.editar')
@@ -306,6 +309,78 @@ export default function ProductorFicha({ id, abierto, onCerrar }) {
         )}
       </section>
 
+      <section className="panel">
+        <h2>Campañas</h2>
+        <ul className="resumen-lista">
+          <li>
+            <strong>{resumen?.campanias_activas ?? 0}</strong> activas de{' '}
+            {ficha.campanias.length}
+          </li>
+        </ul>
+        <div className="ficha-acciones">
+          {tienePermiso('campanias.crear') && (
+            <button
+              type="button"
+              className="boton-secundario"
+              onClick={() => setNuevaCampania(true)}
+            >
+              Nueva campaña
+            </button>
+          )}
+        </div>
+        {ficha.campanias.length > 0 ? (
+          <Tabla
+            filas={ficha.campanias}
+            columnas={[
+              {
+                clave: 'periodo',
+                etiqueta: 'Período',
+                celda: (campania) => campania.periodo,
+              },
+              {
+                clave: 'parcela',
+                etiqueta: 'Parcela',
+                celda: (campania) => (
+                  <span className="chip-codigo">{campania.parcela.codigo}</span>
+                ),
+              },
+              {
+                clave: 'cultivo',
+                etiqueta: 'Cultivo',
+                celda: (campania) => campania.cultivo.nombre,
+              },
+              {
+                clave: 'variedad',
+                etiqueta: 'Variedad',
+                celda: (campania) => campania.variedad.nombre,
+              },
+              {
+                clave: 'estado',
+                etiqueta: 'Estado',
+                celda: (campania) => <Chip>{campania.estado}</Chip>,
+              },
+              {
+                clave: 'acciones',
+                etiqueta: 'Acciones',
+                acciones: true,
+                celda: (campania) =>
+                  tienePermiso('campanias.editar') ? (
+                    <button
+                      type="button"
+                      className="boton-texto"
+                      onClick={() => setCampaniaEditando(campania.id)}
+                    >
+                      Editar
+                    </button>
+                  ) : null,
+              },
+            ]}
+          />
+        ) : (
+          <p className="nota">Este productor todavía no tiene campañas.</p>
+        )}
+      </section>
+
       {asignadosEnFicha !== undefined && (
         <section className="panel">
           <h2>Técnicos asignados</h2>
@@ -440,6 +515,33 @@ export default function ProductorFicha({ id, abierto, onCerrar }) {
           }}
           onCancelar={() => {
             setParcelaEditando(null)
+            recargar()
+          }}
+        />
+      )}
+
+      {nuevaCampania && ficha && (
+        <CampaniaFormulario
+          productorInicial={ficha.id}
+          abierto
+          onGuardado={() => {
+            setNuevaCampania(false)
+            recargar()
+          }}
+          onCancelar={() => setNuevaCampania(false)}
+        />
+      )}
+
+      {campaniaEditando !== null && (
+        <CampaniaFormulario
+          id={campaniaEditando}
+          abierto
+          onGuardado={() => {
+            setCampaniaEditando(null)
+            recargar()
+          }}
+          onCancelar={() => {
+            setCampaniaEditando(null)
             recargar()
           }}
         />

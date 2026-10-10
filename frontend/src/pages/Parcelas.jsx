@@ -10,6 +10,7 @@ import Chip from '../components/Chip.jsx'
 import Paginacion from '../components/Paginacion.jsx'
 import Tabla from '../components/Tabla.jsx'
 import { useSesion } from '../context/useSesion.js'
+import ParcelaFicha from './ParcelaFicha.jsx'
 import ParcelaFormulario from './ParcelaFormulario.jsx'
 import ProductorFicha from './ProductorFicha.jsx'
 
@@ -33,6 +34,7 @@ export default function Parcelas() {
   const [edicionId, setEdicionId] = useState(null)
   const [altaAbierta, setAltaAbierta] = useState(false)
   const [fichaId, setFichaId] = useState(null)
+  const [parcelaFichaId, setParcelaFichaId] = useState(null)
   const refrescando = datos !== null && claveCargada !== clave
 
   function refrescar() {
@@ -235,7 +237,7 @@ export default function Parcelas() {
                     <button
                       type="button"
                       className="boton-texto"
-                      onClick={() => setFichaId(fila.productor.id)}
+                      onClick={() => setParcelaFichaId(fila.id)}
                     >
                       Ver ficha
                     </button>
@@ -287,6 +289,17 @@ export default function Parcelas() {
           abierto
           onCerrar={() => {
             setFichaId(null)
+            refrescar()
+          }}
+        />
+      )}
+
+      {parcelaFichaId !== null && (
+        <ParcelaFicha
+          id={parcelaFichaId}
+          abierto
+          onCerrar={() => {
+            setParcelaFichaId(null)
             refrescar()
           }}
         />

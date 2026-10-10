@@ -1,12 +1,36 @@
-# Tablero SIGPA-GA — Semana 5: catálogos de campañas
+# Tablero SIGPA-GA — Semana 6: campañas de producción
 
-> Tablero de la semana del **2 al 8 de noviembre** (calendario referencial).
+> Tablero de la semana del **9 al 15 de noviembre** (calendario referencial).
 > Sustituye mientras tanto a Trello/GitHub Projects (decisión de metodología:
 > se confirmará con el responsable qué herramienta usa él).
 > Los textos originales de las historias de usuario **no están en este
 > repositorio**: las descripciones siguientes son el **mapeo propuesto**
 > (igual que en semanas anteriores), anclado a los RF/RN del documento de
 > requerimientos.
+
+## Semana 6 — 7/7 fases terminadas
+
+El tema «Campañas de producción» corresponde al **mapeo HU-38 a HU-46** de la
+semana; al igual que en la Semana 5, se ejecutó **por fases F1–F7**
+acordadas con el responsable.
+
+| Fase | Contenido | Estado | Evidencia |
+|---|---|---|---|
+| **F1** | Estructura: app **`campanias/`** con el modelo `Campania` (5 estados, constraints del diseño) y 2 migraciones (`0001` con la tabla y la clave compuesta, `0002` con `fn_validar_campania` **parcial** y sus 2 triggers) | ✅ Hecha | `backend/campanias/models.py`, `migrations/0001_initial.py`, `0002_funciones_y_triggers.py` |
+| **F2** | API completa: listado con filtros, detalle, alta, edición por estado, `iniciar/` y `cancelar/`; permisos `campanias.*` por acción, ámbito del Técnico (404) y bloqueos de desactivación en productor/parcela | ✅ Hecha | `views.py`, `serializers.py`, `urls.py` + bloqueos en `productores/views.py` · pruebas 68–86 · colección 094–127 |
+| **F3** | Comparación con el diseño SQL (columnas, constraints, índices, reglas y datos) | ✅ Hecha | `docs/comparacion_semana6.md` — **14/14 columnas, 9/9 restricciones, 6/6 índices** (+1 extra documentado), 2/2 triggers |
+| **F4** | Pantallas: **`/campanias`** (listado con filtros en URL y `Tabla`), alta/edición en modal con iniciar/cancelar, y sección **Campañas** en las fichas de productor y parcela (HU-44) | ✅ Hecha | `pages/Campanias.jsx`, `CampaniaFormulario.jsx`, edición de `ProductorFicha.jsx`, `ParcelaFicha.jsx`, `api/campanias.js` · checklist `verificacion_ui_semana6.md` |
+| **F5** | Colección de Postman: 93 de las semanas anteriores + 34 nuevas de campañas | ✅ Hecha | `docs/coleccion_api_semana6.json` — **validada 127/127 (221/221 aserciones)** |
+| **F6** | Documentación de la semana | ✅ Hecha | `decisiones_semana6.md` (18 decisiones), `api_campanias.md`, `verificacion_ui_semana6.md` |
+| **F7** | Cierre y verificación | ✅ Hecha | este tablero + `evidencias_capitulo4.md` + `CONTEXTO_PROYECTO.md` §3/§6 |
+
+**Cierre de la semana:** 86 pruebas verdes (`manage.py test`; 19 nuevas),
+`manage.py check` en 0 issues, `makemigrations --check` sin cambios, colección
+de **127 peticiones validada 127/127** contra el servidor (estados y
+aserciones), `npm run lint` y `npm run build` en 0 problemas, y documentación
+en `decisiones_semana6.md` (18 decisiones), `comparacion_semana6.md`,
+`verificacion_ui_semana6.md`, `api_campanias.md` y
+`coleccion_api_semana6.json`.
 
 ## Semana 5 — 8/8 fases terminadas
 
@@ -58,13 +82,14 @@ de **48 peticiones validada 48/48** contra el servidor (estados y aserciones),
 | 2 (12–18 oct) — autenticación y permisos | HU-07..HU-14 (login, refresh, logout, `/me`, permisos, rate limit, sesión y menú en React) | ✅ 20 pruebas · `api_autenticacion.md` |
 | 3 (19–25 oct) — ubicación y productores | HU-15..HU-22 (ubicación con `cargar_ubicacion`, productor con código PROD-000N, filtros, enmascarado, ficha parcial) | ✅ 37 pruebas · `api_ubicacion_productores.md` |
 
-## Siguiente (Semana 6, 9–15 nov)
+## Siguiente (Semana 7, 16–22 nov)
 
 | Tema | Nota |
 |---|---|
-| Esqueleto de campañas (`campanias`, ciclo por parcela) | Tabla central del diseño; ya **no bloqueada**: los catálogos están terminados (Semana 5) |
-| Preguntas abiertas A, B y D | Lista de ubicaciones real, regla de enmascarado y botón «usar mi ubicación» |
-| Checklists de UI de las Semanas 4 y 5 | Ejecutar en navegador (Chrome/Edge/móvil) y anotar los resultados en cada documento |
+| Sprint 4: actividades y producción (con rendimiento) | Siguiente objetivo del roadmap (`CONTEXTO_PROYECTO.md` §13); incluye `COSECHADA`/`CERRADA` y la siembra automática (`fn_actividad_siembra`) |
+| `fn_validar_campania` completa → migración `campanias.0003` | Las transiciones de estado que quedaron fuera del alcance parcial de esta semana (nunca se edita una migración aplicada) |
+| Preguntas abiertas A, B, D, F y G | Lista de ubicaciones real, regla de enmascarado, botón «usar mi ubicación», fechas vs período y bloqueo de desactivación con campañas activas |
+| Checklists de UI de las Semanas 4, 5 y 6 | Ejecutar en navegador (Chrome/Edge/móvil) y anotar los resultados en cada documento |
 
 ## Preguntas abiertas que bloquean decisiones
 
@@ -77,3 +102,9 @@ de **48 peticiones validada 48/48** contra el servidor (estados y aserciones),
    prueba 49: se asigna en la misma operación y de forma atómica).
 4. **Botón «usar mi ubicación actual»** (item *estirada*): solo funciona en
    `https://` o `localhost`; decidir en la demo si se implementa (no entró en F7).
+5. **¿Las fechas de una campaña deben caer dentro de su período?** (Semana 6,
+   pregunta F): rige el rango 1 ene año₁ – 31 dic año₂ validado solo en la API;
+   pendiente de confirmar con el responsable.
+6. **¿Bloquear la desactivación de productor/parcela con campañas activas?**
+   (Semana 6, pregunta G / HU-45 y HU-46): implementado con mensaje de error;
+   pendiente de confirmar con el responsable.

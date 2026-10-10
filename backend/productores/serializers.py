@@ -15,12 +15,36 @@ from decimal import Decimal
 from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
 
+from campanias.models import Campania
 from usuarios.models import Usuario
 
 from .models import AsignacionTecnico, Comunidad, Distrito, Parcela, Productor, Provincia
 
 ROLES_CON_DATOS_COMPLETOS = ("Administrador", "Técnico de campo")
 _MENSAJE_REQUERIDO = "Este campo es obligatorio."
+
+
+def _campanias_de_productor(obj):
+    """Bloque de campañas de la ficha del productor (HU-44, Semana 6).
+
+    Sin creado_por ni datos de otros usuarios (decisión de la Semana 6):
+    solo período, cultivo, variedad, parcela y estado."""
+    campanias = (
+        Campania.objects.filter(parcela__productor=obj)
+        .select_related("cultivo", "variedad", "parcela")
+        .order_by("-periodo", "id")
+    )
+    return [
+        {
+            "id": c.id,
+            "periodo": c.periodo,
+            "cultivo": {"id": c.cultivo_id, "nombre": c.cultivo.nombre},
+            "variedad": {"id": c.variedad_id, "nombre": c.variedad.nombre},
+            "parcela": {"id": c.parcela_id, "codigo": c.parcela.codigo},
+            "estado": c.estado,
+        }
+        for c in campanias
+    ]
 
 
 def _rol_enmascara(context):
@@ -126,6 +150,7 @@ class ProductorDetalleSerializer(serializers.ModelSerializer):
     parcelas = serializers.SerializerMethodField()
     resumen = serializers.SerializerMethodField()
     tecnicos_asignados = serializers.SerializerMethodField()
+    campanias = serializers.SerializerMethodField()
 
     class Meta:
         model = Productor
@@ -143,6 +168,7 @@ class ProductorDetalleSerializer(serializers.ModelSerializer):
             "parcelas",
             "resumen",
             "tecnicos_asignados",
+            "campanias",
             "creado_por",
             "creado_en",
             "actualizado_en",
@@ -179,7 +205,13 @@ class ProductorDetalleSerializer(serializers.ModelSerializer):
             "superficie_total_ha": sum(
                 (p.superficie_ha for p in parcelas), Decimal("0")
             ),
+            "campanias_activas": Campania.objects.filter(
+                parcela__productor=obj, estado__in=Campania.ESTADOS_ACTIVOS
+            ).count(),
         }
+
+    def get_campanias(self, obj):
+        return _campanias_de_productor(obj)
 
     def get_tecnicos_asignados(self, obj):
         return [
@@ -298,14 +330,36 @@ class ParcelaListaSerializer(serializers.ModelSerializer):
         return {"id": provincia.id, "nombre": provincia.nombre}
 
 
+class ParcelaDesplegableSerializer(serializers.ModelSerializer):
+    """?desplegable=1 (Semana 6): selector de parcelas para el formulario
+    de campañas — código, productor y superficie (la superficie sembrada
+    propone la de la parcela). Solo activas; para el Técnico, solo las de
+    sus productores (lo garantiza el queryset de la vista)."""
+
+    productor = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Parcela
+        fields = ("id", "codigo", "productor", "superficie_ha")
+
+    def get_productor(self, obj):
+        return {
+            "id": obj.productor_id,
+            "codigo": obj.productor.codigo,
+            "nombre_completo": f"{obj.productor.apellidos}, {obj.productor.nombres}",
+        }
+
+
 class ParcelaDetalleSerializer(serializers.ModelSerializer):
     """Ficha completa de la parcela. codigo, creado_por y fechas son de
     sólo lectura (los rellena la base de datos); el productor se muestra
-    anidado y no se puede cambiar al editar."""
+    anidado y no se puede cambiar al editar. Desde la Semana 6 incluye
+    sus campañas (HU-44)."""
 
     productor = serializers.SerializerMethodField()
     comunidad = ComunidadSerializer(read_only=True)
     creado_por = serializers.StringRelatedField(read_only=True)
+    campanias = serializers.SerializerMethodField()
 
     class Meta:
         model = Parcela
@@ -324,6 +378,7 @@ class ParcelaDetalleSerializer(serializers.ModelSerializer):
             "disponibilidad_agua",
             "sistema_riego",
             "estado",
+            "campanias",
             "creado_por",
             "creado_en",
             "actualizado_en",
@@ -336,6 +391,23 @@ class ParcelaDetalleSerializer(serializers.ModelSerializer):
             "codigo": obj.productor.codigo,
             "nombre_completo": f"{obj.productor.apellidos}, {obj.productor.nombres}",
         }
+
+    def get_campanias(self, obj):
+        return [
+            {
+                "id": c.id,
+                "periodo": c.periodo,
+                "cultivo": {"id": c.cultivo_id, "nombre": c.cultivo.nombre},
+                "variedad": {"id": c.variedad_id, "nombre": c.variedad.nombre},
+                "fecha_inicio": c.fecha_inicio.isoformat(),
+                "fecha_fin_prevista": c.fecha_fin_prevista.isoformat(),
+                "superficie_sembrada_ha": c.superficie_sembrada_ha,
+                "estado": c.estado,
+            }
+            for c in obj.campanias.select_related("cultivo", "variedad").order_by(
+                "-periodo", "id"
+            )
+        ]
 
 
 class ParcelaEscrituraSerializer(serializers.ModelSerializer):
