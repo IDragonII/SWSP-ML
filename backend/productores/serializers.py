@@ -12,6 +12,7 @@ ve ****5678 y ****789.
 import re
 from decimal import Decimal
 
+from django.core.exceptions import ObjectDoesNotExist
 from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
 
@@ -28,23 +29,40 @@ def _campanias_de_productor(obj):
     """Bloque de campañas de la ficha del productor (HU-44, Semana 6).
 
     Sin creado_por ni datos de otros usuarios (decisión de la Semana 6):
-    solo período, cultivo, variedad, parcela y estado."""
+    solo período, cultivo, variedad, parcela, estado y (Semana 8) el
+    bloque de producción si ya hay cosecha registrada."""
     campanias = (
         Campania.objects.filter(parcela__productor=obj)
-        .select_related("cultivo", "variedad", "parcela")
+        .select_related("cultivo", "variedad", "parcela", "produccion")
         .order_by("-periodo", "id")
     )
-    return [
-        {
-            "id": c.id,
-            "periodo": c.periodo,
-            "cultivo": {"id": c.cultivo_id, "nombre": c.cultivo.nombre},
-            "variedad": {"id": c.variedad_id, "nombre": c.variedad.nombre},
-            "parcela": {"id": c.parcela_id, "codigo": c.parcela.codigo},
-            "estado": c.estado,
-        }
-        for c in campanias
-    ]
+    resultado = []
+    for c in campanias:
+        resultado.append(
+            {
+                "id": c.id,
+                "periodo": c.periodo,
+                "cultivo": {"id": c.cultivo_id, "nombre": c.cultivo.nombre},
+                "variedad": {"id": c.variedad_id, "nombre": c.variedad.nombre},
+                "parcela": {"id": c.parcela_id, "codigo": c.parcela.codigo},
+                "estado": c.estado,
+                "produccion": _mini_produccion(c),
+            }
+        )
+    return resultado
+
+
+def _mini_produccion(c):
+    """Producción de la campaña o None (HU-62, Semana 8)."""
+    try:
+        p = c.produccion
+    except ObjectDoesNotExist:
+        return None
+    return {
+        "produccion_kg": p.produccion_kg,
+        "rendimiento_kg_ha": p.rendimiento_kg_ha,
+        "requiere_revision": p.requiere_revision,
+    }
 
 
 def _rol_enmascara(context):
@@ -137,6 +155,21 @@ class ProductorListaSerializer(serializers.ModelSerializer):
     def get_provincia(self, obj):
         provincia = obj.comunidad.distrito.provincia
         return {"id": provincia.id, "nombre": provincia.nombre}
+
+
+class ProductorDesplegableSerializer(serializers.ModelSerializer):
+    """?desplegable=1 (Semana 7): selector de productores para los filtros
+    de actividades — código y nombre (sin DNI ni ubicación). Solo activos;
+    para el Técnico, solo sus asignados (lo garantiza el queryset)."""
+
+    nombre_completo = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Productor
+        fields = ("id", "codigo", "nombre_completo")
+
+    def get_nombre_completo(self, obj):
+        return f"{obj.apellidos}, {obj.nombres}"
 
 
 class ProductorDetalleSerializer(serializers.ModelSerializer):
@@ -393,6 +426,10 @@ class ParcelaDetalleSerializer(serializers.ModelSerializer):
         }
 
     def get_campanias(self, obj):
+        campanias = (
+            obj.campanias.select_related("cultivo", "variedad", "produccion")
+            .order_by("-periodo", "id")
+        )
         return [
             {
                 "id": c.id,
@@ -403,10 +440,9 @@ class ParcelaDetalleSerializer(serializers.ModelSerializer):
                 "fecha_fin_prevista": c.fecha_fin_prevista.isoformat(),
                 "superficie_sembrada_ha": c.superficie_sembrada_ha,
                 "estado": c.estado,
+                "produccion": _mini_produccion(c),
             }
-            for c in obj.campanias.select_related("cultivo", "variedad").order_by(
-                "-periodo", "id"
-            )
+            for c in campanias
         ]
 
 

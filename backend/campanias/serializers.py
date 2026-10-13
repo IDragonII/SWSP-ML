@@ -2,16 +2,20 @@
 
 La lista muestra productor, parcela, cultivo, variedad, período y estado
 (sin DNI ni teléfono, decisión de docs/decisiones_semana6.md); la ficha
-añade fechas, superficie, observaciones y trazabilidad. El de escritura
-no acepta estado, fecha de siembra ni creador (son de solo lectura: el
-estado solo cambia con iniciar/cancelar y la siembra la llena el Sprint 4)
-y valida ANTES que la base: período, fechas dentro del período, superficie
-y las dos reglas únicas nombrando la campaña existente. El estado del
-request (edición según estado) también se controla aquí.
+añade fechas, superficie, observaciones, trazabilidad y (Semana 8) el
+bloque de producción. El de escritura no acepta estado, fecha de siembra
+ni creador (son de solo lectura: el estado solo cambia con
+iniciar/cancelar/cerrar y la siembra la llena el Sprint 4) y valida ANTES
+que la base: período, fechas dentro del período, superficie y las dos
+reglas únicas nombrando la campaña existente. El estado del request
+(edición según estado) también se controla aquí: en cosechada se bloquean
+los mismos campos que en producción y en cerrada no se admite nada.
 """
 import re
 from datetime import date
 
+from django.core.exceptions import ObjectDoesNotExist
+from django.db.models import Max
 from rest_framework import serializers
 
 from catalogos.models import Cultivo, Variedad
@@ -80,12 +84,17 @@ class CampaniaListaSerializer(serializers.ModelSerializer):
 
 class CampaniaDetalleSerializer(serializers.ModelSerializer):
     """Ficha completa. creado_por sale como nombre de usuario
-    (StringRelatedField, igual que parcelas y productores)."""
+    (StringRelatedField, igual que parcelas y productores). La Semana 7
+    añade el resumen de actividades: cuántas activas quedan y la última
+    fecha registrada (ambas excluyen anuladas)."""
 
     parcela = serializers.SerializerMethodField()
     cultivo = serializers.SerializerMethodField()
     variedad = serializers.SerializerMethodField()
     creado_por = serializers.StringRelatedField(read_only=True)
+    actividades_activas = serializers.SerializerMethodField()
+    fecha_ultima_actividad = serializers.SerializerMethodField()
+    produccion = serializers.SerializerMethodField()
 
     class Meta:
         model = Campania
@@ -101,6 +110,9 @@ class CampaniaDetalleSerializer(serializers.ModelSerializer):
             "superficie_sembrada_ha",
             "estado",
             "observaciones",
+            "actividades_activas",
+            "fecha_ultima_actividad",
+            "produccion",
             "creado_por",
             "creado_en",
             "actualizado_en",
@@ -108,6 +120,9 @@ class CampaniaDetalleSerializer(serializers.ModelSerializer):
         read_only_fields = (
             "estado",
             "fecha_siembra",
+            "actividades_activas",
+            "fecha_ultima_actividad",
+            "produccion",
             "creado_por",
             "creado_en",
             "actualizado_en",
@@ -121,6 +136,30 @@ class CampaniaDetalleSerializer(serializers.ModelSerializer):
 
     def get_variedad(self, obj):
         return _mini_variedad(obj)
+
+    def get_actividades_activas(self, obj):
+        # Lazy: solo se consulta en ficha (la lista usa CampaniaListaSerializer)
+        return obj.actividades.filter(anulada=False).count()
+
+    def get_fecha_ultima_actividad(self, obj):
+        ultima = obj.actividades.filter(anulada=False).aggregate(u=Max("fecha"))["u"]
+        return ultima
+
+    def get_produccion(self, obj):
+        """Bloque de producción (HU-62, Semana 8): null si la campaña aún
+        no tiene cosecha registrada."""
+        try:
+            p = obj.produccion
+        except ObjectDoesNotExist:
+            return None
+        return {
+            "id": p.id,
+            "fecha_cosecha": p.fecha_cosecha.isoformat(),
+            "produccion_kg": p.produccion_kg,
+            "rendimiento_kg_ha": p.rendimiento_kg_ha,
+            "requiere_revision": p.requiere_revision,
+            "incluir_en_entrenamiento": p.incluir_en_entrenamiento,
+        }
 
 
 class CampaniaEscrituraSerializer(serializers.ModelSerializer):
@@ -355,15 +394,20 @@ class CampaniaEscrituraSerializer(serializers.ModelSerializer):
         return attrs
 
     def _validar_edicion_por_estado(self, attrs):
-        """Edición según el estado (HU-41): planificada todo salvo estado y
-        siembra (ya no escribibles); en producción solo fin prevista,
-        superficie y observaciones; cancelada nada."""
+        """Edición según el estado (HU-41 y Semana 8): planificada todo
+        salvo estado y siembra (ya no escribibles); en producción y en
+        cosechada solo fin prevista, superficie y observaciones; cerrada y
+        cancelada nada."""
         estado = self.instance.estado
         if estado == Campania.ESTADO_CANCELADA and attrs:
             raise serializers.ValidationError(
                 "Una campaña cancelada no admite cambios."
             )
-        if estado == Campania.ESTADO_EN_PRODUCCION:
+        if estado == Campania.ESTADO_CERRADA and attrs:
+            raise serializers.ValidationError(
+                "Una campaña cerrada no admite cambios."
+            )
+        if estado in (Campania.ESTADO_EN_PRODUCCION, Campania.ESTADO_COSECHADA):
             presentes = [c for c in _BLOQUEADOS_EN_PRODUCCION if c in self.initial_data]
             if presentes:
                 campo = presentes[0]
@@ -428,3 +472,43 @@ class CampaniaEscrituraSerializer(serializers.ModelSerializer):
         if excluido is not None:
             consulta = consulta.exclude(pk=excluido)
         return consulta.select_related("cultivo").first()
+
+
+class CampaniaDesplegableSerializer(serializers.ModelSerializer):
+    """?desplegable=1 (Semana 7): selector de campañas para el formulario y
+    los filtros de actividades — periodo, estado, productor, parcela,
+    cultivo y el rango del período (para validar la fecha antes de enviar).
+    Solo estados que admiten registros (ESTADOS_ACTIVOS); para el Técnico,
+    solo las de sus productores (lo garantiza el queryset de la vista)."""
+
+    parcela = serializers.SerializerMethodField()
+    cultivo = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Campania
+        fields = (
+            "id",
+            "periodo",
+            "estado",
+            "parcela",
+            "cultivo",
+            "fecha_inicio",
+            "fecha_fin_prevista",
+            "fecha_siembra",
+        )
+
+    def get_parcela(self, obj):
+        return {
+            "id": obj.parcela_id,
+            "codigo": obj.parcela.codigo,
+            "productor": {
+                "id": obj.parcela.productor_id,
+                "nombre_completo": (
+                    f"{obj.parcela.productor.apellidos}, "
+                    f"{obj.parcela.productor.nombres}"
+                ),
+            },
+        }
+
+    def get_cultivo(self, obj):
+        return _mini_cultivo(obj)

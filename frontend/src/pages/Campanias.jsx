@@ -10,6 +10,7 @@ import Chip from '../components/Chip.jsx'
 import Paginacion from '../components/Paginacion.jsx'
 import Tabla from '../components/Tabla.jsx'
 import { useSesion } from '../context/useSesion.js'
+import CampaniaFicha from './CampaniaFicha.jsx'
 import CampaniaFormulario from './CampaniaFormulario.jsx'
 import ParcelaFicha from './ParcelaFicha.jsx'
 import ProductorFicha from './ProductorFicha.jsx'
@@ -38,6 +39,7 @@ export default function Campanias() {
   const [altaAbierta, setAltaAbierta] = useState(false)
   const [parcelaFichaId, setParcelaFichaId] = useState(null)
   const [productorFichaId, setProductorFichaId] = useState(null)
+  const [campaniaFichaId, setCampaniaFichaId] = useState(null)
   const refrescando = datos !== null && claveCargada !== clave
 
   function refrescar() {
@@ -261,24 +263,26 @@ export default function Campanias() {
                 clave: 'acciones',
                 etiqueta: 'Acciones',
                 acciones: true,
-                celda: (fila) =>
-                  tienePermiso('campanias.editar') ? (
+                celda: (fila) => (
+                  <>
+                    {tienePermiso('campanias.editar') && (
+                      <button
+                        type="button"
+                        className="boton-texto"
+                        onClick={() => setEdicionId(fila.id)}
+                      >
+                        Editar
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="boton-texto"
-                      onClick={() => setEdicionId(fila.id)}
-                    >
-                      Editar
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="boton-texto"
-                      onClick={() => setParcelaFichaId(fila.parcela.id)}
+                      onClick={() => setCampaniaFichaId(fila.id)}
                     >
                       Ver ficha
                     </button>
-                  ),
+                  </>
+                ),
               },
             ]}
           />
@@ -317,6 +321,17 @@ export default function Campanias() {
             refrescar()
           }}
           onCancelar={() => setAltaAbierta(false)}
+        />
+      )}
+
+      {campaniaFichaId !== null && (
+        <CampaniaFicha
+          id={campaniaFichaId}
+          abierto
+          onCerrar={() => {
+            setCampaniaFichaId(null)
+            refrescar()
+          }}
         />
       )}
 

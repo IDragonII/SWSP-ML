@@ -379,13 +379,19 @@ class CampaniaApiTests(Semana6Base):
         repetido = self._json(self._iniciar(campania["id"]))
         self.assertIn("Solo se puede iniciar", str(repetido["estado"]))
 
-        # Cosechada y cerrada: ni a mano (trigger) ni por la API
-        self._sql_debe_fallar(
+        # Semana 8: cosechada y cerrada existen. A mano solo la transición
+        # EN_PRODUCCION → COSECHADA (la usa fn_produccion_post); cerrar a
+        # mano exige producción registrada y nacer cosechada sigue vedado.
+        self._sql(
             "UPDATE campanias SET estado = 'COSECHADA' WHERE id = %s",
             [campania["id"]],
         )
         self._sql_debe_fallar(
             "UPDATE campanias SET estado = 'CERRADA' WHERE id = %s",
+            [campania["id"]],
+        )
+        self._sql(
+            "UPDATE campanias SET estado = 'EN_PRODUCCION' WHERE id = %s",
             [campania["id"]],
         )
         self._sql_debe_fallar(
@@ -770,8 +776,12 @@ class CampaniaApiTests(Semana6Base):
         bloque = ficha["campanias"][0]
         self.assertEqual(
             set(bloque),
-            {"id", "periodo", "cultivo", "variedad", "parcela", "estado"},
+            {
+                "id", "periodo", "cultivo", "variedad", "parcela",
+                "estado", "produccion",
+            },
         )
+        self.assertIsNone(bloque["produccion"])
         self.assertNotIn("creado_por", bloque)
         self.assertEqual(ficha["resumen"]["campanias_activas"], 1)
 

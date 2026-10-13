@@ -1,12 +1,14 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import Layout from './components/Layout.jsx'
 import AccesoDenegado from './pages/AccesoDenegado.jsx'
+import Actividades from './pages/Actividades.jsx'
 import Campanias from './pages/Campanias.jsx'
 import Catalogos from './pages/Catalogos.jsx'
 import Inicio from './pages/Inicio.jsx'
 import Login from './pages/Login.jsx'
 import Modulo from './pages/Modulo.jsx'
 import NoEncontrado from './pages/NoEncontrado.jsx'
+import Parametros from './pages/Parametros.jsx'
 import Parcelas from './pages/Parcelas.jsx'
 import Productores from './pages/Productores.jsx'
 import RutaProtegida from './routes/RutaProtegida.jsx'
@@ -19,7 +21,9 @@ const rutasConPantalla = new Set([
   '/productores',
   '/parcelas',
   '/catalogos',
+  '/parametros',
   '/campanias',
+  '/actividades',
 ])
 const modulos = opcionesMenu.filter(
   (opcion) => !rutasConPantalla.has(opcion.ruta),
@@ -75,10 +79,28 @@ export default function App() {
           />
 
           <Route
+            path="/parametros"
+            element={
+              <RutaProtegida permiso="parametros.gestionar">
+                <Parametros />
+              </RutaProtegida>
+            }
+          />
+
+          <Route
             path="/campanias"
             element={
               <RutaProtegida permiso="campanias.ver">
                 <Campanias />
+              </RutaProtegida>
+            }
+          />
+
+          <Route
+            path="/actividades"
+            element={
+              <RutaProtegida permiso="actividades.ver">
+                <Actividades />
               </RutaProtegida>
             }
           />

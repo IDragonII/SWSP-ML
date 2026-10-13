@@ -260,6 +260,10 @@ class EtapaViewSet(VistaCatalogo):
 
 
 class UnidadViewSet(VistaCatalogoConEstado):
+    """Catálogo de unidades. Semana 8: el factor de una unidad que ya
+    tiene producciones registradas no se puede cambiar (afectaría el
+    histórico convertido a kg): hay que crear otra unidad."""
+
     queryset = Unidad.objects.all()
     serializer_class = UnidadSerializer
     escritura_serializer = UnidadEscrituraSerializer
@@ -271,6 +275,23 @@ class UnidadViewSet(VistaCatalogoConEstado):
         if tipo:
             queryset = queryset.filter(tipo=tipo)
         return queryset
+
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if "factor_a_base" in request.data:
+            nuevo = request.data.get("factor_a_base")
+            if str(nuevo).strip() != str(instance.factor_a_base).strip():
+                if instance.producciones.exists():
+                    raise ValidationError(
+                        {
+                            "factor_a_base": (
+                                "Esta unidad ya tiene producciones "
+                                "registradas: su factor no se puede cambiar. "
+                                "Cree otra unidad."
+                            )
+                        }
+                    )
+        return super().update(request, *args, **kwargs)
 
     def _validar_estado(self, objeto, activo):
         if objeto.es_base:

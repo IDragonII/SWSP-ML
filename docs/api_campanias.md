@@ -23,8 +23,11 @@ diseño SQL, en [`comparacion_semana6.md`](comparacion_semana6.md).
 - **No existe `DELETE`** → `405`. Nada se borra: las campañas se cancelan
   (decisión 3 de la Semana 3). Las rutas de detalle llevan barra final.
 - **El estado es de solo lectura**: no está en el formulario de escritura;
-  solo cambia con `iniciar/` y `cancelar/` (y, más adelante, con el módulo de
-  producción: `COSECHADA` y `CERRADA` aún no se llegan por API).
+  solo cambia con las acciones de estado: `iniciar/` y `cancelar/` (Semana 6)
+  y **`cerrar/`** (Semana 8, HU-61). `COSECHADA` no se llega por esta API:
+  la fija el módulo de producciones al registrar la cosecha (ver
+  [`api_produccion.md`](api_produccion.md)), que también añade el bloque
+  `produccion` al detalle y `?produccion=1` al listado.
 - La lista ordena por **período descendente**; la paginación es global
   (`API_PAGE_SIZE`, 20 por página).
 

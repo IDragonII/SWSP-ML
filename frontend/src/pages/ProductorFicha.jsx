@@ -360,6 +360,24 @@ export default function ProductorFicha({ id, abierto, onCerrar }) {
                 celda: (campania) => <Chip>{campania.estado}</Chip>,
               },
               {
+                clave: 'produccion',
+                etiqueta: 'Producción',
+                celda: (campania) =>
+                  campania.produccion ? (
+                    <span>
+                      {`${campania.produccion.produccion_kg} kg · ${campania.produccion.rendimiento_kg_ha} kg/ha`}
+                      {campania.produccion.requiere_revision && (
+                        <>
+                          {' '}
+                          <Chip>REQUIERE REVISIÓN</Chip>
+                        </>
+                      )}
+                    </span>
+                  ) : (
+                    '—'
+                  ),
+              },
+              {
                 clave: 'acciones',
                 etiqueta: 'Acciones',
                 acciones: true,

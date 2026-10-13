@@ -35,6 +35,7 @@ from .serializers import (
     ParcelaEscrituraSerializer,
     ParcelaListaSerializer,
     ProductorDetalleSerializer,
+    ProductorDesplegableSerializer,
     ProductorEscrituraSerializer,
     ProductorListaSerializer,
     ProvinciaSerializer,
@@ -244,18 +245,36 @@ class ProductorViewSet(
     )
     serializer_class = ProductorDetalleSerializer
     escritura_serializer = ProductorEscrituraSerializer
+    desplegable_serializer = ProductorDesplegableSerializer
     filter_backends = (BusquedaPorNombre,)
     search_fields = ("codigo", "nombres", "apellidos", "dni")
 
+    def _es_desplegable(self):
+        return (
+            self.request.query_params.get("desplegable", "").strip().lower()
+            in _BOOLEANOS_SI
+        )
+
     def get_serializer_class(self):
+        if self.action == "list" and self._es_desplegable():
+            return self.desplegable_serializer
         if self.action in ("create", "update", "partial_update"):
             return self.escritura_serializer
         if self.action == "list":
             return ProductorListaSerializer
         return self.serializer_class
 
+    def paginate_queryset(self, queryset):
+        # Los desplegables son listas cortas: sin paginación
+        if self._es_desplegable():
+            return None
+        return super().paginate_queryset(queryset)
+
     def get_queryset(self):
         queryset = self._filtrar_asignados(super().get_queryset())
+        if self._es_desplegable():
+            # El selector de actividades solo ofrece productores activos
+            queryset = queryset.filter(estado=Productor.ESTADO_ACTIVO)
         params = self.request.query_params
         if params.get("comunidad"):
             queryset = queryset.filter(

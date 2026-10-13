@@ -50,6 +50,9 @@ INSTALLED_APPS = [
     'productores',
     'catalogos',
     'campanias',
+    'seguimiento',
+    'produccion',
+    'sistema',
 ]
 
 # Modelo de usuario propio: DEBE declararse antes del primer migrate.

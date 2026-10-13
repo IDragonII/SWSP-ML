@@ -25,8 +25,11 @@ export function cancelarCampania(id, motivo) {
     .then((r) => r.data)
 }
 
-// Mismos valores que models.Campania.ESTADOS (el Sprint 4 añadirá
-// cosechada/cerrada a la API; en la lista cerrada ya se contemplan).
+export function cerrarCampania(id) {
+  return cliente.post(`/campanias/${id}/cerrar/`).then((r) => r.data)
+}
+
+// Mismos valores que models.Campania.ESTADOS.
 export const ESTADOS_CAMPANIA = [
   ['PLANIFICADA', 'Planificada'],
   ['EN_PRODUCCION', 'En producción'],

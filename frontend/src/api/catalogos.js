@@ -5,6 +5,8 @@ export async function listarTodo(ruta, params = {}) {
   let pagina = 1
   for (;;) {
     const { data } = await cliente.get(ruta, { params: { ...params, page: pagina } })
+    // Los desplegables (?desplegable=1) devuelven una lista sin paginar
+    if (Array.isArray(data)) return [...resultados, ...data]
     resultados.push(...data.results)
     if (!data.next || data.results.length === 0) break
     pagina += 1

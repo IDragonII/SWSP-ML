@@ -1,10 +1,12 @@
 """API de campañas (Semana 6): el recurso central del sistema.
 
-Listar, ver detalle, crear, editar, iniciar y cancelar. SIN borrado:
-DELETE responde 405 (las campañas se cancelan, nunca se borran). El
-estado es de solo lectura: solo cambia con las acciones propias iniciar
-(campanias.editar) y cancelar (campanias.desactivar, hoy solo del
-Administrador; el motivo queda en observaciones).
+Listar, ver detalle, crear, editar, iniciar, cancelar y cerrar. SIN
+borrado: DELETE responde 405 (las campañas se cancelan, nunca se borran).
+El estado es de solo lectura: solo cambia con las acciones propias iniciar
+(campanias.editar), cancelar (campanias.desactivar, hoy solo del
+Administrador; el motivo queda en observaciones) y cerrar
+(campanias.desactivar; Semana 8: exige producción registrada y sin revisión
+pendiente; irreversible).
 
 El Técnico solo ve y edita campañas de sus productores asignados
 (reutiliza el filtro de la Semana 4): una campaña ajena responde 404,
@@ -13,6 +15,7 @@ productor, cultivo y variedad; filtros por estado, cultivo, variedad,
 período, distrito, provincia, comunidad, productor y parcela; orden por
 período descendente y paginación global (20 por página).
 """
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import IntegrityError, transaction
 from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
@@ -23,11 +26,13 @@ from productores.views import (
     BusquedaPorNombre,
     PermisosPorAccion,
     SoloSusProductores,
+    _BOOLEANOS_SI,
     _id_numerico,
 )
 
 from .models import Campania
 from .serializers import (
+    CampaniaDesplegableSerializer,
     CampaniaDetalleSerializer,
     CampaniaEscrituraSerializer,
     CampaniaListaSerializer,
@@ -50,6 +55,7 @@ class PermisosCampania(PermisosPorAccion):
         "partial_update": "campanias.editar",
         "iniciar": "campanias.editar",
         "cancelar": "campanias.desactivar",
+        "cerrar": "campanias.desactivar",
     }
 
 
@@ -74,6 +80,7 @@ class CampaniaViewSet(
     )
     serializer_class = CampaniaDetalleSerializer
     escritura_serializer = CampaniaEscrituraSerializer
+    desplegable_serializer = CampaniaDesplegableSerializer
     filter_backends = (BusquedaPorNombre,)
     search_fields = (
         "parcela__codigo",
@@ -83,18 +90,42 @@ class CampaniaViewSet(
         "variedad__nombre",
     )
 
+    def _es_desplegable(self):
+        return (
+            self.request.query_params.get("desplegable", "").strip().lower()
+            in _BOOLEANOS_SI
+        )
+
     def get_serializer_class(self):
+        if self.action == "list" and self._es_desplegable():
+            return self.desplegable_serializer
         if self.action in ("create", "update", "partial_update"):
             return self.escritura_serializer
         if self.action == "list":
             return CampaniaListaSerializer
         return self.serializer_class
 
+    def paginate_queryset(self, queryset):
+        # Los desplegables son listas cortas: sin paginación
+        if self._es_desplegable():
+            return None
+        return super().paginate_queryset(queryset)
+
     def get_queryset(self):
         queryset = self._filtrar_asignados(
             super().get_queryset(), "parcela__productor_id"
         )
+        if self._es_desplegable():
+            # El selector de actividades solo ofrece campañas que admiten
+            # registros (ni cerradas ni canceladas)
+            queryset = queryset.filter(estado__in=Campania.ESTADOS_ACTIVOS)
         params = self.request.query_params
+        if params.get("produccion") in _BOOLEANOS_SI:
+            # Selector del formulario de producción (Semana 8): solo en
+            # producción, con siembra registrada y sin producción todavía
+            queryset = queryset.filter(
+                estado=Campania.ESTADO_EN_PRODUCCION, fecha_siembra__isnull=False
+            ).exclude(produccion__isnull=False)
         if params.get("estado"):
             estado = params["estado"]
             if estado not in _ESTADOS:
@@ -293,5 +324,43 @@ class CampaniaViewSet(
             campania.observaciones = motivo
         campania.estado = Campania.ESTADO_CANCELADA
         campania.save(update_fields=("estado", "observaciones"))
+        campania.refresh_from_db()
+        return Response(self._lectura(campania).data)
+
+    @action(detail=True, methods=("post",), url_path="cerrar")
+    def cerrar(self, request, pk=None):
+        """COSECHADA -> CERRADA (HU-61, Semana 8). Exige campanias.desactivar,
+        producción registrada y que no quede ninguna marca de revisión
+        pendiente. Cerrada, la campaña no admite actividades ni cambios en
+        la producción (los triggers son la red de seguridad). Irreversible:
+        no hay acción de reapertura."""
+        campania = self.get_object()
+        if campania.estado != Campania.ESTADO_COSECHADA:
+            raise ValidationError(
+                {"estado": "Solo se puede cerrar una campaña cosechada."}
+            )
+        try:
+            produccion = campania.produccion
+        except ObjectDoesNotExist:
+            raise ValidationError(
+                {
+                    "estado": (
+                        "No se puede cerrar la campaña: no tiene producción "
+                        "registrada."
+                    )
+                }
+            )
+        if produccion.requiere_revision:
+            raise ValidationError(
+                {
+                    "estado": (
+                        "No se puede cerrar la campaña: la producción "
+                        "requiere revisión pendiente. Revísala antes de "
+                        "cerrar."
+                    )
+                }
+            )
+        campania.estado = Campania.ESTADO_CERRADA
+        campania.save(update_fields=("estado",))
         campania.refresh_from_db()
         return Response(self._lectura(campania).data)
