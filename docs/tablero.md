@@ -1,12 +1,50 @@
-# Tablero SIGPA-GA — Semana 8: producción, rendimiento y cierre de campañas
+# Tablero SIGPA-GA — Semana 9: recursos e insumos
 
-> Tablero de la semana del **23 al 29 de noviembre** (calendario referencial).
+> Tablero de la semana del **30 nov al 6 de diciembre** (calendario referencial).
 > Sustituye mientras tanto a Trello/GitHub Projects (decisión de metodología:
 > se confirmará con el responsable qué herramienta usa él).
 > Los textos originales de las historias de usuario **no están en este
 > repositorio**: las descripciones siguientes son el **mapeo propuesto**
 > (igual que en semanas anteriores), anclado a los RF/RN del documento de
 > requerimientos.
+
+## Semana 9 — 7/7 fases terminadas
+
+El tema «Recursos e insumos» corresponde al **mapeo HU-67 a HU-75** de la
+semana (Sprint 4); se ejecutó **por fases F1–F7** acordadas con el responsable.
+
+| HU | Descripción (propuesta) | Estado | Evidencia |
+|---|---|---|---|
+| **HU-67** | Listar usos de recursos con filtros (campaña, actividad, recurso, categoría, estado, rango de fechas y búsqueda) y orden por fecha descendente | ✅ Hecha | `GET /api/usos-recursos/` · pruebas 121, 122 · colección 217, 234 |
+| **HU-68** | Registrar el recurso usado en una actividad (siembra, fertilización…), ver los usos en la ficha de actividad y **anular en cascada** al anular la actividad (`recursos_anulados` en el resumen) | ✅ Hecha | `POST /api/actividades/{id}/anular/` + sección «Recursos usados» · pruebas 128, 129, 133 · colección 224–227 |
+| **HU-69** | Registrar y editar un uso de recurso: campaña y actividad inmutables al editar, cantidad > 0, costo ≥ 0, fecha no futura y dentro del período; la conversión a unidad base la calcula la base | ✅ Hecha | `POST` y `PATCH /api/usos-recursos/{id}/` + `fn_uso_recurso` · pruebas 123–127 · colección 214–221 |
+| **HU-70** | Que la unidad admisible dependa del tipo del recurso (masa, volumen, labor, tiempo): unidad de otro tipo → 400; el desplegable de recursos trae `tipo_unidad` | ✅ Hecha | validación de `unidad_id` + `?desplegable=1` · pruebas 123, 124 · colección 212, 213, 218 |
+| **HU-71** | Permisos por acción y ámbito: Administrador los 4 `recursos.*`; Técnico `ver/crear/editar` (anular → 403) solo en sus productores; Coordinador solo `ver` | ✅ Hecha | `PermisosUsoRecurso` + `SoloSusProductores` · pruebas 134–137 · colección 206, 234, 235 |
+| **HU-72** | Anular un uso de recurso con motivo obligatorio (borrado lógico: `ANULADA`, sin `DELETE` → 405) | ✅ Hecha | `POST …/anular/` · prueba 130 · colección 221, 222 |
+| **HU-73** | Reactivar un uso de recurso (limpia el motivo y devuelve el estado a activo) | ✅ Hecha | `POST …/reactivar/` · prueba 131 · colección 223 |
+| **HU-74** | Resumen de recursos en la ficha de campaña (`resumen_recursos`: suma por categoría, excluyendo anulados) y bloque en `CampaniaFicha` | ✅ Hecha | `campanias/serializers.py` · pruebas 132, 135 · colección 228, 233 |
+| **HU-75** | Que las unidades con usos no se puedan convertir ni desactivar (factor/tipo protegidos) y que la campaña de un uso no se pueda cambiar al editar | ✅ Hecha | protección en `catalogos/` + edición inmutable · pruebas 136 · colección 219, 229, 232 |
+
+> **HU-48 (completada):** la anulación de una actividad ahora arrastra en
+> cascada sus usos de recursos activos (decisión 4 de `decisiones_semana9.md`).
+
+| Fase | Contenido | Estado | Evidencia |
+|---|---|---|---|
+| **F1** | Estructura: tabla **`uso_recursos`** en `seguimiento/` (13 columnas, `anulada`+`motivo_anulacion`, checks) + **2 migraciones reversibles** (`0003_uso_recursos.py`, `0004_funciones_y_triggers_uso_recursos.py` con `fn_uso_recurso`, `fn_validar_fecha_uso` y 3 triggers); diseño SQL actualizado (anuladas fuera del dataset); **18 triggers** en total; migración verificada desde cero en BD temporal | ✅ Hecha | `backend/seguimiento/models.py`, `migrations/0003`, `0004` · `DB_sql/01_tablas.sql`, `02_reglas_y_vista.sql` |
+| **F2** | API completa: listado con filtros, detalle, alta, edición, `anular/` y `reactivar/` (sin `DELETE` → 405); cascada atómica en `ActividadViewSet.anular`; `resumen_recursos` en el detalle de campaña; protección de unidades con usos; permisos `recursos.*` por acción, ámbito del Técnico (404), `registrado_por` oculto al ámbito | ✅ Hecha | `views.py`, `serializers.py`, `urls.py` + `campanias/` y `catalogos/` · pruebas 121–137 · colección 206–235 |
+| **F3** | Colección de Postman: 205 de la Semana 8 + 30 nuevas (206–235) | ✅ Hecha | `docs/coleccion_api_semana9.json` — **validada 235/235 (431/431 aserciones)** |
+| **F4** | Pantallas: **`/recursos`** (filtros en URL, `Tabla`+`Paginacion`), alta/edición en modal (`RecursoFormulario`), ficha en modal (`RecursoFicha` con anular/reactivar), sección **«Recursos usados»** en `ActividadFicha` y sección **«Resumen de recursos»** en `CampaniaFicha`; entrada «Recursos» en el menú | ✅ Hecha | `pages/Recursos.jsx`, `RecursoFormulario.jsx`, `RecursoFicha.jsx`, `ActividadFicha.jsx`, `CampaniaFicha.jsx`, `api/usosRecursos.js` · checklist `verificacion_ui_semana9.md` |
+| **F5** | Verificación de pantallas | ✅ Hecha | `docs/verificacion_ui_semana9.md` (Chrome 1366×768, Edge 1024×768, Móvil 360×780) |
+| **F6** | Documentación de la semana | ✅ Hecha | `decisiones_semana9.md` (20 decisiones + pregunta L), `api_recursos.md`, `verificacion_ui_semana9.md` |
+| **F7** | Cierre y verificación | ✅ Hecha | este tablero + `evidencias_capitulo4.md` + `CONTEXTO_PROYECTO.md` §3/§5/§6 |
+
+**Cierre de la semana:** 137 pruebas verdes (`manage.py test`; 17 nuevas),
+`manage.py check` en 0 issues, `makemigrations --check` sin cambios, colección
+de **235 peticiones validada 235/235 (431/431 aserciones)** contra el servidor
+(estados y textos clave), `npm run lint` y `npm run build` en 0 problemas, y
+documentación en `decisiones_semana9.md` (20 decisiones),
+`verificacion_ui_semana9.md`, `api_recursos.md` y
+`coleccion_api_semana9.json`.
 
 ## Semana 8 — 7/7 fases terminadas
 
@@ -151,14 +189,14 @@ de **48 peticiones validada 48/48** contra el servidor (estados y aserciones),
 | 2 (12–18 oct) — autenticación y permisos | HU-07..HU-14 (login, refresh, logout, `/me`, permisos, rate limit, sesión y menú en React) | ✅ 20 pruebas · `api_autenticacion.md` |
 | 3 (19–25 oct) — ubicación y productores | HU-15..HU-22 (ubicación con `cargar_ubicacion`, productor con código PROD-000N, filtros, enmascarado, ficha parcial) | ✅ 37 pruebas · `api_ubicacion_productores.md` |
 
-## Siguiente (Semana 9, 30 nov–6 dic)
+## Siguiente (Semana 10, 7–13 dic)
 
 | Tema | Nota |
 |---|---|
-| Recursos e insumos / clima | Siguiente sprint del roadmap (`CONTEXTO_PROYECTO.md` §13); fertilización y fitosanitarios aún sin cantidades de insumos (decisión 17 de la Semana 7) |
-| Preguntas abiertas A, B, D, F, G, H, I, J y K | Lista de ubicaciones real, enmascarado, botón «usar mi ubicación», fechas vs período, bloqueo de desactivación, fechas futuras en actividades, unidad de densidad, producción bruta/neta y umbrales del sistema |
-| Checklists de UI de las Semanas 4 a 8 | Ejecutar en navegador (Chrome/Edge/móvil) y anotar los resultados en cada documento |
-| Demo 1 (cierre del Sprint 4) | Primera fila del dataset con producción; las predicciones quedan para los Sprints 13–14 (`fn_produccion_post` completa) |
+| Recursos e insumos / clima | Siguiente sprint del roadmap (`CONTEXTO_PROYECTO.md` §13); fertilización y fitosanitarios aún sin cantidades de insumos (decisión 17 de la Semana 7); **recurso `usos_recursos` ya implementado en la Semana 9** |
+| Preguntas abiertas A, B, D, F, G, H, I, J, K y L | Lista de ubicaciones real, enmascarado, botón «usar mi ubicación», fechas vs período, bloqueo de desactivación, fechas futuras en actividades, unidad de densidad, producción bruta/neta, umbrales del sistema y costo de recursos |
+| Checklists de UI de las Semanas 4 a 9 | Ejecutar en navegador (Chrome/Edge/móvil) y anotar los resultados en cada documento |
+| Demo 1 (cierre del Sprint 4) | Primera fila del dataset con producción y recursos; las predicciones quedan para los Sprints 13–14 (`fn_produccion_post` completa) |
 
 ## Preguntas abiertas que bloquean decisiones
 
@@ -194,3 +232,8 @@ de **48 peticiones validada 48/48** contra el servidor (estados y aserciones),
     `rendimiento_max_plausible = 5000`, `umbral_rendimiento_bajo = 800`,
     `dias_sin_actividad = 30` y **quintal = 46 kg**) — **CONFIRMAR**; se
     cambian sin tocar código desde `/parametros` (y el catálogo de unidades).
+11. **¿Costo de los recursos: registro o cálculo?** (Semana 9, pregunta L):
+    rige que `costo` se **registra por cada uso** y no se agrega en ningún
+    resumen (decisión 19 de `decisiones_semana9.md`); si el responsable quiere
+    un costo total de campaña o por hectárea se añade al `resumen_recursos` —
+    **CONFIRMAR**.

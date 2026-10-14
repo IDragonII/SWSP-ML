@@ -3,7 +3,7 @@
 > Qué artefacto del repositorio respalda cada sección del Capítulo IV
 > (Diseño e implementación del sistema), cómo se regeneró y qué **sigue
 > pendiente**. Se actualiza al cierre de cada semana.
-> **Estado: Semana 8 completada — 120 pruebas verdes.**
+> **Estado: Semana 9 completada — 137 pruebas verdes.**
 
 Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
 
@@ -13,11 +13,11 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
   y los `Meta.db_table`/`related_name` de los modelos Django).
 - [x] Lista y descripción de las 32 tablas agrupadas por módulo →
   `CONTEXTO_PROYECTO.md` §5.
-- Nota: hasta la Semana 8 existen **22 tablas** en la BD real (4 de usuarios +
+- Nota: hasta la Semana 9 existen **23 tablas** en la BD real (4 de usuarios +
   4 de ubicación/productores + `parcelas` y `asignaciones_tecnico` + las
-  **8 de catálogos** + `campanias` + `actividades` + **`producciones`** y
-  **`parametros_sistema`**); el diagrama completo se dibuja con el diseño
-  completo.
+  **8 de catálogos** + `campanias` + `actividades` + **`uso_recursos`** +
+  **`producciones`** y **`parametros_sistema`**); el diagrama completo se
+  dibuja con el diseño completo.
 
 ## 4.3.3 Modelo lógico
 
@@ -64,40 +64,48 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
   `fn_validar_produccion`, `fn_produccion_post` parcial y
   `fn_validar_campania` v3; verificado con `sqlmigrate` e introspección en
   vivo sobre la BD real).
+- [x] **Comparación diseño vs implementación — usos de recursos (Semana 9):**
+  `docs/decisiones_semana9.md` §2 (decisión 8: **13 columnas** de `uso_recursos`
+  + `anulada`/`motivo_anulacion`, checks, y **3 triggers** `trg_uso_recursos_base`,
+  `trg_uso_recursos_fecha`, `trg_uso_recursos_actualizado` con `fn_uso_recurso`
+  y `fn_validar_fecha_uso`); verificado con `sqlmigrate` e introspección en
+  vivo sobre la BD real (la Semana 9 no genera documento de comparación aparte).
 - [x] **Migraciones propias:** `backend/usuarios/migrations/` (0001–0003),
   `backend/productores/migrations/` (0001–0004, las dos últimas reversibles),
   `backend/catalogos/migrations/` (0001–0002; `0002` reversible sin borrar lo
   referenciado), `backend/campanias/migrations/` (0001–0003, todas
-  reversibles), `backend/seguimiento/migrations/` (0001–0002, ambas
+  reversibles), `backend/seguimiento/migrations/` (0001–**0004**, todas
   reversibles), `backend/produccion/migrations/` (0001–0002, reversibles) y
   `backend/sistema/migrations/` (0001, reversible). La creación de la BD de
-  pruebas en cada `manage.py test` aplica las **47 migraciones** desde cero
+  pruebas en cada `manage.py test` aplica las **49 migraciones** desde cero
   (incluidas las de terceros).
 
 ## Reglas de negocio y triggers
 
 - [x] Catálogo de las 13 funciones y 24 triggers del diseño →
   `CONTEXTO_PROYECTO.md` §6.
-- [x] Triggers implementados hasta ahora (15 de 24): `trg_roles_proteger`,
+- [x] Triggers implementados hasta ahora (18 de 24): `trg_roles_proteger`,
   `trg_productores_actualizado`, `trg_productores_codigo`,
   `trg_parcelas_actualizado`, `trg_parcelas_codigo`,
   `trg_asignaciones_validar`, `trg_campanias_validar`,
   `trg_campanias_actualizado`, `trg_actividades_actualizado`,
   `trg_actividades_fecha`, `trg_actividades_siembra`,
   `trg_producciones_validar`, `trg_producciones_post`,
-  `trg_producciones_actualizado` y `trg_parametros_sistema_actualizado` —
+  `trg_producciones_actualizado`, `trg_parametros_sistema_actualizado`,
+  `trg_uso_recursos_base`, `trg_uso_recursos_fecha` y
+  `trg_uso_recursos_actualizado` —
   texto literal, verificados en `comparacion_sprint1.md` §4,
   `comparacion_semana3.md` §5, `comparacion_semana4.md` §5,
-  `comparacion_semana6.md` §4, `comparacion_semana7.md` §4 y
-  `comparacion_semana8.md`.
+  `comparacion_semana6.md` §4, `comparacion_semana7.md` §4,
+  `comparacion_semana8.md` y `decisiones_semana9.md` §2.
 - [x] **Migración desde cero como evidencia:** base vacía `sigpa_ga_migracion`
   → `manage.py migrate` aplicó 27 migraciones; seeds 55 permisos / 3 roles /
   101 asignaciones; 4 tablas nuevas; prueba funcional en SQL crudo generó
   `PROD-0001` y actualizó `actualizado_en` en otra transacción (Semana 3).
   Reproducible: crear BD, `DB_NAME=<nombre> python manage.py migrate`, borrar.
   Desde la Semana 4, la BD de pruebas que crea cada `manage.py test` vuelve a
-  aplicar todas las migraciones desde cero en cada ejecución (hoy 47). En las
-  Semanas 7 y 8 además se migraron BD temporales completas de validación de
+  aplicar todas las migraciones desde cero en cada ejecución (hoy 49). En las
+  Semanas 7, 8 y 9 además se migraron BD temporales completas de validación de
   las colecciones (creadas, migradas y **borradas al terminar**).
 
 ## Requerimientos funcionales verificados (RF/RN)
@@ -110,9 +118,11 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
   CONFIRMAR por comando y pantalla con pestañas), `docs/decisiones_semana6.md`
   (Semana 6, 18 decisiones: campañas, con las preguntas abiertas F y G
   pendientes de confirmación), `docs/decisiones_semana7.md` (Semana 7, 17
-  decisiones: actividades, con las preguntas abiertas H e I pendientes) y
+  decisiones: actividades, con las preguntas abiertas H e I pendientes),
   `docs/decisiones_semana8.md` (Semana 8, 20 decisiones: producción, cierre
-  y parámetros, con las preguntas abiertas J y K pendientes).
+  y parámetros, con las preguntas abiertas J y K pendientes) y
+  `docs/decisiones_semana9.md` (Semana 9, 20 decisiones: recursos e insumos,
+  con la pregunta abierta L pendiente).
 - [x] RN «el DNI debe ser único y tener 8 dígitos» → pruebas 23 y 24.
 - [x] RN «no se eliminan físicamente; se desactivan» → sin `DELETE` (405),
   prueba 28, FK `PROTECT`; en la Semana 4 el mismo patrón para parcelas
@@ -162,6 +172,22 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
   exige producción registrada y **sin revisión pendiente**, es irreversible y
   la campaña cerrada no admite actividades ni cambios en la producción →
   pruebas 114, 115, 117 · colección 183–184, 194, 196–197.
+- [x] RN de recursos e insumos: **la categoría del recurso fija el tipo de
+  unidad** (masa, volumen, labor o tiempo; unidad de otro tipo → 400), la
+  **conversión a la unidad base la calcula la base** (`fn_uso_recurso`), la
+  **anulación de una actividad arrastra en cascada** sus usos activos en la
+  misma transacción y con el mismo motivo (`recursos_anulados` en el
+  resumen), y **no hay `DELETE`** → 405 (anulación lógica con motivo
+  obligatorio) → pruebas 123, 124, 128–131 · colección 212, 218, 221–223, 226.
+- [x] RN de resumen y protección de recursos: `resumen_recursos` en el detalle
+  de campaña (suma por categoría, **excluyendo anulados**), unidades con usos
+  protegidas contra cambio de factor/tipo y **campaña de un uso inmutable**
+  al editar → pruebas 132, 135, 136 · colección 228–229, 232–233.
+- [x] RN de ámbito y permisos de recursos: el Técnico solo ve y registra usos
+  de sus productores asignados (uso ajeno → 404), `registrado_por` oculto a
+  los roles con `limita_a_asignados`, Administrador con los 4 permisos,
+  Técnico sin `desactivar` (anular → 403) y Coordinador solo `ver` (crear →
+  403) → pruebas 134–137 · colección 206, 234–235.
 - [x] RF «registrar un productor con código automático (PROD-0001)» →
   triggers + pruebas 21 y 22.
 - [x] RF «registrar parcelas con código automático (P-001)» y sus
@@ -179,8 +205,9 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
   pruebas 29 y 30; parcelas 43; asignaciones 47; campañas 80 y 81 (ámbito del
   Técnico → 404, Coordinador solo lee); actividades 98 y 102; producción 118
   (Técnico sin `desactivar`, Coordinador sin `crear`) y parámetros
-  (`parametros.gestionar` solo Administrador); colección 033–036, 040,
-  117–127, 155, 158–159, 166–167, 198–205.
+  (`parametros.gestionar` solo Administrador); recursos 134–137 (Técnico sin
+  `desactivar`, Coordinador sin `crear`); colección 033–036, 040,
+  117–127, 155, 158–159, 166–167, 198–205, 206, 234–235.
 - [x] Protección de datos personales (enmascarado por rol, Ley N.° 29733) →
   prueba 35 · **regla pendiente de confirmación** (decisión 4 de la Semana 3).
 
@@ -203,6 +230,10 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
   `deshacer-cosecha/`, parámetros por clave, `cerrar/` en campañas, filtros,
   cuerpos exactos de los dos formatos de error, guion de la colección
   160–205 y curl).
+- [x] Contrato de la API de recursos e insumos → `docs/api_recursos.md`
+  (usos de recursos con `anular/` y `reactivar/`, cascada, `resumen_recursos`,
+  permisos por rol, filtros, unidades por categoría y cuerpos exactos de los
+  dos formatos de error).
 - [x] **Colecciones ejecutables** → `docs/coleccion_api_semana3.json`
   (36 peticiones), `docs/coleccion_api_semana4.json`
   (**48 peticiones** con `pm.test`, validadas **48/48** contra el servidor),
@@ -211,21 +242,25 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
   (**127 peticiones** = 93 + 34 de campañas, validadas **127/127** con
   **221/221 aserciones**), `docs/coleccion_api_semana7.json`
   (**159 peticiones** = 127 + 32 de actividades, validadas **159/159** con
-  **286/286 aserciones**) y `docs/coleccion_api_semana8.json`
+  **286/286 aserciones**), `docs/coleccion_api_semana8.json`
   (**205 peticiones** = 159 + 46 de parámetros y producción, validadas
-  **205/205** con **374/374 aserciones**; sin secretos: las claves se toman
+  **205/205** con **374/374 aserciones**) y `docs/coleccion_api_semana9.json`
+  (**235 peticiones** = 205 + 30 de recursos e insumos, validadas
+  **235/235** con **431/431 aserciones**; sin secretos: las claves se toman
   de `.credenciales`).
-- [x] **Suite de pruebas:** `python manage.py test` → **120 verdes**
+- [x] **Suite de pruebas:** `python manage.py test` → **137 verdes**
   (8 Semana 1 + 12 Semana 2 + 17 Semana 3 + 16 Semana 4 + 14 Semana 5 +
-  19 Semana 6 + 16 Semana 7 + 18 Semana 8); `manage.py check` en 0 issues;
-  `makemigrations --check` sin cambios. Comandos en `comparacion_sprint1.md`
-  §6, `comparacion_semana3.md` §6, `comparacion_semana4.md` §6,
-  `comparacion_semana5.md` §6, `comparacion_semana6.md` §7,
-  `comparacion_semana7.md` y `comparacion_semana8.md` («Cómo se verificó»).
+  19 Semana 6 + 16 Semana 7 + 18 Semana 8 + 17 Semana 9); `manage.py check`
+  en 0 issues; `makemigrations --check` sin cambios. Comandos en
+  `comparacion_sprint1.md` §6, `comparacion_semana3.md` §6,
+  `comparacion_semana4.md` §6, `comparacion_semana5.md` §6,
+  `comparacion_semana6.md` §7, `comparacion_semana7.md`,
+  `comparacion_semana8.md` y `decisiones_semana9.md` §2 («Cómo se verificó»).
 - [x] **Pantallas React:** `npm run lint` y `npm run build` en 0 problemas;
   checklist de ejecución manual en `docs/verificacion_ui_semana4.md`,
   `docs/verificacion_ui_semana5.md`, `docs/verificacion_ui_semana6.md`,
-  `docs/verificacion_ui_semana7.md` y `docs/verificacion_ui_semana8.md`
+  `docs/verificacion_ui_semana7.md`, `docs/verificacion_ui_semana8.md` y
+  `docs/verificacion_ui_semana9.md`
   (decisiones 15/16/17/19, **pendientes de ejecutar por el responsable**).
   De la Semana 5: pantalla `/catalogos` con CRUD en modales; de la Semana 6:
   pantalla `/campanias` con alta/edición en modal y las fichas de
@@ -234,7 +269,9 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
   bloque de actividades; de la Semana 8: pantalla **`/parametros`**,
   `ProduccionFormulario` y `ProduccionFicha` (revisar/deshacer),
   `CampaniaFicha` con bloque «Producción» + cerrar y columna «Producción» en
-  `ProductorFicha`.
+  `ProductorFicha`; de la Semana 9: pantalla **`/recursos`**,
+  `RecursoFormulario` y `RecursoFicha` (anular/reactivar), «Recursos usados»
+  en `ActividadFicha` y «Resumen de recursos» en `CampaniaFicha`.
 
 ## Usuarios, roles y permisos (evidencia funcional)
 
@@ -251,7 +288,10 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
   API) → `backend/seguimiento/admin.py`. Desde la Semana 8 las tablas
   **`producciones`** (los campos calculados se ven, no se tocan) y
   **`parametros_sistema`** (solo valor: sin altas ni bajas) →
-  `backend/produccion/admin.py`, `backend/sistema/admin.py`.
+  `backend/produccion/admin.py`, `backend/sistema/admin.py`. Desde la Semana 9
+  la tabla **`uso_recursos`** (consulta y trazabilidad; la anulación y la
+  reactivación son solo vía API) también está registrada →
+  `backend/seguimiento/admin.py`.
 - [ ] **Capturas de pantalla** del panel y de la API en Postman (para el
   documento): ejecutar la colección y capturar respuestas 201/400/403/405.
 
@@ -260,9 +300,10 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
 - [x] Tablero con HU-15..HU-22 → `docs/tablero.md` (Semana 3), HU-23..HU-28
   con estado y evidencias (Semana 4), las **8 fases F1–F8** de la Semana 5,
   las **7 fases F1–F7** de la Semana 6 (HU-38..HU-46), las **7 fases F1–F7**
-  de la Semana 7 (HU-47..HU-55) y las **7 fases F1–F7** de la Semana 8
-  (HU-56..HU-62 del mapeo propuesto; HU-01..HU-14 resumidos ahí mismo: textos
-  originales de HU no están en el repositorio: mapeo propuesto).
+  de la Semana 7 (HU-47..HU-55), las **7 fases F1–F7** de la Semana 8
+  (HU-56..HU-62) y las **7 fases F1–F7** de la Semana 9 (HU-67..HU-75 del
+  mapeo propuesto, más HU-48 completada; HU-01..HU-14 resumidos ahí mismo:
+  textos originales de HU no están en el repositorio: mapeo propuesto).
 - [x] Calendario y orden de sprints → `CONTEXTO_PROYECTO.md` §13.
 - [x] Contexto completo del proyecto (para que el responsable pueda defender
   cada decisión) → `CONTEXTO_PROYECTO.md` completo.
@@ -271,16 +312,14 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
 
 - [ ] Diagramas ER y modelo lógico (4.3.2 / 4.3.3).
 - [ ] Capturas de pantalla de pantallas y endpoints (incluye login de React).
-- [ ] Ejecutar los checklists de UI de las Semanas 4 a 8
-  (`docs/verificacion_ui_semana4.md`, `docs/verificacion_ui_semana5.md`,
-  `docs/verificacion_ui_semana6.md`, `docs/verificacion_ui_semana7.md` y
-  `docs/verificacion_ui_semana8.md`) en Chrome/Edge/móvil y anotar los
-  resultados.
+- [ ] Ejecutar los checklists de UI de las Semanas 4 a 9
+  (`docs/verificacion_ui_semana4.md` … `docs/verificacion_ui_semana9.md`)
+  en Chrome/Edge/móvil y anotar los resultados.
 - [ ] Pantallas de los módulos en React (hoy: login, 403, 404, productores,
   parcelas, **catálogos** con CRUD en modales, **campañas**,
-  **actividades** con `CampaniaFicha` y **parámetros** con producción en las
-  fichas; la entrada «Producción» del menú sigue siendo placeholder: faltan
-  su pantalla y los demás módulos).
+  **actividades** con `CampaniaFicha`, **parámetros** y **recursos** con
+  producción y recursos dentro de las fichas; la entrada «Producción» del
+  menú sigue siendo placeholder: faltan su pantalla y los demás módulos).
 - [ ] Manual de usuario y evidencia de la demo.
 - [ ] Copia de `DB_sql/` fuera del repositorio antes de cualquier entrega
   (está ignorado en Git).

@@ -11,6 +11,7 @@ import NoEncontrado from './pages/NoEncontrado.jsx'
 import Parametros from './pages/Parametros.jsx'
 import Parcelas from './pages/Parcelas.jsx'
 import Productores from './pages/Productores.jsx'
+import Recursos from './pages/Recursos.jsx'
 import RutaProtegida from './routes/RutaProtegida.jsx'
 import RutaSoloInvitado from './routes/RutaSoloInvitado.jsx'
 import { opcionesMenu } from './routes/opcionesMenu.js'
@@ -24,6 +25,7 @@ const rutasConPantalla = new Set([
   '/parametros',
   '/campanias',
   '/actividades',
+  '/recursos',
 ])
 const modulos = opcionesMenu.filter(
   (opcion) => !rutasConPantalla.has(opcion.ruta),
@@ -101,6 +103,15 @@ export default function App() {
             element={
               <RutaProtegida permiso="actividades.ver">
                 <Actividades />
+              </RutaProtegida>
+            }
+          />
+
+          <Route
+            path="/recursos"
+            element={
+              <RutaProtegida permiso="recursos.ver">
+                <Recursos />
               </RutaProtegida>
             }
           />

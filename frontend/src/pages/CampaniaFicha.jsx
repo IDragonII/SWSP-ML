@@ -14,6 +14,7 @@ import ActividadFormulario from './ActividadFormulario.jsx'
 import CampaniaFormulario from './CampaniaFormulario.jsx'
 import ProduccionFicha from './ProduccionFicha.jsx'
 import ProduccionFormulario from './ProduccionFormulario.jsx'
+import RecursoFormulario from './RecursoFormulario.jsx'
 
 function Dato({ rotulo, valor }) {
   return (
@@ -38,12 +39,14 @@ export default function CampaniaFicha({ id, abierto, onCerrar }) {
   const [produccionAbierta, setProduccionAbierta] = useState(false)
   const [produccionEditando, setProduccionEditando] = useState(null)
   const [produccionFichaId, setProduccionFichaId] = useState(null)
+  const [recursoAbierto, setRecursoAbierto] = useState(false)
   const [ocupado, setOcupado] = useState(false)
   const [confirmacion, setConfirmacion] = useState(null)
 
   const puedeEditarCampania = tienePermiso('campanias.editar')
   const puedeCrearActividad = tienePermiso('actividades.crear')
   const puedeCrearProduccion = tienePermiso('produccion.crear')
+  const puedeCrearRecurso = tienePermiso('recursos.crear')
   const puedeCerrarCampania = tienePermiso('campanias.desactivar')
 
   const recargar = useCallback(() => setRecarga((n) => n + 1), [])
@@ -149,6 +152,17 @@ export default function CampaniaFicha({ id, abierto, onCerrar }) {
                   Registrar producción
                 </button>
               )}
+              {puedeCrearRecurso &&
+                ficha.estado !== 'CERRADA' &&
+                ficha.estado !== 'CANCELADA' && (
+                  <button
+                    type="button"
+                    className="boton-primario"
+                    onClick={() => setRecursoAbierto(true)}
+                  >
+                    Registrar recurso
+                  </button>
+                )}
               {puedeCerrarCampania && ficha.estado === 'COSECHADA' && (
                 <button
                   type="button"
@@ -307,6 +321,53 @@ export default function CampaniaFicha({ id, abierto, onCerrar }) {
               </p>
             )}
           </section>
+
+          <section className="panel">
+            <h2>Resumen de recursos</h2>
+            {ficha.resumen_recursos && ficha.resumen_recursos.length > 0 ? (
+              <>
+                <Tabla
+                  filas={ficha.resumen_recursos}
+                  columnas={[
+                    {
+                      clave: 'categoria',
+                      etiqueta: 'Categoría',
+                      celda: (fila) => <Chip>{fila.categoria}</Chip>,
+                    },
+                    {
+                      clave: 'total',
+                      etiqueta: 'Total',
+                      celda: (fila) => `${fila.total} ${fila.unidad}`,
+                    },
+                    {
+                      clave: 'total_ha',
+                      etiqueta: 'Por hectárea',
+                      celda: (fila) =>
+                        fila.total_ha === null
+                          ? '—'
+                          : `${fila.total_ha} ${fila.unidad}/ha`,
+                    },
+                    {
+                      clave: 'registros',
+                      etiqueta: 'Registros',
+                      celda: (fila) => fila.registros,
+                    },
+                  ]}
+                />
+                <p className="nota">
+                  Suma de los usos activos en la unidad base de cada
+                  categoría; el combustible se muestra en litros. Los usos
+                  anulados (incluidos los de la cascada) no cuentan.
+                </p>
+              </>
+            ) : (
+              <p className="nota">
+                {ficha.estado === 'CANCELADA'
+                  ? 'La campaña está cancelada y no admite usos de recursos.'
+                  : 'Esta campaña todavía no tiene usos de recursos registrados.'}
+              </p>
+            )}
+          </section>
         </>
       )}
 
@@ -398,6 +459,18 @@ export default function CampaniaFicha({ id, abierto, onCerrar }) {
             setProduccionFichaId(null)
             recargar()
           }}
+        />
+      )}
+
+      {recursoAbierto && ficha && (
+        <RecursoFormulario
+          campaniaInicial={ficha.id}
+          abierto
+          onGuardado={() => {
+            setRecursoAbierto(false)
+            recargar()
+          }}
+          onCancelar={() => setRecursoAbierto(false)}
         />
       )}
 

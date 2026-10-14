@@ -4,7 +4,7 @@ from django.db.models.functions import Now
 from django.utils import timezone
 
 from campanias.models import Campania
-from catalogos.models import TipoActividad
+from catalogos.models import Recurso, TipoActividad, Unidad
 
 
 class Actividad(models.Model):
@@ -123,3 +123,108 @@ class Actividad(models.Model):
 
     def __str__(self):
         return f"{self.fecha} · {self.tipo_actividad} · {self.campania}"
+
+
+class UsoRecurso(models.Model):
+    """Uso de un recurso en una campaña (01_tablas.sql:290-307).
+
+    Una cantidad de un recurso usada en una fecha dentro de la campaña;
+    la actividad es opcional (una fertilización puede llevar urea y
+    fosfato en dos usos distintos). cantidad_base lo calcula
+    fn_uso_recurso (migración 0004: cantidad × factor de la unidad, con
+    la unidad del mismo tipo que el recurso). La anulación es lógica
+    (Semana 9): los usos anulados salen del resumen por categoría y del
+    dataset de entrenamiento.
+
+    fn_validar_fecha_campania y fn_set_actualizado_en las aportan
+    seguimiento.0002 y productores.0002 respectivamente: la migración
+    0004 solo crea fn_uso_recurso y los 3 triggers de la tabla.
+    """
+
+    campania = models.ForeignKey(
+        Campania,
+        on_delete=models.CASCADE,
+        related_name="usos_recursos",
+        verbose_name="campaña",
+        db_index=False,
+    )
+    actividad = models.ForeignKey(
+        Actividad,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="usos_recursos",
+        verbose_name="actividad",
+        db_index=False,
+    )
+    recurso = models.ForeignKey(
+        Recurso,
+        on_delete=models.PROTECT,
+        related_name="usos",
+        verbose_name="recurso",
+        db_index=False,
+    )
+    fecha = models.DateField("fecha")
+    cantidad = models.DecimalField("cantidad", max_digits=12, decimal_places=3)
+    unidad = models.ForeignKey(
+        Unidad,
+        on_delete=models.PROTECT,
+        related_name="usos_recursos",
+        verbose_name="unidad",
+        db_index=False,
+    )
+    # Lo llena fn_uso_recurso en cada INSERT/UPDATE; el valor que mande
+    # el cliente se sobrescribe.
+    cantidad_base = models.DecimalField(
+        "cantidad base", max_digits=14, decimal_places=3
+    )
+    costo = models.DecimalField(
+        "costo", max_digits=10, decimal_places=2, null=True, blank=True
+    )
+    observaciones = models.TextField("observaciones", blank=True)
+    anulada = models.BooleanField("anulada", default=False, db_default=False)
+    motivo_anulacion = models.TextField(
+        "motivo de anulación", null=True, blank=True
+    )
+    registrado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="usos_recursos_registrados",
+        verbose_name="registrado por",
+        db_index=False,
+    )
+    creado_en = models.DateTimeField("creado en", default=timezone.now, db_default=Now())
+    actualizado_en = models.DateTimeField(
+        "actualizado en", default=timezone.now, db_default=Now()
+    )
+
+    class Meta:
+        db_table = "uso_recursos"
+        verbose_name = "uso de recurso"
+        verbose_name_plural = "usos de recursos"
+        ordering = ("-fecha", "id")
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(cantidad__gt=0),
+                name="ck_uso_recurso_cantidad",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(costo__isnull=True) | models.Q(costo__gte=0),
+                name="ck_uso_recurso_costo",
+            ),
+            # anulada ⇒ motivo (el CHECK de la Semana 9)
+            models.CheckConstraint(
+                condition=models.Q(anulada=False)
+                | models.Q(motivo_anulacion__isnull=False),
+                name="ck_uso_recurso_anulacion",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["campania"], name="ix_uso_recursos_campania"),
+            models.Index(fields=["recurso"], name="ix_uso_recursos_recurso"),
+        ]
+
+    def __str__(self):
+        return f"{self.fecha} · {self.recurso} · {self.campania}"

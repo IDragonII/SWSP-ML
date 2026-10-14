@@ -13,9 +13,10 @@ los mismos campos que en producción y en cerrada no se admite nada.
 """
 import re
 from datetime import date
+from decimal import Decimal
 
 from django.core.exceptions import ObjectDoesNotExist
-from django.db.models import Max
+from django.db.models import Count, Max, Sum
 from rest_framework import serializers
 
 from catalogos.models import Cultivo, Variedad
@@ -24,6 +25,16 @@ from productores.models import AsignacionTecnico, Parcela, Productor
 from .models import Campania
 
 _MENSAJE_REQUERIDO = "Este campo es obligatorio."
+
+# Unidad base en la que se expresa cada tipo de unidad en el resumen de
+# recursos por campaña (Semana 9). El COMBUSTIBLE es un caso aparte: se
+# muestra en litros aunque su base sea m³.
+_UNIDADES_BASE = {
+    "MASA": "kg",
+    "LABOR": "jornal",
+    "TIEMPO": "h",
+    "VOLUMEN": "m3",
+}
 
 # Campos que quedan bloqueados al iniciar la campaña: definen la fila del
 # dataset y las etapas; para corregirlos se cancela y se crea otra nueva.
@@ -86,7 +97,10 @@ class CampaniaDetalleSerializer(serializers.ModelSerializer):
     """Ficha completa. creado_por sale como nombre de usuario
     (StringRelatedField, igual que parcelas y productores). La Semana 7
     añade el resumen de actividades: cuántas activas quedan y la última
-    fecha registrada (ambas excluyen anuladas)."""
+    fecha registrada (ambas excluyen anuladas). La Semana 9 añade
+    resumen_recursos: total por categoría en unidad base y por hectárea
+    sembrada, con el número de registros (solo usos activos; el
+    combustible se muestra en litros)."""
 
     parcela = serializers.SerializerMethodField()
     cultivo = serializers.SerializerMethodField()
@@ -95,6 +109,7 @@ class CampaniaDetalleSerializer(serializers.ModelSerializer):
     actividades_activas = serializers.SerializerMethodField()
     fecha_ultima_actividad = serializers.SerializerMethodField()
     produccion = serializers.SerializerMethodField()
+    resumen_recursos = serializers.SerializerMethodField()
 
     class Meta:
         model = Campania
@@ -113,6 +128,7 @@ class CampaniaDetalleSerializer(serializers.ModelSerializer):
             "actividades_activas",
             "fecha_ultima_actividad",
             "produccion",
+            "resumen_recursos",
             "creado_por",
             "creado_en",
             "actualizado_en",
@@ -123,6 +139,7 @@ class CampaniaDetalleSerializer(serializers.ModelSerializer):
             "actividades_activas",
             "fecha_ultima_actividad",
             "produccion",
+            "resumen_recursos",
             "creado_por",
             "creado_en",
             "actualizado_en",
@@ -160,6 +177,45 @@ class CampaniaDetalleSerializer(serializers.ModelSerializer):
             "requiere_revision": p.requiere_revision,
             "incluir_en_entrenamiento": p.incluir_en_entrenamiento,
         }
+
+    def get_resumen_recursos(self, obj):
+        """Resumen por categoría (HU-74, Semana 9): suma cantidad_base de
+        los usos activos, agrupados por categoría y tipo de unidad (dos
+        fitosanitarios de distinto tipo no se suman entre sí), con el
+        total por hectárea sembrada y el número de registros. El
+        combustible se muestra en litros (la base es m³). Lista vacía si
+        aún no hay usos."""
+        filas = (
+            obj.usos_recursos.filter(anulada=False)
+            .values("recurso__categoria", "recurso__tipo_unidad")
+            .annotate(total=Sum("cantidad_base"), registros=Count("id"))
+            .order_by("recurso__categoria", "recurso__tipo_unidad")
+        )
+        superficie = obj.superficie_sembrada_ha
+        resultado = []
+        for fila in filas:
+            categoria = fila["recurso__categoria"]
+            tipo = fila["recurso__tipo_unidad"]
+            total = fila["total"]
+            if categoria == "COMBUSTIBLE":
+                # La base de VOLUMEN es m³: en el resumen se muestra en L
+                total = total * 1000
+                unidad = "L"
+            else:
+                unidad = _UNIDADES_BASE.get(tipo, "kg")
+            total_ha = None
+            if superficie:
+                total_ha = (total / superficie).quantize(Decimal("0.01"))
+            resultado.append(
+                {
+                    "categoria": categoria,
+                    "total": total,
+                    "unidad": unidad,
+                    "total_ha": total_ha,
+                    "registros": fila["registros"],
+                }
+            )
+        return resultado
 
 
 class CampaniaEscrituraSerializer(serializers.ModelSerializer):

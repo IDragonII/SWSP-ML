@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { mensajeDeError } from '../api/errores.js'
+import { listarTodo } from '../api/catalogos.js'
 import {
   anularActividad,
   obtenerActividad,
@@ -11,9 +12,11 @@ import Cargando from '../components/Cargando.jsx'
 import Chip from '../components/Chip.jsx'
 import Modal from '../components/Modal.jsx'
 import RuedaCarga from '../components/RuedaCarga.jsx'
+import Tabla from '../components/Tabla.jsx'
 import { useSesion } from '../context/useSesion.js'
 import { useToast } from '../context/useToast.js'
 import ActividadFormulario from './ActividadFormulario.jsx'
+import RecursoFormulario from './RecursoFormulario.jsx'
 
 function Dato({ rotulo, valor }) {
   return (
@@ -28,15 +31,18 @@ export default function ActividadFicha({ id, abierto, onCerrar }) {
   const { tienePermiso } = useSesion()
   const { avisar } = useToast()
   const [ficha, setFicha] = useState(null)
+  const [usos, setUsos] = useState([])
   const [error, setError] = useState(null)
   const [ocupado, setOcupado] = useState(false)
   const [recarga, setRecarga] = useState(0)
   const [editando, setEditando] = useState(false)
+  const [recursoAbierto, setRecursoAbierto] = useState(false)
   const [motivo, setMotivo] = useState('')
   const [confirmacion, setConfirmacion] = useState(null)
 
   const puedeEditar = tienePermiso('actividades.editar')
   const puedeDesactivar = tienePermiso('actividades.desactivar')
+  const puedeCrearRecurso = tienePermiso('recursos.crear')
   const esSiembra = ficha?.tipo_actividad?.codigo === 'SIEMBRA'
 
   const recargar = useCallback(() => setRecarga((n) => n + 1), [])
@@ -55,6 +61,16 @@ export default function ActividadFicha({ id, abierto, onCerrar }) {
     }
   }, [id, recarga])
 
+  useEffect(() => {
+    let activo = true
+    listarTodo('/usos-recursos/', { actividad: id })
+      .then((lista) => activo && setUsos(lista))
+      .catch(() => activo && setUsos([]))
+    return () => {
+      activo = false
+    }
+  }, [id, recarga])
+
   function pedirAnulacion() {
     const limpio = motivo.trim()
     if (!limpio) return
@@ -63,6 +79,10 @@ export default function ActividadFicha({ id, abierto, onCerrar }) {
       texto: `¿Anular esta actividad? El motivo quedará registrado: «${limpio}».${
         esSiembra
           ? ' Al ser una siembra, la fecha de siembra de la campaña se recalculará.'
+          : ''
+      }${
+        usos.some((uso) => !uso.anulada)
+          ? ' Sus usos de recursos activos se anularán en cascada, en la misma transacción y con el mismo motivo.'
           : ''
       }`,
       confirmar: 'Anular actividad',
@@ -214,6 +234,65 @@ export default function ActividadFicha({ id, abierto, onCerrar }) {
             </dl>
           </section>
 
+          <section className="panel">
+            <div className="ficha-cabecera">
+              <h2>Recursos usados</h2>
+              {puedeCrearRecurso && !ficha.anulada && (
+                <div className="ficha-acciones">
+                  <button
+                    type="button"
+                    className="boton-secundario"
+                    onClick={() => setRecursoAbierto(true)}
+                  >
+                    Registrar recurso
+                  </button>
+                </div>
+              )}
+            </div>
+            {usos.length > 0 ? (
+              <Tabla
+                filas={usos}
+                columnas={[
+                  {
+                    clave: 'fecha',
+                    etiqueta: 'Fecha',
+                    celda: (uso) => uso.fecha,
+                  },
+                  {
+                    clave: 'recurso',
+                    etiqueta: 'Recurso',
+                    celda: (uso) => (
+                      <>
+                        {uso.recurso.nombre}{' '}
+                        <Chip>{uso.recurso.categoria}</Chip>
+                      </>
+                    ),
+                  },
+                  {
+                    clave: 'cantidad',
+                    etiqueta: 'Cantidad',
+                    celda: (uso) => `${uso.cantidad} ${uso.unidad.simbolo}`,
+                  },
+                  {
+                    clave: 'estado',
+                    etiqueta: 'Estado',
+                    celda: (uso) => (
+                      <Chip>{uso.anulada ? 'ANULADA' : 'ACTIVA'}</Chip>
+                    ),
+                  },
+                ]}
+              />
+            ) : (
+              <p className="nota">
+                Esta actividad todavía no tiene usos de recursos vinculados.
+              </p>
+            )}
+            <p className="nota">
+              Al anular la actividad, sus usos de recursos activos se anulan
+              en cascada, en la misma transacción y con el mismo motivo.
+            </p>
+          </section>
+
           {puedeDesactivar && !ficha.anulada && (
             <section className="panel">
               <h2>Anular actividad</h2>
@@ -257,6 +336,19 @@ export default function ActividadFicha({ id, abierto, onCerrar }) {
             recargar()
           }}
           onCancelar={() => setEditando(false)}
+        />
+      )}
+
+      {recursoAbierto && ficha && (
+        <RecursoFormulario
+          campaniaInicial={ficha.campania.id}
+          actividadInicial={ficha.id}
+          abierto
+          onGuardado={() => {
+            setRecursoAbierto(false)
+            recargar()
+          }}
+          onCancelar={() => setRecursoAbierto(false)}
         />
       )}
 

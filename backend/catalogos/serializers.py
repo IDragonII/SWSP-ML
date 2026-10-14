@@ -24,6 +24,19 @@ from .models import (
 _MENSAJE_REQUERIDO = "Este campo es obligatorio."
 _MENSAJE_VACIO = "Este campo no puede quedar vacío."
 
+# Regla de tipo de unidad por categoría (Semana 9, decisión 2): evita
+# mezclar kg con litros en el mismo grupo del resumen por campaña.
+_TIPOS_POR_CATEGORIA = {
+    "SEMILLA": ("MASA",),
+    "FERTILIZANTE": ("MASA",),
+    "ABONO": ("MASA",),
+    "FITOSANITARIO": ("MASA", "VOLUMEN"),
+    "AGUA": ("VOLUMEN",),
+    "COMBUSTIBLE": ("VOLUMEN",),
+    "MANO_OBRA": ("LABOR",),
+    "MAQUINARIA": ("TIEMPO",),
+}
+
 
 def _normalizar(valor):
     """Mayúsculas y espacios dobles no crean duplicados en la API."""
@@ -286,12 +299,54 @@ class TipoActividadEscrituraSerializer(EscrituraCatalogo):
 
 
 class RecursoEscrituraSerializer(NombreUnicoEscritura):
+    """Semana 9: cada categoría solo admite ciertos tipos de unidad (los
+    fitosanitarios, masa o volumen) y el tipo de un recurso que ya tiene
+    usos registrados no se puede cambiar (afectaría las cantidades base
+    ya calculadas): hay que crear otro recurso."""
+
     class Meta:
         model = Recurso
         fields = ("nombre", "categoria", "tipo_unidad", "activo")
 
     def _mensaje_duplicado(self):
         return "Ya existe un recurso con ese nombre."
+
+    def validate(self, attrs):
+        instancia = self.instance
+        categoria = attrs.get(
+            "categoria", getattr(instancia, "categoria", None) if instancia else None
+        )
+        tipo = attrs.get(
+            "tipo_unidad",
+            getattr(instancia, "tipo_unidad", None) if instancia else None,
+        )
+        if categoria is not None and tipo is not None:
+            permitidos = _TIPOS_POR_CATEGORIA.get(categoria, ())
+            if tipo not in permitidos:
+                raise serializers.ValidationError(
+                    {
+                        "tipo_unidad": (
+                            f"Los recursos de la categoría {categoria.lower()} "
+                            f"solo admiten unidades de tipo "
+                            f"{', '.join(permitidos).lower()}."
+                        )
+                    }
+                )
+        # El tipo de unidad no cambia si el recurso ya tiene usos
+        if instancia is not None:
+            tipo_nuevo = attrs.get("tipo_unidad")
+            if tipo_nuevo is not None and tipo_nuevo != instancia.tipo_unidad:
+                if instancia.usos.exists():
+                    raise serializers.ValidationError(
+                        {
+                            "tipo_unidad": (
+                                "Este recurso ya tiene usos registrados: su "
+                                "tipo de unidad no se puede cambiar. Cree "
+                                "otro recurso."
+                            )
+                        }
+                    )
+        return attrs
 
 
 class TipoIncidenciaEscrituraSerializer(NombreUnicoEscritura):
@@ -401,9 +456,12 @@ class EtapaDesplegableSerializer(serializers.ModelSerializer):
 
 
 class UnidadDesplegableSerializer(serializers.ModelSerializer):
+    """Semana 9: añade factor_a_base y es_base para mostrar en el
+    formulario la equivalencia («1 quintal = 46 kg»)."""
+
     class Meta:
         model = Unidad
-        fields = ("id", "nombre", "simbolo", "tipo")
+        fields = ("id", "nombre", "simbolo", "tipo", "factor_a_base", "es_base")
 
 
 class TipoActividadDesplegableSerializer(serializers.ModelSerializer):
@@ -413,9 +471,12 @@ class TipoActividadDesplegableSerializer(serializers.ModelSerializer):
 
 
 class RecursoDesplegableSerializer(serializers.ModelSerializer):
+    """Semana 9: añade categoría y tipo de unidad para agrupar por
+    categoría en el formulario y filtrar las unidades compatibles."""
+
     class Meta:
         model = Recurso
-        fields = ("id", "nombre")
+        fields = ("id", "nombre", "categoria", "tipo_unidad")
 
 
 class TipoIncidenciaDesplegableSerializer(serializers.ModelSerializer):

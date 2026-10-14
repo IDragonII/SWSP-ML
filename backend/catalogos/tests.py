@@ -665,18 +665,28 @@ class PermisosYConsultaTests(Semana5Base):
         self.assertEqual(len(listado["results"]), min(tamano, 26))
         if tamano < 26:
             self.assertIsNotNone(listado["next"])
-        # Sin paginar: lista cruda con solo los campos del desplegable
+        # Sin paginar: lista cruda con los campos del desplegable (la
+        # Semana 9 añade categoría y tipo de unidad a los recursos y el
+        # factor a la base a las unidades, para el formulario de usos)
         datos = self._json(self._api("get", "/api/recursos/?desplegable=1"))
         self.assertIsInstance(datos, list)
         self.assertEqual(len(datos), 26)
-        self.assertTrue(all(set(fila) == {"id", "nombre"} for fila in datos))
+        self.assertTrue(
+            all(
+                set(fila) == {"id", "nombre", "categoria", "tipo_unidad"}
+                for fila in datos
+            )
+        )
         # Variedades y unidades traen sus campos extra
         variedad = Variedad.objects.create(cultivo=self.quinua, nombre="Prueba")
         datos = self._json(self._api("get", "/api/variedades/?desplegable=1"))
         self.assertEqual(set(datos[0]), {"id", "nombre", "cultivo"})
         self.assertIn(variedad.pk, [fila["id"] for fila in datos])
         unidades = self._json(self._api("get", "/api/unidades/?desplegable=1"))
-        self.assertEqual(set(unidades[0]), {"id", "nombre", "simbolo", "tipo"})
+        self.assertEqual(
+            set(unidades[0]),
+            {"id", "nombre", "simbolo", "tipo", "factor_a_base", "es_base"},
+        )
         self.assertEqual(len(unidades), 8)
 
 
