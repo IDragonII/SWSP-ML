@@ -18,6 +18,7 @@ from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
 
 from campanias.models import Campania
+from seguimiento.models import Incidencia
 from usuarios.models import Usuario
 
 from .models import AsignacionTecnico, Comunidad, Distrito, Parcela, Productor, Provincia
@@ -232,6 +233,14 @@ class ProductorDetalleSerializer(serializers.ModelSerializer):
 
     def get_resumen(self, obj):
         parcelas = list(obj.parcelas.all())
+        # Semana 11: las incidencias activas de todas sus campañas (el
+        # historial detallado está en la ficha de cada parcela)
+        incidencias = Incidencia.objects.filter(
+            campania__parcela__productor=obj, anulada=False
+        )
+        resumen_incidencias = incidencias.aggregate(
+            total=Count("id"), ultima=Max("fecha")
+        )
         return {
             "parcelas_activas": sum(
                 1 for p in parcelas if p.estado == Parcela.ESTADO_ACTIVA
@@ -242,6 +251,8 @@ class ProductorDetalleSerializer(serializers.ModelSerializer):
             "campanias_activas": Campania.objects.filter(
                 parcela__productor=obj, estado__in=Campania.ESTADOS_ACTIVOS
             ).count(),
+            "incidencias_activas": resumen_incidencias["total"],
+            "ultima_incidencia": resumen_incidencias["ultima"],
         }
 
     def get_campanias(self, obj):
@@ -389,13 +400,16 @@ class ParcelaDetalleSerializer(serializers.ModelSerializer):
     sólo lectura (los rellena la base de datos); el productor se muestra
     anidado y no se puede cambiar al editar. Desde la Semana 6 incluye
     sus campañas (HU-44); desde la Semana 10, el conteo de registros de
-    clima y su último día (HU-80)."""
+    clima y su último día (HU-80); desde la Semana 11, el historial de
+    incidencias agrupado por campaña (HU-89: anuladas ocultas por
+    defecto, ?incluir_anuladas=1 las muestra)."""
 
     productor = serializers.SerializerMethodField()
     comunidad = ComunidadSerializer(read_only=True)
     creado_por = serializers.StringRelatedField(read_only=True)
     campanias = serializers.SerializerMethodField()
     clima = serializers.SerializerMethodField()
+    incidencias = serializers.SerializerMethodField()
 
     class Meta:
         model = Parcela
@@ -416,6 +430,7 @@ class ParcelaDetalleSerializer(serializers.ModelSerializer):
             "estado",
             "campanias",
             "clima",
+            "incidencias",
             "creado_por",
             "creado_en",
             "actualizado_en",
@@ -460,6 +475,66 @@ class ParcelaDetalleSerializer(serializers.ModelSerializer):
             }
             for c in campanias
         ]
+
+    def get_incidencias(self, obj):
+        """Historial de incidencias de la parcela agrupado por campaña
+        (HU-89, Semana 11), más reciente primero. Las anuladas se ocultan
+        por defecto y se piden con ?incluir_anuladas=1 (solo la ficha de
+        la parcela; el listado general usa su propio filtro de estado)."""
+        request = self.context.get("request")
+        incluir = str(
+            getattr(request, "query_params", {}).get("incluir_anuladas", "")
+        ).lower() in ("1", "true", "yes", "si", "sí")
+        base = Incidencia.objects.filter(campania__parcela=obj).select_related(
+            "campania", "campania__cultivo", "tipo_incidencia", "agente"
+        )
+        if not incluir:
+            base = base.filter(anulada=False)
+        grupos = []
+        indices = {}
+        for inc in base.order_by("-fecha", "-id"):
+            clave = inc.campania_id
+            if clave not in indices:
+                indices[clave] = len(grupos)
+                grupos.append(
+                    {
+                        "campania": {
+                            "id": inc.campania_id,
+                            "periodo": inc.campania.periodo,
+                            "cultivo": {
+                                "id": inc.campania.cultivo_id,
+                                "nombre": inc.campania.cultivo.nombre,
+                            },
+                            "estado": inc.campania.estado,
+                        },
+                        "incidencias": [],
+                    }
+                )
+            grupos[indices[clave]]["incidencias"].append(
+                {
+                    "id": inc.id,
+                    "fecha": inc.fecha.isoformat(),
+                    "tipo": {
+                        "id": inc.tipo_incidencia_id,
+                        "nombre": inc.tipo_incidencia.nombre,
+                        "categoria": inc.tipo_incidencia.categoria,
+                    },
+                    "severidad": inc.severidad,
+                    "agente": (
+                        {
+                            "id": inc.agente_id,
+                            "nombre": inc.agente.nombre,
+                            "tipo": inc.agente.tipo,
+                        }
+                        if inc.agente_id
+                        else None
+                    ),
+                    "superficie_afectada_ha": inc.superficie_afectada_ha,
+                    "descripcion": inc.descripcion,
+                    "anulada": inc.anulada,
+                }
+            )
+        return grupos
 
 
 class ParcelaEscrituraSerializer(serializers.ModelSerializer):

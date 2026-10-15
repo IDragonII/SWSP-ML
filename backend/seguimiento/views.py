@@ -40,6 +40,19 @@ productor, comunidad, distrito, provincia, fechas (desde/hasta), fuente
 La acción consulta-api (HU-84) baja lecturas de Open-Meteo para una
 parcela con coordenadas: 10 consultas por usuario y hora, transacción
 única (o se guarda todo el rango o nada) y 502 si el servicio no responde.
+
+Incidencias (Semana 11, HU-85 a HU-92): eventos que afectan a una campaña
+(helada, granizada, plaga, enfermedad…). Misma fórmula que actividades y
+usos de recursos: SIN DELETE (405), anulación lógica con motivo
+(incidencias.desactivar, hoy solo del Administrador) y reactivar solo si
+la campaña sigue admitiendo registros y la fecha sigue dentro del
+período. Permisos incidencias.ver/crear/editar/desactivar (sembrados en
+la Semana 2; nadie los usaba hasta hoy). El Técnico solo ve y registra
+incidencias de campañas de SUS productores asignados. Búsqueda por código
+de parcela, apellidos y nombres del productor, descripción y agente;
+filtros por campaña, tipo, categoría, severidad, agente, fechas
+(desde/hasta), productor, parcela, cultivo, distrito y estado
+(ACTIVA/ANULADA); orden por fecha descendente y paginación global (20).
 """
 from datetime import timedelta
 
@@ -58,7 +71,7 @@ from productores.views import (
     _id_numerico,
 )
 
-from .models import Actividad, Clima, UsoRecurso
+from .models import Actividad, Clima, Incidencia, UsoRecurso
 from .serializers import (
     ActividadDetalleSerializer,
     ActividadEscrituraSerializer,
@@ -67,6 +80,9 @@ from .serializers import (
     ClimaDetalleSerializer,
     ClimaEscrituraSerializer,
     ClimaListaSerializer,
+    IncidenciaDetalleSerializer,
+    IncidenciaEscrituraSerializer,
+    IncidenciaListaSerializer,
     UsoRecursoDetalleSerializer,
     UsoRecursoEscrituraSerializer,
     UsoRecursoListaSerializer,
@@ -750,3 +766,219 @@ class ClimaViewSet(
 
     def _lectura(self, obj):
         return ClimaDetalleSerializer(obj, context=self.get_serializer_context())
+
+
+# ---------------------------------------------------------------------- #
+# Incidencias (Semana 11)
+# ---------------------------------------------------------------------- #
+class PermisosIncidencia(PermisosPorAccion):
+    """Permisos de incidencias: incidencias.ver/crear/editar/desactivar.
+    Anular y reactivar comparten incidencias.desactivar (hoy solo del
+    Administrador)."""
+
+    permiso_requerido = "incidencias.ver"
+    PERMISOS = {
+        "list": "incidencias.ver",
+        "retrieve": "incidencias.ver",
+        "create": "incidencias.crear",
+        "update": "incidencias.editar",
+        "partial_update": "incidencias.editar",
+        "anular": "incidencias.desactivar",
+        "reactivar": "incidencias.desactivar",
+    }
+
+
+class IncidenciaViewSet(
+    PermisosIncidencia,
+    SoloSusProductores,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin,
+    mixins.UpdateModelMixin,
+    viewsets.GenericViewSet,
+):
+    """CRUD de incidencias sin DELETE (405) y con anulación lógica."""
+
+    queryset = Incidencia.objects.select_related(
+        "campania",
+        "campania__parcela",
+        "campania__parcela__productor",
+        "campania__cultivo",
+        "tipo_incidencia",
+        "agente",
+        "registrado_por",
+    )
+    serializer_class = IncidenciaDetalleSerializer
+    escritura_serializer = IncidenciaEscrituraSerializer
+    filter_backends = (BusquedaPorNombre,)
+    search_fields = (
+        "campania__parcela__codigo",
+        "campania__parcela__productor__apellidos",
+        "campania__parcela__productor__nombres",
+        "descripcion",
+        "agente__nombre",
+    )
+
+    def get_serializer_class(self):
+        if self.action in ("create", "update", "partial_update"):
+            return self.escritura_serializer
+        if self.action == "list":
+            return IncidenciaListaSerializer
+        return self.serializer_class
+
+    def get_queryset(self):
+        queryset = self._filtrar_asignados(
+            super().get_queryset(), "campania__parcela__productor_id"
+        )
+        params = self.request.query_params
+        if params.get("estado"):
+            estado = params["estado"]
+            if estado not in ("ACTIVA", "ANULADA"):
+                raise ValidationError({"estado": "Use ACTIVA o ANULADA."})
+            queryset = queryset.filter(anulada=(estado == "ANULADA"))
+        if params.get("campania"):
+            queryset = queryset.filter(
+                campania_id=_id_numerico(params["campania"], "campania")
+            )
+        if params.get("tipo"):
+            queryset = queryset.filter(
+                tipo_incidencia_id=_id_numerico(params["tipo"], "tipo")
+            )
+        if params.get("categoria"):
+            categoria = params["categoria"]
+            if categoria not in ("CLIMATICA", "BIOLOGICA", "OTRA"):
+                raise ValidationError(
+                    {"categoria": "Use CLIMATICA, BIOLOGICA u OTRA."}
+                )
+            queryset = queryset.filter(tipo_incidencia__categoria=categoria)
+        if params.get("severidad"):
+            severidad = params["severidad"]
+            if severidad not in ("BAJA", "MEDIA", "ALTA"):
+                raise ValidationError({"severidad": "Use BAJA, MEDIA o ALTA."})
+            queryset = queryset.filter(severidad=severidad)
+        if params.get("agente"):
+            queryset = queryset.filter(
+                agente_id=_id_numerico(params["agente"], "agente")
+            )
+        if params.get("fecha_desde"):
+            queryset = queryset.filter(fecha__gte=params["fecha_desde"])
+        if params.get("fecha_hasta"):
+            queryset = queryset.filter(fecha__lte=params["fecha_hasta"])
+        if params.get("productor"):
+            queryset = queryset.filter(
+                campania__parcela__productor_id=_id_numerico(
+                    params["productor"], "productor"
+                )
+            )
+        if params.get("parcela"):
+            queryset = queryset.filter(
+                campania__parcela_id=_id_numerico(params["parcela"], "parcela")
+            )
+        if params.get("cultivo"):
+            queryset = queryset.filter(
+                campania__cultivo_id=_id_numerico(params["cultivo"], "cultivo")
+            )
+        if params.get("distrito"):
+            queryset = queryset.filter(
+                campania__parcela__comunidad__distrito_id=_id_numerico(
+                    params["distrito"], "distrito"
+                )
+            )
+        return queryset
+
+    def perform_create(self, serializer):
+        serializer.save(registrado_por=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            with transaction.atomic():
+                self.perform_create(serializer)
+        except IntegrityError:
+            raise ValidationError(
+                "No se pudo guardar la incidencia: los datos chocan con "
+                "una restricción de la base de datos."
+            )
+        serializer.instance.refresh_from_db()
+        return Response(self._lectura(serializer.instance).data, status=201)
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        try:
+            with transaction.atomic():
+                self.perform_update(serializer)
+        except IntegrityError:
+            raise ValidationError(
+                "No se pudo guardar la incidencia: los datos chocan con "
+                "una restricción de la base de datos."
+            )
+        serializer.instance.refresh_from_db()
+        return Response(self._lectura(serializer.instance).data)
+
+    def _lectura(self, obj):
+        return IncidenciaDetalleSerializer(obj, context=self.get_serializer_context())
+
+    @action(detail=True, methods=("post",), url_path="anular")
+    def anular(self, request, pk=None):
+        """Anulación lógica (HU-88): exige motivo e incidencias.desactivar.
+        Solo si la campaña sigue admitiendo registros (aqui se responde
+        400 en español; los triggers de fecha no cubren esta acción)."""
+        incidencia = self.get_object()
+        if incidencia.anulada:
+            raise ValidationError({"estado": "La incidencia ya está anulada."})
+        campania = incidencia.campania
+        if campania.estado not in Campania.ESTADOS_ACTIVOS:
+            raise ValidationError(
+                {
+                    "estado": (
+                        f"La campaña está {campania.estado} y no admite nuevos "
+                        "registros."
+                    )
+                }
+            )
+        motivo = (request.data.get("motivo") or "").strip()
+        if not motivo:
+            raise ValidationError({"motivo": "El motivo de anulación es obligatorio."})
+        incidencia.anulada = True
+        incidencia.motivo_anulacion = motivo
+        incidencia.save(update_fields=("anulada", "motivo_anulacion"))
+        incidencia.refresh_from_db()
+        return Response(self._lectura(incidencia).data)
+
+    @action(detail=True, methods=("post",), url_path="reactivar")
+    def reactivar(self, request, pk=None):
+        """Reactiva una incidencia anulada (HU-88): la campaña debe seguir
+        abierta y la fecha aún dentro del período (aquí se responde 400
+        en español antes de tocar la base)."""
+        incidencia = self.get_object()
+        if not incidencia.anulada:
+            raise ValidationError({"estado": "La incidencia no está anulada."})
+        campania = incidencia.campania
+        if campania.estado not in Campania.ESTADOS_ACTIVOS:
+            raise ValidationError(
+                {
+                    "estado": (
+                        f"La campaña está {campania.estado} y no admite nuevos "
+                        "registros."
+                    )
+                }
+            )
+        if not campania.fecha_inicio <= incidencia.fecha <= campania.fecha_fin_prevista:
+            raise ValidationError(
+                {
+                    "fecha": (
+                        f"La fecha {incidencia.fecha} está fuera del período de "
+                        f"la campaña ({campania.fecha_inicio} a "
+                        f"{campania.fecha_fin_prevista})."
+                    )
+                }
+            )
+        incidencia.anulada = False
+        incidencia.motivo_anulacion = None
+        incidencia.save(update_fields=("anulada", "motivo_anulacion"))
+        incidencia.refresh_from_db()
+        return Response(self._lectura(incidencia).data)

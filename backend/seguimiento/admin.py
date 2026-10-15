@@ -2,7 +2,7 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from django.contrib import admin
 
-from .models import Actividad, Clima, UsoRecurso
+from .models import Actividad, Clima, Incidencia, UsoRecurso
 from .serializers import _umbral_helada
 
 
@@ -130,4 +130,43 @@ class ClimaAdmin(admin.ModelAdmin):
             ).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
         if obj.temp_min is not None:
             obj.helada = obj.temp_min <= _umbral_helada()
+        super().save_model(request, obj, form, change)
+
+
+@admin.register(Incidencia)
+class IncidenciaAdmin(admin.ModelAdmin):
+    """Semana 11: consulta y trazabilidad de las incidencias. La anulación
+    y la reactivación solo desde la API (decisión de la Semana 11; el
+    admin es de consulta, igual que actividades y usos de recursos)."""
+
+    list_display = (
+        "fecha",
+        "tipo_incidencia",
+        "severidad",
+        "campania",
+        "agente",
+        "superficie_afectada_ha",
+        "anulada",
+    )
+    list_filter = ("severidad", "tipo_incidencia__categoria", "anulada", "campania")
+    search_fields = (
+        "descripcion",
+        "agente__nombre",
+        "campania__parcela__codigo",
+        "campania__parcela__productor__apellidos",
+        "campania__parcela__productor__nombres",
+    )
+    date_hierarchy = "fecha"
+    readonly_fields = (
+        "anulada",
+        "motivo_anulacion",
+        "registrado_por",
+        "creado_en",
+        "actualizado_en",
+    )
+    raw_id_fields = ("campania", "tipo_incidencia", "agente")
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.registrado_por = request.user
         super().save_model(request, obj, form, change)

@@ -1,4 +1,4 @@
-"""Serializadores de la API de seguimiento (Semanas 7, 9 y 10).
+"""Serializadores de la API de seguimiento (Semanas 7, 9, 10 y 11).
 
 Semana 7 — actividades: la lista muestra fecha, tipo, campaña (período,
 cultivo, parcela y productor), método, horas, costo y estado de anulación;
@@ -34,6 +34,19 @@ umbral_helada_c cuando hay mínima (marca helada_calculada) y fuente
 MANUAL y exige confirmar_reemplazo=true, decisión de la Semana 10).
 registrado_por lo pone la vista y se OCULTA a los roles con
 limita_a_asignados (igual que actividades y usos de recursos).
+
+Semana 11 — incidencias: la lista muestra fecha, tipo (nombre y
+categoría), severidad, agente, superficie afectada, campaña (período,
+cultivo, parcela y productor) y estado; la ficha añade descripción,
+producto aplicado, motivo de anulación y trazabilidad. anulada,
+motivo_anulacion y registrado_por no se aceptan del cliente (el primero
+lo fija la vista con sus acciones anular/reactivar; registrado_por se
+OCULTA a los roles con limita_a_asignados). El de escritura valida ANTES
+que la base (campaña que admite registros y del ámbito del Técnico, tipo
+activo, severidad de las tres, fecha dentro del período y no futura,
+superficie ≥ 0 y ≤ sembrada, agente activo y solo en tipos biológicos,
+producto ≤ 100 caracteres) y bloquea campaña al editar (anula y registra
+otra).
 """
 from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
@@ -41,12 +54,12 @@ from zoneinfo import ZoneInfo
 
 from rest_framework import serializers
 
-from catalogos.models import Recurso, TipoActividad, Unidad
+from catalogos.models import Agente, Recurso, TipoActividad, TipoIncidencia, Unidad
 from campanias.models import Campania
 from productores.models import AsignacionTecnico, Parcela
 from sistema.models import ParametroSistema
 
-from .models import Actividad, Clima, UsoRecurso
+from .models import Actividad, Clima, Incidencia, UsoRecurso
 
 _UNIDADES_DENSIDAD = ("KG_HA", "PLANTAS_M2")
 
@@ -1389,4 +1402,327 @@ class ClimaConsultaApiSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {"parcela": "La parcela no tiene coordenadas registradas."}
             )
+        return attrs
+
+
+# ---------------------------------------------------------------------- #
+# Incidencias (Semana 11)
+# ---------------------------------------------------------------------- #
+def _mini_tipo_incidencia(obj):
+    return {
+        "id": obj.tipo_incidencia.id,
+        "nombre": obj.tipo_incidencia.nombre,
+        "categoria": obj.tipo_incidencia.categoria,
+    }
+
+
+def _mini_agente(obj):
+    if obj.agente is None:
+        return None
+    return {
+        "id": obj.agente.id,
+        "nombre": obj.agente.nombre,
+        "tipo": obj.agente.tipo,
+    }
+
+
+class IncidenciaListaSerializer(serializers.ModelSerializer):
+    """Fila del listado (HU-85): fecha, tipo con su categoría, severidad,
+    agente, superficie afectada, campaña (período, cultivo, parcela y
+    productor) y estado de anulación."""
+
+    tipo_incidencia = serializers.SerializerMethodField()
+    agente = serializers.SerializerMethodField()
+    campania = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Incidencia
+        fields = (
+            "id",
+            "fecha",
+            "tipo_incidencia",
+            "severidad",
+            "agente",
+            "superficie_afectada_ha",
+            "campania",
+            "anulada",
+        )
+
+    def get_tipo_incidencia(self, obj):
+        return _mini_tipo_incidencia(obj)
+
+    def get_agente(self, obj):
+        return _mini_agente(obj)
+
+    def get_campania(self, obj):
+        return _mini_campania(obj)
+
+
+class IncidenciaDetalleSerializer(serializers.ModelSerializer):
+    """Ficha completa (HU-85): descripción, producto aplicado, motivo de
+    anulación y trazabilidad. registrado_por se OCULTA a los roles con
+    limita_a_asignados (decisión de la Semana 11, igual que actividades
+    y usos de recursos)."""
+
+    tipo_incidencia = serializers.SerializerMethodField()
+    agente = serializers.SerializerMethodField()
+    campania = serializers.SerializerMethodField()
+    creado_por = serializers.StringRelatedField(source="registrado_por")
+
+    class Meta:
+        model = Incidencia
+        fields = (
+            "id",
+            "fecha",
+            "tipo_incidencia",
+            "severidad",
+            "descripcion",
+            "superficie_afectada_ha",
+            "agente",
+            "producto_aplicado",
+            "campania",
+            "anulada",
+            "motivo_anulacion",
+            "creado_por",
+            "creado_en",
+            "actualizado_en",
+        )
+        read_only_fields = (
+            "anulada",
+            "motivo_anulacion",
+            "creado_en",
+            "actualizado_en",
+        )
+
+    def get_tipo_incidencia(self, obj):
+        return _mini_tipo_incidencia(obj)
+
+    def get_agente(self, obj):
+        return _mini_agente(obj)
+
+    def get_campania(self, obj):
+        return _mini_campania(obj)
+
+    def to_representation(self, instance):
+        datos = super().to_representation(instance)
+        request = self.context.get("request")
+        rol = getattr(getattr(request, "user", None), "rol", None)
+        if rol is not None and rol.limita_a_asignados:
+            datos.pop("creado_por", None)
+        return datos
+
+
+class IncidenciaEscrituraSerializer(serializers.ModelSerializer):
+    """Alta y edición (HU-85). anulada, motivo_anulacion y registrado_por
+    no están en fields: el cliente no puede forzarlos (se anulan con la
+    acción anular/). El de escritura valida ANTES que la base: campaña que
+    admite registros y del ámbito del Técnico, tipo activo, severidad de
+    las tres, fecha dentro del período y no futura (hora de Lima),
+    superficie ≥ 0 y ≤ sembrada, agente activo y solo en tipos
+    biológicos, producto ≤ 100 caracteres (la longitud la controla el
+    modelo)."""
+
+    campania = serializers.PrimaryKeyRelatedField(
+        queryset=Campania.objects.select_related(
+            "parcela", "parcela__productor", "cultivo"
+        ),
+        error_messages={
+            "required": "La campaña es obligatoria.",
+            "does_not_exist": "La campaña indicada no existe.",
+        },
+    )
+    tipo_incidencia = serializers.PrimaryKeyRelatedField(
+        queryset=TipoIncidencia.objects.all(),
+        error_messages={
+            "required": "El tipo de incidencia es obligatorio.",
+            "does_not_exist": "El tipo de incidencia indicado no existe.",
+        },
+    )
+    fecha = serializers.DateField(
+        error_messages={
+            "required": "La fecha es obligatoria.",
+            "invalid": "La fecha no es válida: usa el formato AAAA-MM-DD.",
+        }
+    )
+    severidad = serializers.ChoiceField(
+        choices=Incidencia.SEVERIDADES,
+        error_messages={
+            "required": "La severidad es obligatoria.",
+            "invalid_choice": "La severidad solo puede ser BAJA, MEDIA o ALTA.",
+        },
+    )
+    descripcion = serializers.CharField(
+        error_messages={
+            "required": "La descripción es obligatoria.",
+            "blank": "La descripción es obligatoria.",
+        }
+    )
+    superficie_afectada_ha = serializers.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        required=False,
+        allow_null=True,
+        error_messages={
+            "invalid": "La superficie afectada debe ser un número.",
+            "max_digits": (
+                "La superficie admite como máximo 6 dígitos enteros y 2 decimales."
+            ),
+            "max_decimal_places": (
+                "La superficie afectada admite como máximo 2 decimales."
+            ),
+        },
+    )
+    agente = serializers.PrimaryKeyRelatedField(
+        queryset=Agente.objects.all(),
+        required=False,
+        allow_null=True,
+        error_messages={
+            "does_not_exist": "El agente indicado no existe.",
+        },
+    )
+    producto_aplicado = serializers.CharField(
+        required=False, allow_null=True, allow_blank=True, default=""
+    )
+
+    class Meta:
+        model = Incidencia
+        fields = (
+            "campania",
+            "tipo_incidencia",
+            "fecha",
+            "severidad",
+            "descripcion",
+            "superficie_afectada_ha",
+            "agente",
+            "producto_aplicado",
+        )
+
+    # ------------------------------------------------------------------ #
+    # validaciones por campo
+    # ------------------------------------------------------------------ #
+    def validate_campania(self, valor):
+        if valor.estado not in Campania.ESTADOS_ACTIVOS:
+            raise serializers.ValidationError(
+                f"La campaña está {valor.estado} y no admite nuevos registros."
+            )
+        # El técnico solo puede registrar en campañas de SUS productores
+        # asignados (mismo mensaje que si no existiera, igual que Actividad)
+        request = self.context.get("request")
+        rol = getattr(getattr(request, "user", None), "rol", None)
+        if rol is not None and rol.limita_a_asignados:
+            asignado = AsignacionTecnico.objects.filter(
+                tecnico=request.user,
+                productor=valor.parcela.productor,
+                activo=True,
+            ).exists()
+            if not asignado:
+                raise serializers.ValidationError("La campaña indicada no existe.")
+        return valor
+
+    def validate_tipo_incidencia(self, valor):
+        if not valor.activo:
+            raise serializers.ValidationError(
+                "El tipo de incidencia indicado no existe o está inactivo."
+            )
+        return valor
+
+    def validate_fecha(self, valor):
+        # Pregunta H (decisión de la Semana 7, rige también aquí): se
+        # rechazan fechas futuras según la hora local de Lima
+        hoy = datetime.now(ZoneInfo("America/Lima")).date()
+        if valor > hoy:
+            raise serializers.ValidationError("La fecha no puede ser futura.")
+        return valor
+
+    def validate_superficie_afectada_ha(self, valor):
+        if valor is not None and valor < 0:
+            raise serializers.ValidationError(
+                "La superficie afectada no puede ser negativa."
+            )
+        return valor
+
+    def validate_agente(self, valor):
+        if valor is not None and not valor.activo:
+            raise serializers.ValidationError(
+                "El agente indicado no existe o está inactivo."
+            )
+        return valor
+
+    # ------------------------------------------------------------------ #
+    # validaciones cruzadas (campaña inmutable, superficie y agente)
+    # ------------------------------------------------------------------ #
+    def validate(self, attrs):
+        instancia = self.instance
+
+        # La campaña no cambia al editar: anula y registra otra
+        if instancia is not None:
+            campania_nueva = attrs.get("campania")
+            if campania_nueva is not None and campania_nueva != instancia.campania:
+                raise serializers.ValidationError(
+                    {
+                        "campania": (
+                            "La campaña de una incidencia no se puede cambiar: "
+                            "anula y registra otra incidencia."
+                        )
+                    }
+                )
+
+        campania = attrs.get(
+            "campania", getattr(instancia, "campania", None) if instancia else None
+        )
+        tipo = attrs.get(
+            "tipo_incidencia",
+            getattr(instancia, "tipo_incidencia", None) if instancia else None,
+        )
+        fecha = attrs.get(
+            "fecha", getattr(instancia, "fecha", None) if instancia else None
+        )
+        superficie = attrs.get(
+            "superficie_afectada_ha",
+            getattr(instancia, "superficie_afectada_ha", None) if instancia else None,
+        )
+        agente = attrs.get(
+            "agente", getattr(instancia, "agente", None) if instancia else None
+        )
+
+        # La superficie afectada no puede superar la sembrada (el trigger
+        # también lo verifica: aquí se responde 400 en español)
+        if superficie is not None and campania is not None:
+            if superficie > campania.superficie_sembrada_ha:
+                raise serializers.ValidationError(
+                    {
+                        "superficie_afectada_ha": (
+                            f"La superficie afectada ({superficie} ha) supera la "
+                            f"sembrada ({campania.superficie_sembrada_ha} ha)."
+                        )
+                    }
+                )
+
+        # El agente solo se indica en tipos biológicos (plaga o
+        # enfermedad): la validación es por categoría del catálogo
+        if agente is not None and tipo is not None:
+            if tipo.categoria != "BIOLOGICA":
+                raise serializers.ValidationError(
+                    {
+                        "agente": (
+                            "El agente solo puede indicarse en incidencias de "
+                            "tipo biológico (plaga o enfermedad)."
+                        )
+                    }
+                )
+
+        # La fecha debe caer dentro del período de la campaña (aunque el
+        # trigger también lo verifica: aquí se responde 400 en español)
+        if fecha is not None and campania is not None:
+            if not campania.fecha_inicio <= fecha <= campania.fecha_fin_prevista:
+                raise serializers.ValidationError(
+                    {
+                        "fecha": (
+                            f"La fecha {fecha} está fuera del período de la "
+                            f"campaña ({campania.fecha_inicio} a "
+                            f"{campania.fecha_fin_prevista})."
+                        )
+                    }
+                )
+
         return attrs

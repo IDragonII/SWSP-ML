@@ -17,7 +17,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from zoneinfo import ZoneInfo
 
 from django.core.exceptions import ObjectDoesNotExist
-from django.db.models import Avg, Count, Max, Q, Sum
+from django.db.models import Avg, Case, Count, IntegerField, Max, Q, Sum, Value, When
 from rest_framework import serializers
 
 from catalogos.models import Cultivo, Variedad
@@ -105,7 +105,10 @@ class CampaniaDetalleSerializer(serializers.ModelSerializer):
     la ventana siembra→cosecha (hoy si aún no hay producción) con
     precipitación acumulada, temperaturas y humedad promedio, heladas,
     días con datos, días de ventana y cobertura — los mismos números que
-    las columnas clima_c de vw_dataset_entrenamiento."""
+    las columnas clima_c de vw_dataset_entrenamiento. La Semana 11 añade
+    resumen_incidencias: total activas, cantidad por severidad, la
+    severidad máxima, la última fecha y la mayor superficie afectada
+    (las anuladas no cuentan, coherente con inc_c del dataset)."""
 
     parcela = serializers.SerializerMethodField()
     cultivo = serializers.SerializerMethodField()
@@ -116,6 +119,7 @@ class CampaniaDetalleSerializer(serializers.ModelSerializer):
     produccion = serializers.SerializerMethodField()
     resumen_recursos = serializers.SerializerMethodField()
     resumen_clima = serializers.SerializerMethodField()
+    resumen_incidencias = serializers.SerializerMethodField()
 
     class Meta:
         model = Campania
@@ -136,6 +140,7 @@ class CampaniaDetalleSerializer(serializers.ModelSerializer):
             "produccion",
             "resumen_recursos",
             "resumen_clima",
+            "resumen_incidencias",
             "creado_por",
             "creado_en",
             "actualizado_en",
@@ -148,6 +153,7 @@ class CampaniaDetalleSerializer(serializers.ModelSerializer):
             "produccion",
             "resumen_recursos",
             "resumen_clima",
+            "resumen_incidencias",
             "creado_por",
             "creado_en",
             "actualizado_en",
@@ -277,6 +283,46 @@ class CampaniaDetalleSerializer(serializers.ModelSerializer):
             "dias_con_clima": resumen["dias"],
             "dias_ventana": dias_ventana,
             "cobertura_pct": cobertura,
+        }
+
+    def get_resumen_incidencias(self, obj):
+        """Resumen de incidencias de la campaña (HU-89, Semana 11): total
+        activas, cantidad por severidad, severidad máxima, última fecha y
+        mayor superficie afectada — los mismos números que suma inc_c de
+        vw_dataset_entrenamiento (las anuladas no cuentan). Sin
+        incidencias: bloque con ceros, no error."""
+        base = obj.incidencias.filter(anulada=False)
+        resumen = base.aggregate(
+            total=Count("id"),
+            bajas=Count("id", filter=Q(severidad="BAJA")),
+            medias=Count("id", filter=Q(severidad="MEDIA")),
+            altas=Count("id", filter=Q(severidad="ALTA")),
+            ultima=Max("fecha"),
+            mayor_superficie=Max("superficie_afectada_ha"),
+        )
+        # La severidad máxima es un orden (ALTA > MEDIA > BAJA), no un
+        # promedio: se calcula con CASE y se devuelve como texto
+        orden = base.aggregate(
+            m=Max(
+                Case(
+                    When(severidad="ALTA", then=Value(3)),
+                    When(severidad="MEDIA", then=Value(2)),
+                    default=Value(1),
+                    output_field=IntegerField(),
+                )
+            )
+        )["m"]
+        texto = {3: "ALTA", 2: "MEDIA", 1: "BAJA"}
+        return {
+            "total": resumen["total"],
+            "por_severidad": {
+                "baja": resumen["bajas"],
+                "media": resumen["medias"],
+                "alta": resumen["altas"],
+            },
+            "severidad_maxima": texto.get(orden),
+            "ultima_fecha": resumen["ultima"],
+            "mayor_superficie_ha": resumen["mayor_superficie"],
         }
 
 
