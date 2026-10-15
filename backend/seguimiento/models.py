@@ -4,7 +4,7 @@ from django.db.models.functions import Now
 from django.utils import timezone
 
 from campanias.models import Campania
-from catalogos.models import Recurso, TipoActividad, Unidad
+from catalogos.models import Agente, Recurso, TipoActividad, TipoIncidencia, Unidad
 from productores.models import Parcela
 
 
@@ -371,3 +371,125 @@ class Clima(models.Model):
 
     def __str__(self):
         return f"{self.fecha} · {self.parcela}"
+
+
+class Incidencia(models.Model):
+    """Evento que afecta a una campaña (01_tablas.sql:309-322).
+
+    Helada, sequía, granizada, plaga, enfermedad… con fecha, tipo y
+    severidad; puede haber varias el mismo día y del mismo tipo (no hay
+    unicidad). La anulación es lógica (decisión de la Semana 11): una
+    incidencia tiene consecuencias (resumen de campaña, variables del
+    dataset y, en el Sprint 8, alertas), así que se anula con motivo y no
+    se borra — la API no ofrece DELETE.
+
+    Solo las campañas PLANIFICADA, EN_PRODUCCION o COSECHADA admiten
+    registros y la fecha debe caer dentro del período (las comprueba
+    fn_validar_fecha_campania con trg_incidencias_fecha). La superficie
+    afectada no puede superar la sembrada y el agente solo se indica en
+    tipos biológicos (fn_validar_incidencia con
+    trg_incidencias_superficie; la validación es por categoría del
+    catálogo, no por nombre — limitación anotada). El producto aplicado
+    es texto libre, solo informativo.
+
+    Los 3 triggers los crea la migración 0008; fn_validar_fecha_campania
+    y fn_set_actualizado_en las aportan seguimiento.0002 y
+    productores.0002 (la reversión no las toca).
+    """
+
+    BAJA = "BAJA"
+    MEDIA = "MEDIA"
+    ALTA = "ALTA"
+    SEVERIDADES = [
+        (BAJA, "Baja"),
+        (MEDIA, "Media"),
+        (ALTA, "Alta"),
+    ]
+
+    campania = models.ForeignKey(
+        Campania,
+        on_delete=models.CASCADE,
+        related_name="incidencias",
+        verbose_name="campaña",
+        db_index=False,
+    )
+    tipo_incidencia = models.ForeignKey(
+        TipoIncidencia,
+        on_delete=models.PROTECT,
+        related_name="incidencias",
+        verbose_name="tipo de incidencia",
+        db_index=False,
+    )
+    fecha = models.DateField("fecha")
+    severidad = models.CharField("severidad", max_length=10, choices=SEVERIDADES)
+    descripcion = models.TextField("descripción")
+    superficie_afectada_ha = models.DecimalField(
+        "superficie afectada (ha)",
+        max_digits=8,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
+    agente = models.ForeignKey(
+        Agente,
+        on_delete=models.PROTECT,
+        related_name="incidencias",
+        verbose_name="agente",
+        null=True,
+        blank=True,
+        db_index=False,
+    )
+    producto_aplicado = models.CharField(
+        "producto aplicado", max_length=100, null=True, blank=True
+    )
+    anulada = models.BooleanField("anulada", default=False, db_default=False)
+    motivo_anulacion = models.TextField(
+        "motivo de anulación", null=True, blank=True
+    )
+    registrado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="incidencias_registradas",
+        verbose_name="registrado por",
+        db_index=False,
+    )
+    creado_en = models.DateTimeField("creado en", default=timezone.now, db_default=Now())
+    actualizado_en = models.DateTimeField(
+        "actualizado en", default=timezone.now, db_default=Now()
+    )
+
+    class Meta:
+        db_table = "incidencias"
+        verbose_name = "incidencia"
+        verbose_name_plural = "incidencias"
+        ordering = ("-fecha", "id")
+        constraints = [
+            # Severidad entre baja, media y alta (diseño 01_tablas.sql)
+            models.CheckConstraint(
+                condition=models.Q(severidad__in=("BAJA", "MEDIA", "ALTA")),
+                name="ck_incidencia_severidad",
+            ),
+            # Superficie afectada ≥ 0; NULL no se toca
+            models.CheckConstraint(
+                condition=models.Q(superficie_afectada_ha__isnull=True)
+                | models.Q(superficie_afectada_ha__gte=0),
+                name="ck_incidencia_superficie",
+            ),
+            # anulada ⇒ motivo (el CHECK de la Semana 11)
+            models.CheckConstraint(
+                condition=models.Q(anulada=False)
+                | models.Q(motivo_anulacion__isnull=False),
+                name="ck_incidencia_anulacion",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["campania", "fecha"], name="ix_incidencias_campania"
+            ),
+            models.Index(fields=["agente"], name="ix_incidencias_agente"),
+        ]
+
+    def __str__(self):
+        return f"{self.fecha} · {self.tipo_incidencia} · {self.campania}"
