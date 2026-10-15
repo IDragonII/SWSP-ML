@@ -8,6 +8,7 @@ export const opcionesMenu = [
   { ruta: '/actividades', nombre: 'Actividades', permiso: 'actividades.ver' },
   { ruta: '/produccion', nombre: 'Producción', permiso: 'produccion.ver' },
   { ruta: '/recursos', nombre: 'Recursos', permiso: 'recursos.ver' },
+  { ruta: '/clima', nombre: 'Clima', permiso: 'clima.ver' },
   { ruta: '/prediccion', nombre: 'Predicción', permiso: 'ml.ver_predicciones' },
   { ruta: '/reportes', nombre: 'Reportes', permiso: 'reportes.ver' },
   { ruta: '/usuarios', nombre: 'Usuarios', permiso: 'usuarios.ver' },

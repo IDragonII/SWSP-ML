@@ -4,6 +4,7 @@ import AccesoDenegado from './pages/AccesoDenegado.jsx'
 import Actividades from './pages/Actividades.jsx'
 import Campanias from './pages/Campanias.jsx'
 import Catalogos from './pages/Catalogos.jsx'
+import Climas from './pages/Climas.jsx'
 import Inicio from './pages/Inicio.jsx'
 import Login from './pages/Login.jsx'
 import Modulo from './pages/Modulo.jsx'
@@ -26,6 +27,7 @@ const rutasConPantalla = new Set([
   '/campanias',
   '/actividades',
   '/recursos',
+  '/clima',
 ])
 const modulos = opcionesMenu.filter(
   (opcion) => !rutasConPantalla.has(opcion.ruta),
@@ -112,6 +114,15 @@ export default function App() {
             element={
               <RutaProtegida permiso="recursos.ver">
                 <Recursos />
+              </RutaProtegida>
+            }
+          />
+
+          <Route
+            path="/clima"
+            element={
+              <RutaProtegida permiso="clima.ver">
+                <Climas />
               </RutaProtegida>
             }
           />

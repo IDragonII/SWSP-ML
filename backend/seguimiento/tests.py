@@ -1,18 +1,24 @@
-"""Pruebas de las Semanas 7 y 9: actividades productivas (HU-47 a HU-55)
-y usos de recursos (HU-67 a HU-75).
+"""Pruebas de las Semanas 7, 9 y 10: actividades productivas (HU-47 a
+HU-55), usos de recursos (HU-67 a HU-75) y registro de clima (HU-76 a
+HU-83).
 
-Numeración del repositorio: 87-102 (Semana 7, 16 pruebas) y 121-137
-(Semana 9, 17 pruebas → 137 en total; el repositorio llegaba a 120 al
-cerrar la Semana 8).
+Numeración del repositorio: 87-102 (Semana 7, 16 pruebas), 121-137
+(Semana 9, 17 pruebas) y 138-151 y 155 (Semana 10, API de clima; la
+Semana 10 añade además 152-154 con la consulta a la API meteorológica
+y cierra con 155 pruebas). El repositorio llegaba a 120 al cerrar la
+Semana 8 y a 137 al cerrar la Semana 9.
 """
 import importlib
 import json
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
+from unittest.mock import patch
+from urllib.error import URLError
 from zoneinfo import ZoneInfo
 
 from django.core.cache import cache
-from django.db import DatabaseError, connection, transaction
+from django.db import DatabaseError, IntegrityError, connection, transaction
 from django.test import TestCase
 
 from campanias.models import Campania
@@ -27,6 +33,9 @@ from productores.models import (
 )
 from usuarios.models import Rol, Usuario
 from usuarios.tests import _post_login
+
+from .models import Clima
+from .servicio_meteorologico import CLAVES_SALIDA, ErrorServicioMeteorologico
 
 
 class Semana7Base(TestCase):
@@ -1344,12 +1353,13 @@ class UsoRecursoApiTests(Semana9Base):
                 "WHERE relnamespace = 'public'::regnamespace)"
             )
         }
-        self.assertEqual(len(triggers), 18)
+        self.assertEqual(len(triggers), 19)
         self.assertLessEqual(
             {
                 "trg_uso_recursos_base",
                 "trg_uso_recursos_fecha",
                 "trg_uso_recursos_actualizado",
+                "trg_clima_actualizado",
             },
             triggers,
         )
@@ -1398,3 +1408,984 @@ class UsoRecursoApiTests(Semana9Base):
                 "trg_uso_recursos_actualizado",
             },
         )
+
+
+class Semana10Base(Semana7Base):
+    """Datos comunes de la Semana 10: la base de la Semana 7 más la unidad
+    de masa (para la cosecha del resumen climático) y los helpers de clima.
+    _clima_bd crea registros con fuente API por la vía de la base, que es
+    como los dejará la consulta a la API meteorológica (HU-84)."""
+
+    def setUp(self):
+        super().setUp()
+        self.kg = Unidad.objects.get(nombre="Kilogramo")
+
+    def _datos_clima(self, **extra):
+        datos = {
+            "parcela": self.parcela.pk,
+            "fecha": "2025-10-01",
+            "temp_min": "5.0",
+            "temp_max": "15.0",
+        }
+        datos.update(extra)
+        return datos
+
+    def _crear_clima(self, **extra):
+        return self._api("post", "/api/clima/", self._datos_clima(**extra))
+
+    def _clima_bd(self, **extra):
+        datos = {
+            "parcela": self.parcela,
+            "fecha": date(2025, 10, 2),
+            "temp_min": Decimal("0.0"),
+            "temp_max": Decimal("8.0"),
+            "temp_prom": Decimal("4.0"),
+            "fuente": Clima.FUENTE_API,
+        }
+        datos.update(extra)
+        return Clima.objects.create(**datos)
+
+    def _consulta(self, consulta, parametros=None):
+        with connection.cursor() as cursor:
+            if parametros:
+                cursor.execute(consulta, parametros)
+            else:
+                cursor.execute(consulta)
+            return cursor.fetchall()
+
+    def _sql(self, consulta):
+        with connection.cursor() as cursor:
+            cursor.execute(consulta)
+
+    def _consulta_cte_clima(self, campania_id):
+        """Ejecuta el bloque clima_c de vw_dataset_entrenamiento con el
+        TEXTO LITERAL del diseño (DB_sql/02_reglas_y_vista.sql:386-397).
+        La vista completa aún no se puede materializar porque su CTE de
+        incidencias depende de una tabla de una semana posterior; el
+        bloque de clima es el que debe coincidir con el resumen de la
+        ficha de campaña."""
+        ruta = (
+            Path(__file__).resolve().parents[2]
+            / "DB_sql"
+            / "02_reglas_y_vista.sql"
+        )
+        texto = ruta.read_text(encoding="utf-8", errors="replace")
+        inicio = texto.index("clima_c AS (")
+        fin = texto.index("inc_c AS (", inicio)
+        bloque = texto[inicio:fin].strip().rstrip(",").strip()
+        return self._consulta(
+            f"WITH {bloque}\n"
+            "SELECT precipitacion_acum_mm, ROUND(temp_prom_c, 1), "
+            "ROUND(humedad_prom_pct, 1), n_heladas, dias_con_clima "
+            "FROM clima_c WHERE campania_id = %s",
+            [campania_id],
+        )
+
+    def _poner_coordenadas(self, latitud="-13.520000", longitud="-71.950000"):
+        """La parcela base nace sin coordenadas (el modelo exige latitud y
+        longitud juntas): la HU-84 las necesita para consultar."""
+        self.parcela.latitud = Decimal(latitud)
+        self.parcela.longitud = Decimal(longitud)
+        self.parcela.save()
+
+    def _datos_consulta_api(self, **extra):
+        datos = {
+            "parcela": self.parcela.pk,
+            "fecha_desde": "2025-10-01",
+            "fecha_hasta": "2025-10-03",
+        }
+        datos.update(extra)
+        return datos
+
+    def _consulta_api(self, **extra):
+        return self._api(
+            "post", "/api/clima/consulta-api/", self._datos_consulta_api(**extra)
+        )
+
+    def _dia_servicio(self, fecha, **medidas):
+        """Un día como lo devuelve el adaptador de Open-Meteo simulado
+        (lo que no se nombre llega None)."""
+        datos = {clave: None for clave in CLAVES_SALIDA}
+        datos["fecha"] = (
+            date.fromisoformat(fecha) if isinstance(fecha, str) else fecha
+        )
+        datos.update(medidas)
+        return datos
+
+
+class ClimaApiTests(Semana10Base):
+    """Pruebas 138-151 y 155."""
+
+    # ------------------------------------------------------------------ #
+    # 138: alta válida — el servidor calcula el promedio, deriva la helada
+    #     del umbral y fija fuente y registrado por
+    # ------------------------------------------------------------------ #
+    def test_138_alta_valida_calcula_promedio_y_helada(self):
+        self._entrar_admin()
+        creado = self._json(self._crear_clima())
+        self.assertEqual(creado["fecha"], "2025-10-01")
+        self.assertEqual(creado["temp_prom"], "10.0")
+        self.assertTrue(creado["temp_prom_calculado"])
+        self.assertEqual(creado["fuente"], "MANUAL")
+        self.assertEqual(creado["registrado_por"], "admin_pruebas")
+        self.assertEqual(creado["parcela"]["codigo"], self.parcela.codigo)
+        self.assertEqual(
+            creado["parcela"]["productor"]["nombre_completo"], "Alfa, Uno"
+        )
+        self.assertEqual(creado["parcela"]["comunidad"]["nombre"], "Comunidad S7")
+        self.assertFalse(creado["helada"])
+        # Con mínima, la helada siempre la deriva el servidor (umbral 0 °C)
+        self.assertTrue(creado["helada_calculada"])
+        self.assertIn("creado_en", creado)
+
+        fria = self._json(
+            self._crear_clima(fecha="2025-10-02", temp_min="-1.5", temp_max="3.0")
+        )
+        # Punto medio con 1 decimal: (−1.5 + 3.0) / 2 = 0.75 → 0.8
+        self.assertEqual(fria["temp_prom"], "0.8")
+        self.assertTrue(fria["helada"])
+        self.assertTrue(fria["helada_calculada"])
+
+        # Y un registro que solo marca la helada, sin medidas
+        solo_helada = self._json(
+            self._crear_clima(
+                fecha="2025-10-03",
+                temp_min=None,
+                temp_max=None,
+                helada=True,
+            )
+        )
+        self.assertTrue(solo_helada["helada"])
+        self.assertFalse(solo_helada["helada_calculada"])
+        self.assertFalse(solo_helada["temp_prom_calculado"])
+        self.assertIsNone(solo_helada["temp_prom"])
+
+    # ------------------------------------------------------------------ #
+    # 139: al menos una medida o la helada; mínima ≤ máxima y el promedio
+    #     entre ambas (400 claros, no un 500)
+    # ------------------------------------------------------------------ #
+    def test_139_medidas_obligatorias_y_coherencia_de_temperaturas(self):
+        self._entrar_admin()
+        vacio = self._json(
+            self._crear_clima(temp_min=None, temp_max=None, temp_prom=None)
+        )
+        self.assertIn("helada", vacio)
+        self.assertIn(
+            "al menos una medida meteorológica", vacio["helada"][0]
+        )
+
+        invertidas = self._json(
+            self._crear_clima(fecha="2025-10-04", temp_min="20.0", temp_max="10.0")
+        )
+        self.assertIn("temp_min", invertidas)
+        self.assertIn("máxima", invertidas["temp_min"][0])
+
+        promedio_alto = self._json(
+            self._crear_clima(fecha="2025-10-05", temp_prom="25.0")
+        )
+        self.assertIn("temp_prom", promedio_alto)
+        self.assertIn("entre la mínima", promedio_alto["temp_prom"][0])
+
+        promedio_bajo = self._json(
+            self._crear_clima(fecha="2025-10-06", temp_prom="1.0")
+        )
+        self.assertIn("temp_prom", promedio_bajo)
+        self.assertIn("entre la mínima", promedio_bajo["temp_prom"][0])
+
+    # ------------------------------------------------------------------ #
+    # 140: rangos de cada medida (los CHECK de la base, traducidos a un
+    #     400 con el nombre del campo)
+    # ------------------------------------------------------------------ #
+    def test_140_rangos_de_las_medidas(self):
+        self._entrar_admin()
+        minima = self._json(self._crear_clima(temp_min="50.0"))
+        self.assertIn("entre -30 y 45", minima["temp_min"][0])
+        maxima = self._json(
+            self._crear_clima(fecha="2025-10-02", temp_max="-31.0")
+        )
+        self.assertIn("entre -30 y 45", maxima["temp_max"][0])
+        precipitacion = self._json(
+            self._crear_clima(fecha="2025-10-03", precipitacion_mm="-1")
+        )
+        self.assertIn("negativa", precipitacion["precipitacion_mm"][0])
+        humedad = self._json(
+            self._crear_clima(fecha="2025-10-04", humedad_pct="150")
+        )
+        self.assertIn("entre 0 y 100", humedad["humedad_pct"][0])
+        viento = self._json(
+            self._crear_clima(fecha="2025-10-05", viento_ms="-0.5")
+        )
+        self.assertIn("negativo", viento["viento_ms"][0])
+        radiacion = self._json(
+            self._crear_clima(fecha="2025-10-06", radiacion_mj="-1")
+        )
+        self.assertIn("negativa", radiacion["radiacion_mj"][0])
+        # Ninguna de las anteriores llegó a guardarse
+        self.assertEqual(Clima.objects.count(), 0)
+
+    # ------------------------------------------------------------------ #
+    # 141: fechas — ni futuras (hora de Lima) ni anteriores a 2000
+    # ------------------------------------------------------------------ #
+    def test_141_fechas_fuera_del_rango_se_rechazan(self):
+        self._entrar_admin()
+        futura = (self._hoy_lima() + timedelta(days=1)).isoformat()
+        rechazo = self._json(self._crear_clima(fecha=futura))
+        self.assertIn("no puede ser futura", rechazo["fecha"][0])
+        vieja = self._json(self._crear_clima(fecha="1999-12-31"))
+        self.assertIn(
+            "anterior al 1 de enero de 2000", vieja["fecha"][0]
+        )
+        formato = self._json(self._crear_clima(fecha="ayer"))
+        self.assertIn("AAAA-MM-DD", formato["fecha"][0])
+        # La última fecha admitida es hoy mismo (hora de Lima)
+        hoy = self._hoy_lima().isoformat()
+        self.assertEqual(self._crear_clima(fecha=hoy).status_code, 201)
+
+    # ------------------------------------------------------------------ #
+    # 142: la parcela debe existir, estar activa y, para el técnico, ser
+    #     de SUS productores (ahí se prueba en la 146)
+    # ------------------------------------------------------------------ #
+    def test_142_parcela_inexistente_o_inactiva(self):
+        self._entrar_admin()
+        inexistente = self._json(self._crear_clima(parcela=99999))
+        self.assertIn(
+            "La parcela indicada no existe.", inexistente["parcela"][0]
+        )
+        inactiva = self._parcela_bd(self.p1, "1.00")
+        inactiva.estado = Parcela.ESTADO_INACTIVA
+        inactiva.save(update_fields=("estado",))
+        rechazo = self._json(self._crear_clima(parcela=inactiva.pk))
+        self.assertIn("no existe o está inactiva", rechazo["parcela"][0])
+        self.assertEqual(Clima.objects.count(), 0)
+
+    # ------------------------------------------------------------------ #
+    # 143: una fila por parcela y día — 400 antes de guardar y también si
+    #     la carrera con la base llega a materializarse (nunca un 500)
+    # ------------------------------------------------------------------ #
+    def test_143_duplicado_de_parcela_y_fecha(self):
+        from .serializers import ClimaEscrituraSerializer
+
+        self._entrar_admin()
+        self.assertEqual(self._crear_clima().status_code, 201)
+        duplicado = self._json(self._crear_clima(temp_max="20.0"))
+        self.assertIn("fecha", duplicado)
+        self.assertIn(
+            "Ya existe un registro de clima", duplicado["fecha"][0]
+        )
+        # Carrera: la validación no lo ve, pero la base lo rechaza
+        with patch.object(
+            ClimaEscrituraSerializer, "_existe_duplicado", return_value=False
+        ):
+            carrera = self._api("post", "/api/clima/", self._datos_clima())
+        self.assertEqual(carrera.status_code, 400)
+        self.assertIn("ya existe", str(self._json(carrera)))
+        self.assertEqual(Clima.objects.count(), 1)
+
+    # ------------------------------------------------------------------ #
+    # 144: campos protegidos y cálculos que el cliente no puede forzar
+    # ------------------------------------------------------------------ #
+    def test_144_campos_protegidos_y_calculos_del_servidor(self):
+        self._entrar_admin()
+        creado = self._json(
+            self._api(
+                "post",
+                "/api/clima/",
+                {
+                    "parcela": self.parcela.pk,
+                    "fecha": "2025-10-07",
+                    "temp_min": "5.0",
+                    "temp_max": "15.0",
+                    "temp_prom": "12.0",
+                    "fuente": "API",
+                    "registrado_por": 99999,
+                    "creado_en": "2000-01-01T00:00:00Z",
+                },
+            )
+        )
+        # Un promedio propio, válido entre mínima y máxima, se respeta
+        self.assertEqual(creado["temp_prom"], "12.0")
+        self.assertFalse(creado["temp_prom_calculado"])
+        # ...pero fuente, registrado por y fechas son del servidor
+        self.assertEqual(creado["fuente"], "MANUAL")
+        self.assertEqual(creado["registrado_por"], "admin_pruebas")
+
+        # La helada la manda el servidor cuando hay mínima (umbral 0 °C)
+        contraria = self._json(
+            self._crear_clima(
+                fecha="2025-10-08", temp_min="-2.0", temp_max="4.0", helada=False
+            )
+        )
+        self.assertTrue(contraria["helada"])
+        self.assertTrue(contraria["helada_calculada"])
+
+        # Sin mínima, manda la marca del técnico
+        manual = self._json(
+            self._crear_clima(
+                fecha="2025-10-09",
+                temp_min=None,
+                temp_max=None,
+                helada=True,
+            )
+        )
+        self.assertTrue(manual["helada"])
+        self.assertFalse(manual["helada_calculada"])
+
+        # Al editar sin enviar promedio, vuelve a calcularse el punto medio
+        editado = self._json(
+            self._api(
+                "patch",
+                f"/api/clima/{creado['id']}/",
+                {"temp_min": "4.0", "temp_max": "8.0"},
+            )
+        )
+        self.assertEqual(editado["temp_prom"], "6.0")
+        self.assertTrue(editado["temp_prom_calculado"])
+
+    # ------------------------------------------------------------------ #
+    # 145: editar un registro que vino de la API exige confirmación y lo
+    #     convierte en MANUAL; uno manual se edita sin más
+    # ------------------------------------------------------------------ #
+    def test_145_editar_registro_de_la_api_exige_confirmacion(self):
+        self._entrar_admin()
+        registro = self._clima_bd()
+        sin_confirmar = self._json(
+            self._api(
+                "patch",
+                f"/api/clima/{registro.pk}/",
+                {"precipitacion_mm": "12.0"},
+            )
+        )
+        self.assertIn("confirmar_reemplazo", sin_confirmar)
+        self.assertIn(
+            "API meteorológica", sin_confirmar["confirmar_reemplazo"][0]
+        )
+        registro.refresh_from_db()
+        self.assertEqual(registro.fuente, Clima.FUENTE_API)
+        self.assertIsNone(registro.precipitacion_mm)
+
+        confirmado = self._json(
+            self._api(
+                "patch",
+                f"/api/clima/{registro.pk}/",
+                {"precipitacion_mm": "12.0", "confirmar_reemplazo": True},
+            )
+        )
+        self.assertEqual(confirmado["fuente"], "MANUAL")
+        self.assertEqual(confirmado["precipitacion_mm"], "12.0")
+        self.assertEqual(confirmado["helada_calculada"], True)
+
+        # Un registro MANUAL no pide nada
+        manual = self._json(self._crear_clima(fecha="2025-10-10"))
+        ok = self._json(
+            self._api(
+                "patch",
+                f"/api/clima/{manual['id']}/",
+                {"humedad_pct": "55.0"},
+            )
+        )
+        self.assertEqual(ok["fuente"], "MANUAL")
+        self.assertEqual(ok["humedad_pct"], "55.0")
+
+    # ------------------------------------------------------------------ #
+    # 146: permisos y ámbitos — el técnico solo ve y registra clima de SUS
+    #     productores; el coordinador consulta; sin sesión, 401
+    # ------------------------------------------------------------------ #
+    def test_146_permisos_y_ambitos_por_rol(self):
+        self._entrar_admin()
+        propio = self._json(self._crear_clima())
+        ajeno = self._json(
+            self._crear_clima(parcela=self.parcela_b.pk, fecha="2025-10-02")
+        )
+
+        self._entrar_tecnico()
+        listado = self._json(self.client.get("/api/clima/"))
+        self.assertEqual(
+            [f["id"] for f in listado["results"]], [propio["id"]]
+        )
+        detalle_ajeno = self.client.get(f"/api/clima/{ajeno['id']}/")
+        self.assertEqual(detalle_ajeno.status_code, 404)
+        crear_ajena = self._json(
+            self._crear_clima(parcela=self.parcela_b.pk, fecha="2025-10-03")
+        )
+        self.assertIn(
+            "La parcela indicada no existe.", crear_ajena["parcela"][0]
+        )
+        self.assertEqual(self._crear_clima(fecha="2025-10-04").status_code, 201)
+        # registrado_por se oculta a los roles con limita_a_asignados
+        detalle = self._json(self.client.get(f"/api/clima/{propio['id']}/"))
+        self.assertNotIn("registrado_por", detalle)
+        editar_tecnico = self._api(
+            "patch", f"/api/clima/{propio['id']}/", {"humedad_pct": "60.0"}
+        )
+        self.assertEqual(editar_tecnico.status_code, 200)
+
+        self._entrar_coordinador()
+        self.assertEqual(self.client.get("/api/clima/").status_code, 200)
+        crear_coord = self._api("post", "/api/clima/", self._datos_clima())
+        self.assertEqual(crear_coord.status_code, 403)
+
+        self.client.cookies.clear()
+        self.assertEqual(self.client.get("/api/clima/").status_code, 401)
+
+    # ------------------------------------------------------------------ #
+    # 147: filtros (parcela, productor, comunidad, distrito, provincia,
+    #     fechas, fuente y heladas), búsqueda, orden y paginación
+    # ------------------------------------------------------------------ #
+    def test_147_filtros_busqueda_orden_y_paginacion(self):
+        self._entrar_admin()
+        self._json(self._crear_clima(fecha="2025-10-01"))
+        self._json(
+            self._crear_clima(fecha="2025-10-02", temp_min="-3.0", temp_max="2.0")
+        )
+        self._json(
+            self._crear_clima(
+                parcela=self.parcela_b.pk,
+                fecha="2025-10-03",
+                temp_min=None,
+                temp_max=None,
+                precipitacion_mm="12.5",
+            )
+        )
+        self._clima_bd(fecha=date(2025, 9, 20), helada=True)
+        self._clima_bd(
+            fecha=date(2025, 9, 18),
+            parcela=self.parcela_b,
+            fuente=Clima.FUENTE_MANUAL,
+        )
+
+        por_parcela = self._json(
+            self.client.get(f"/api/clima/?parcela={self.parcela.pk}")
+        )
+        self.assertEqual(por_parcela["count"], 3)
+        por_productor = self._json(
+            self.client.get(f"/api/clima/?productor={self.p1.pk}")
+        )
+        self.assertEqual(por_productor["count"], 3)
+        por_comunidad = self._json(
+            self.client.get(f"/api/clima/?comunidad={self.comunidad.pk}")
+        )
+        self.assertEqual(por_comunidad["count"], 5)
+        por_distrito = self._json(
+            self.client.get(f"/api/clima/?distrito={self.distrito.pk}")
+        )
+        self.assertEqual(por_distrito["count"], 5)
+        por_provincia = self._json(
+            self.client.get(f"/api/clima/?provincia={self.provincia.pk}")
+        )
+        self.assertEqual(por_provincia["count"], 5)
+        por_fechas = self._json(
+            self.client.get(
+                "/api/clima/?fecha_desde=2025-10-01&fecha_hasta=2025-10-02"
+            )
+        )
+        self.assertEqual(por_fechas["count"], 2)
+        por_fuente = self._json(self.client.get("/api/clima/?fuente=API"))
+        self.assertEqual(por_fuente["count"], 1)
+        manual = self._json(self.client.get("/api/clima/?fuente=MANUAL"))
+        self.assertEqual(manual["count"], 4)
+        con_heladas = self._json(self.client.get("/api/clima/?heladas=1"))
+        self.assertEqual(con_heladas["count"], 2)
+        sin_heladas = self._json(self.client.get("/api/clima/?heladas=0"))
+        self.assertEqual(sin_heladas["count"], 3)
+        fuente_mala = self._json(self.client.get("/api/clima/?fuente=X"))
+        self.assertIn("fuente", fuente_mala)
+        heladas_malas = self._json(self.client.get("/api/clima/?heladas=x"))
+        self.assertIn("heladas", heladas_malas)
+
+        # Búsqueda por código de parcela y por apellidos
+        por_codigo = self._json(
+            self.client.get(f"/api/clima/?busqueda={self.parcela.codigo}")
+        )
+        self.assertEqual(por_codigo["count"], 3)
+        por_apellido = self._json(self.client.get("/api/clima/?busqueda=Beta"))
+        self.assertEqual(por_apellido["count"], 2)
+
+        # Orden por fecha descendente (el Meta del modelo)
+        ordenado = self._json(self.client.get("/api/clima/"))
+        fechas = [f["fecha"] for f in ordenado["results"]]
+        self.assertEqual(fechas, sorted(fechas, reverse=True))
+
+        # Paginación global de 20 por página
+        Clima.objects.all().delete()
+        Clima.objects.bulk_create(
+            [
+                Clima(
+                    parcela=self.parcela,
+                    fecha=date(2024, 1, 1) + timedelta(days=i),
+                    temp_min=Decimal("1.0"),
+                    temp_max=Decimal("9.0"),
+                    temp_prom=Decimal("5.0"),
+                )
+                for i in range(21)
+            ]
+        )
+        pagina1 = self._json(self.client.get("/api/clima/"))
+        self.assertEqual(pagina1["count"], 21)
+        self.assertEqual(len(pagina1["results"]), 20)
+        self.assertEqual(pagina1["results"][0]["fecha"], "2024-01-21")
+        pagina2 = self._json(self.client.get("/api/clima/?page=2"))
+        self.assertEqual(len(pagina2["results"]), 1)
+        self.assertEqual(pagina2["results"][0]["fecha"], "2024-01-01")
+
+    # ------------------------------------------------------------------ #
+    # 148: sin DELETE (405: un error se corrige editando), edición de las
+    #     medidas y 401 sin sesión
+    # ------------------------------------------------------------------ #
+    def test_148_sin_delete_y_edicion_de_medidas(self):
+        self._entrar_admin()
+        creado = self._json(self._crear_clima())
+        self.client.cookies.clear()
+        self.assertEqual(self.client.get("/api/clima/").status_code, 401)
+        self._entrar_admin()
+        borrar = self._api("delete", f"/api/clima/{creado['id']}/")
+        self.assertEqual(borrar.status_code, 405)
+
+        editado = self._json(
+            self._api(
+                "patch",
+                f"/api/clima/{creado['id']}/",
+                {"temp_min": "3.0", "temp_max": "7.0", "precipitacion_mm": "4.5"},
+            )
+        )
+        self.assertEqual(editado["temp_prom"], "5.0")
+        self.assertTrue(editado["temp_prom_calculado"])
+        self.assertEqual(editado["precipitacion_mm"], "4.5")
+
+        # PUT completo también (la corrección es la edición, no el borrado)
+        put = self._json(
+            self._api(
+                "put",
+                f"/api/clima/{creado['id']}/",
+                self._datos_clima(temp_min="1.0", temp_max="9.0"),
+            )
+        )
+        self.assertEqual(put["temp_prom"], "5.0")
+        self.assertEqual(put["parcela"]["id"], self.parcela.pk)
+
+    # ------------------------------------------------------------------ #
+    # 149: el resumen de la campaña coincide, cifra a cifra, con las
+    #     columnas clima_c de vw_dataset_entrenamiento
+    # ------------------------------------------------------------------ #
+    def test_149_resumen_de_campania_igual_que_la_vista_del_dataset(self):
+        self._entrar_admin()
+        # La campaña pasa a producción con siembra y cosecha
+        self.campania.estado = Campania.ESTADO_EN_PRODUCCION
+        self.campania.fecha_siembra = date(2025, 9, 5)
+        self.campania.save(update_fields=("estado", "fecha_siembra"))
+
+        self._crear_clima(
+            fecha="2025-09-10",
+            temp_min="6.0",
+            temp_max="14.0",
+            precipitacion_mm="10.0",
+            humedad_pct="70.0",
+        )
+        self._crear_clima(
+            fecha="2025-11-20",
+            temp_min="-2.0",
+            temp_max="9.0",
+            precipitacion_mm="25.5",
+            humedad_pct="80.0",
+        )
+        # Después de la cosecha: fuera de la ventana, no cuenta
+        self._crear_clima(
+            fecha="2026-05-20", temp_min="8.0", temp_max="16.0",
+            precipitacion_mm="99.9",
+        )
+
+        produccion = self._json(
+            self._api(
+                "post",
+                "/api/producciones/",
+                {
+                    "campania": self.campania.pk,
+                    "fecha_cosecha": "2026-04-15",
+                    "superficie_cosechada_ha": "1.50",
+                    "cantidad_producida": "7000",
+                    "unidad": self.kg.pk,
+                },
+            )
+        )
+        self.assertTrue(produccion["incluir_en_entrenamiento"])
+        self.assertEqual(
+            self._api(
+                "post", f"/api/campanias/{self.campania.pk}/cerrar/"
+            ).status_code,
+            200,
+        )
+
+        ficha = self._json(self._api("get", f"/api/campanias/{self.campania.pk}/"))
+        resumen = ficha["resumen_clima"]
+        vista = self._consulta_cte_clima(self.campania.pk)
+        self.assertEqual(len(vista), 1)
+        precip_vista, temp_vista, humedad_vista, heladas_vista, dias_vista = vista[0]
+        self.assertEqual(
+            float(resumen["precipitacion_acum_mm"]), float(precip_vista)
+        )
+        self.assertEqual(resumen["temp_prom_c"], float(temp_vista))
+        self.assertEqual(resumen["humedad_prom_pct"], float(humedad_vista))
+        self.assertEqual(resumen["n_heladas"], heladas_vista)
+        self.assertEqual(resumen["dias_con_clima"], dias_vista)
+        # ...y los valores esperados a mano
+        self.assertEqual(resumen["precipitacion_acum_mm"], 35.5)
+        self.assertEqual(resumen["temp_prom_c"], 6.8)
+        self.assertEqual(resumen["humedad_prom_pct"], 75.0)
+        self.assertEqual(resumen["n_heladas"], 1)
+        self.assertEqual(resumen["dias_con_clima"], 2)
+        self.assertEqual(resumen["desde"], "2025-09-05")
+        self.assertEqual(resumen["hasta"], "2026-04-15")
+        self.assertFalse(resumen["provisional"])
+        self.assertEqual(
+            resumen["dias_ventana"], (date(2026, 4, 15) - date(2025, 9, 5)).days + 1
+        )
+        self.assertIsNotNone(resumen["cobertura_pct"])
+
+    # ------------------------------------------------------------------ #
+    # 150: sin datos el resumen viene vacío (no error), la ventana en
+    #     curso es provisional y el detalle de parcela cuenta su clima
+    # ------------------------------------------------------------------ #
+    def test_150_resumen_vacio_y_conteo_en_la_parcela(self):
+        self._entrar_admin()
+        vacio = self._json(self._api("get", f"/api/campanias/{self.campania.pk}/"))
+        resumen = vacio["resumen_clima"]
+        self.assertIsNone(resumen["precipitacion_acum_mm"])
+        self.assertIsNone(resumen["temp_prom_c"])
+        self.assertIsNone(resumen["humedad_prom_pct"])
+        self.assertEqual(resumen["n_heladas"], 0)
+        self.assertEqual(resumen["dias_con_clima"], 0)
+        self.assertEqual(resumen["cobertura_pct"], 0)
+        self.assertTrue(resumen["provisional"])
+        # Sin siembra, la ventana arranca en la fecha de inicio
+        self.assertEqual(resumen["desde"], "2025-09-01")
+        # ...y sin cosecha, termina hoy (hora de Lima)
+        self.assertEqual(resumen["hasta"], self._hoy_lima().isoformat())
+        self.assertGreater(resumen["dias_ventana"], 0)
+
+        self.assertEqual(self._crear_clima().status_code, 201)
+        con_datos = self._json(
+            self._api("get", f"/api/campanias/{self.campania.pk}/")
+        )["resumen_clima"]
+        self.assertEqual(con_datos["dias_con_clima"], 1)
+        self.assertGreater(con_datos["cobertura_pct"], 0)
+
+        parcela = self._json(
+            self._api("get", f"/api/parcelas/{self.parcela.pk}/")
+        )
+        self.assertEqual(parcela["clima"]["registros"], 1)
+        self.assertEqual(parcela["clima"]["ultimo_dia"], "2025-10-01")
+
+    # ------------------------------------------------------------------ #
+    # 151: la base es la última red de seguridad — los CHECK de rangos y
+    #     la unicidad rechazan también a mano
+    # ------------------------------------------------------------------ #
+    def test_151_la_base_protege_rangos_y_unicidad(self):
+        with self.assertRaises(DatabaseError):
+            with transaction.atomic():
+                Clima.objects.create(
+                    parcela=self.parcela,
+                    fecha=date(2025, 11, 1),
+                    temp_min=Decimal("99.0"),
+                )
+        with self.assertRaises(DatabaseError):
+            with transaction.atomic():
+                Clima.objects.create(
+                    parcela=self.parcela,
+                    fecha=date(2025, 11, 2),
+                    helada=True,
+                    humedad_pct=Decimal("150.0"),
+                )
+        with self.assertRaises(DatabaseError):
+            with transaction.atomic():
+                Clima.objects.create(
+                    parcela=self.parcela,
+                    fecha=date(2025, 11, 3),
+                    temp_min=Decimal("20.0"),
+                    temp_max=Decimal("10.0"),
+                )
+        self._clima_bd(fecha=date(2025, 11, 4))
+        with self.assertRaises(DatabaseError):
+            with transaction.atomic():
+                Clima.objects.create(
+                    parcela=self.parcela,
+                    fecha=date(2025, 11, 4),
+                    temp_min=Decimal("5.0"),
+                )
+        self.assertEqual(Clima.objects.count(), 1)
+
+    # ------------------------------------------------------------------ #
+    # 155: umbral_helada_c — la quinta clave de parámetros, su rango y su
+    #     efecto en las heladas que deriva el registro de clima
+    # ------------------------------------------------------------------ #
+    def test_155_umbral_helada_como_parametro_del_sistema(self):
+        self._entrar_admin()
+        listado = self._json(self.client.get("/api/parametros/"))
+        self.assertEqual(listado["count"], 5)
+        umbral = [
+            p for p in listado["results"] if p["clave"] == "umbral_helada_c"
+        ][0]
+        self.assertEqual(umbral["valor"], "0")
+        self.assertIn("helada", umbral["descripcion"].lower())
+
+        fuera = self._json(
+            self._api("patch", "/api/parametros/umbral_helada_c/", {"valor": "-11"})
+        )
+        self.assertIn("entre -10 y 5", fuera["valor"][0])
+        fuera = self._json(
+            self._api("patch", "/api/parametros/umbral_helada_c/", {"valor": "6"})
+        )
+        self.assertIn("entre -10 y 5", fuera["valor"][0])
+        no_num = self._json(
+            self._api("patch", "/api/parametros/umbral_helada_c/", {"valor": "abc"})
+        )
+        self.assertIn("número entre -10 y 5", no_num["valor"][0])
+        ok = self._json(
+            self._api("patch", "/api/parametros/umbral_helada_c/", {"valor": "-5"})
+        )
+        self.assertEqual(ok["valor"], "-5")
+
+        # Con el umbral nuevo, −3 °C ya no es helada y −6 °C sí
+        grieta = self._json(
+            self._crear_clima(fecha="2025-10-11", temp_min="-3.0", temp_max="2.0")
+        )
+        self.assertFalse(grieta["helada"])
+        mas_fria = self._json(
+            self._crear_clima(fecha="2025-10-12", temp_min="-6.0", temp_max="1.0")
+        )
+        self.assertTrue(mas_fria["helada"])
+
+
+class ClimaConsultaApiTests(Semana10Base):
+    """Pruebas 152-154: la consulta a la API meteorológica (HU-84) con el
+    servicio siempre simulado (sin internet en la suite)."""
+
+    # ------------------------------------------------------------------ #
+    # 152: permisos y reglas de la entrada — parcela con coordenadas,
+    #     rango de hasta 92 días sin fechas futuras; el informe guarda los
+    #     días válidos como fuente API con las reglas del servidor
+    # ------------------------------------------------------------------ #
+    def test_152_reglas_de_la_entrada_y_primer_guardado(self):
+        self.assertEqual(self._consulta_api().status_code, 401)
+        self._entrar_coordinador()
+        self.assertEqual(self._consulta_api().status_code, 403)
+        self.client.logout()
+
+        self._entrar_tecnico()
+        sin_coordenadas = self._json(self._consulta_api())
+        self.assertIn("coordenadas", sin_coordenadas["parcela"][0])
+
+        self._poner_coordenadas()
+        ajena = self._json(self._consulta_api(parcela=self.parcela_b.pk))
+        self.assertEqual(ajena["parcela"][0], "La parcela indicada no existe.")
+
+        largo = self._json(
+            self._consulta_api(fecha_desde="2025-01-01", fecha_hasta="2025-05-01")
+        )
+        self.assertIn("92 días", largo["fecha_hasta"][0])
+
+        futuro = self._json(
+            self._consulta_api(
+                fecha_desde="2026-01-01",
+                fecha_hasta=(self._hoy_lima() + timedelta(days=1)).isoformat(),
+            )
+        )
+        self.assertEqual(
+            futuro["fecha_hasta"][0], "La fecha final no puede ser futura."
+        )
+
+        invertido = self._json(
+            self._consulta_api(fecha_desde="2025-10-05", fecha_hasta="2025-10-01")
+        )
+        self.assertIn("posterior", invertido["fecha_desde"][0])
+
+        self.parcela.estado = Parcela.ESTADO_INACTIVA
+        self.parcela.save()
+        inactiva = self._json(self._consulta_api())
+        self.assertIn("inactiva", inactiva["parcela"][0])
+        self.parcela.estado = Parcela.ESTADO_ACTIVA
+        self.parcela.save()
+
+        with patch("seguimiento.views.consultar_dias") as servicio:
+            servicio.return_value = [
+                self._dia_servicio(
+                    "2025-10-01", temp_min=-2.0, temp_max=9.0, precipitacion_mm=3.5
+                ),
+                self._dia_servicio("2025-10-02"),  # todo None
+                self._dia_servicio("2025-10-03", humedad_pct=70.0),
+            ]
+            respuesta = self._consulta_api()
+        self.assertEqual(respuesta.status_code, 200)
+        informe = self._json(respuesta)
+        self.assertEqual(informe["creados"], 2)
+        self.assertEqual(informe["sin_datos"], 1)
+        self.assertEqual(informe["actualizados"], 0)
+        self.assertEqual(informe["omitidos_manual"], 0)
+        self.assertEqual(informe["omitidos_api"], 0)
+        self.assertEqual(informe["descartados"], 0)
+        # El servicio se llamó con las coordenadas redondeadas a 2 decimales
+        self.assertEqual(servicio.call_args[0][:2], (-13.52, -71.95))
+
+        registro = Clima.objects.get(parcela=self.parcela, fecha=date(2025, 10, 1))
+        self.assertEqual(registro.fuente, Clima.FUENTE_API)
+        self.assertEqual(registro.temp_prom, Decimal("3.5"))
+        self.assertTrue(registro.helada)
+        self.assertEqual(registro.precipitacion_mm, Decimal("3.5"))
+        self.assertEqual(registro.registrado_por, self.tecnico)
+        solo_humedad = Clima.objects.get(parcela=self.parcela, fecha=date(2025, 10, 3))
+        self.assertEqual(solo_humedad.humedad_pct, Decimal("70.0"))
+        self.assertIsNone(solo_humedad.temp_min)
+        self.assertFalse(solo_humedad.helada)
+        self.assertFalse(Clima.objects.filter(fecha=date(2025, 10, 2)).exists())
+
+    # ------------------------------------------------------------------ #
+    # 153: convivencia — un manual nunca lo pisa la API, un registro de la
+    #     API se refresca, los inválidos se descartan y la transacción es
+    #     única (un choque a mitad de rango no deja nada a medias)
+    # ------------------------------------------------------------------ #
+    def test_153_no_pisa_manuales_y_es_transaccion_unica(self):
+        self._entrar_tecnico()
+        self._poner_coordenadas()
+        manual = Clima.objects.create(
+            parcela=self.parcela,
+            fecha=date(2025, 10, 1),
+            fuente=Clima.FUENTE_MANUAL,
+            temp_min=Decimal("1.0"),
+            temp_max=Decimal("5.0"),
+            temp_prom=Decimal("3.0"),
+            registrado_por=self.tecnico,
+        )
+        previo = self._clima_bd(
+            fecha=date(2025, 10, 2),
+            temp_min=Decimal("2.0"),
+            temp_max=Decimal("6.0"),
+            temp_prom=Decimal("4.0"),
+        )
+        conservado = self._clima_bd(fecha=date(2025, 10, 7))
+        with patch("seguimiento.views.consultar_dias") as servicio:
+            servicio.return_value = [
+                self._dia_servicio("2025-10-01", temp_min=9.0, temp_max=19.0),
+                self._dia_servicio(
+                    "2025-10-02", temp_min=0.0, temp_max=12.0, precipitacion_mm=1.2
+                ),
+                self._dia_servicio("2025-10-03", temp_min=-40.0, temp_max=5.0),
+                self._dia_servicio("2025-10-04", precipitacion_mm=2.0),
+                self._dia_servicio("2025-10-06"),  # sin dato
+                # 10-05 ni siquiera viene del servicio; 10-07 viene vacío
+            ]
+            respuesta = self._consulta_api(
+                fecha_desde="2025-10-01", fecha_hasta="2025-10-07"
+            )
+        informe = self._json(respuesta)
+        self.assertEqual(informe["creados"], 1)
+        self.assertEqual(informe["actualizados"], 1)
+        self.assertEqual(informe["omitidos_manual"], 1)
+        self.assertEqual(informe["omitidos_api"], 1)
+        self.assertEqual(informe["descartados"], 1)
+        self.assertEqual(informe["sin_datos"], 2)
+
+        manual.refresh_from_db()
+        self.assertEqual(manual.fuente, Clima.FUENTE_MANUAL)
+        self.assertEqual(manual.temp_min, Decimal("1.0"))
+        self.assertEqual(manual.temp_prom, Decimal("3.0"))
+
+        previo.refresh_from_db()
+        self.assertEqual(previo.fuente, Clima.FUENTE_API)
+        self.assertEqual(previo.temp_min, Decimal("0.0"))
+        self.assertEqual(previo.temp_prom, Decimal("6.0"))
+        self.assertEqual(previo.precipitacion_mm, Decimal("1.2"))
+        self.assertEqual(previo.registrado_por, self.tecnico)
+
+        conservado.refresh_from_db()
+        self.assertEqual(conservado.temp_min, Decimal("0.0"))
+        self.assertFalse(Clima.objects.filter(fecha=date(2025, 10, 3)).exists())
+        self.assertEqual(Clima.objects.get(fecha=date(2025, 10, 4)).precipitacion_mm, Decimal("2.0"))
+
+        # Transacción única: si un día chocha a mitad del rango, no queda
+        # NADA del rango (el 10-08 se revierte junto con el que falló)
+        with patch("seguimiento.views.consultar_dias") as servicio, patch(
+            "seguimiento.serializers.ClimaEscrituraSerializer.save",
+            side_effect=IntegrityError("carrera simulada"),
+        ):
+            servicio.return_value = [
+                self._dia_servicio("2025-10-08", temp_min=3.0, temp_max=11.0),
+                self._dia_servicio("2025-10-09", temp_min=4.0, temp_max=12.0),
+            ]
+            respuesta = self._consulta_api(
+                fecha_desde="2025-10-08", fecha_hasta="2025-10-09"
+            )
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertFalse(
+            Clima.objects.filter(
+                fecha__in=[date(2025, 10, 8), date(2025, 10, 9)]
+            ).exists()
+        )
+
+    # ------------------------------------------------------------------ #
+    # 154: la red externa nunca rompe la API — 502 en español si el
+    #     servicio no responde o contesta mal, y 10 consultas por usuario
+    #     y hora
+    # ------------------------------------------------------------------ #
+    def test_154_servicio_caido_502_y_limite_de_consultas(self):
+        self._entrar_tecnico()
+        self._poner_coordenadas()
+        with patch(
+            "seguimiento.views.consultar_dias",
+            side_effect=ErrorServicioMeteorologico(),
+        ):
+            respuesta = self._consulta_api()
+        self.assertEqual(respuesta.status_code, 502)
+        self.assertIn("servicio meteorológico", self._json(respuesta)["detail"])
+        self.assertEqual(Clima.objects.count(), 0)
+
+        with patch("seguimiento.servicio_meteorologico.urlopen") as urlopener:
+            urlopener.return_value.__enter__.return_value.read.return_value = (
+                b"no es json"
+            )
+            self.assertEqual(self._consulta_api().status_code, 502)
+
+        with patch(
+            "seguimiento.servicio_meteorologico.urlopen",
+            side_effect=URLError("sin red"),
+        ):
+            self.assertEqual(self._consulta_api().status_code, 502)
+        self.assertEqual(Clima.objects.count(), 0)
+
+        # El adaptador cuantiza lo que venga del servicio a 1 decimal: un
+        # 7.80 mm real no debe descartar el día entero por decimales
+        json_diario = json.dumps(
+            {
+                "daily": {
+                    "time": ["2025-10-01"],
+                    "temperature_2m_min": [3.4],
+                    "temperature_2m_max": [11.6],
+                    "temperature_2m_mean": [7.5],
+                    "precipitation_sum": [7.8],
+                    "relative_humidity_2m_mean": [80],
+                    "wind_speed_10m_max": [4.44],
+                    "shortwave_radiation_sum": [17.19],
+                }
+            }
+        ).encode("utf-8")
+        with patch("seguimiento.servicio_meteorologico.urlopen") as urlopener:
+            urlopener.return_value.__enter__.return_value.read.return_value = (
+                json_diario
+            )
+            respuesta = self._consulta_api(
+                fecha_desde="2025-10-01", fecha_hasta="2025-10-01"
+            )
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(self._json(respuesta)["creados"], 1)
+        registro = Clima.objects.get(fecha=date(2025, 10, 1))
+        self.assertEqual(registro.precipitacion_mm, Decimal("7.8"))
+        self.assertEqual(registro.radiacion_mj, Decimal("17.2"))
+        self.assertEqual(registro.viento_ms, Decimal("4.4"))
+        self.assertEqual(registro.temp_prom, Decimal("7.5"))
+        self.assertFalse(registro.helada)
+
+        # 10 consultas por usuario y hora; la undécima se corta con 429
+        # (la caché se limpia para que las anteriores no consuman cuota)
+        cache.clear()
+        with patch("seguimiento.views.consultar_dias", return_value=[]):
+            for _ in range(10):
+                self.assertEqual(self._consulta_api().status_code, 200)
+            rechazada = self._json(self._consulta_api())
+        self.assertTrue(rechazada["detail"].startswith("Demasiadas solicitudes"))

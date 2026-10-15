@@ -171,12 +171,19 @@
 - **Frontend:** pantalla **`/recursos`** (filtros en URL), `RecursoFormulario` y `RecursoFicha` (anular/reactivar), sección **«Recursos usados»** en `ActividadFicha` y **«Resumen de recursos»** en `CampaniaFicha`, entrada «Recursos» en el menú; checklist `docs/verificacion_ui_semana9.md`.
 - **Cierre:** **137 pruebas** (17 nuevas, 121–137), `check` en 0 issues, colección `coleccion_api_semana9.json` validada **235/235 (431/431 aserciones)**, `lint`/`build` en 0.
 
+### Semana 10 (7–13 dic): clima - COMPLETADA (F7 cerrada: colección validada 270/270; commit único por ejecutar tras el visto bueno)
+- **Decisiones documentadas** en `docs/decisiones_semana10.md` (20 decisiones, mapeo HU-76..HU-84): **una fila por parcela y día** con **sin anulación ni borrado** (`DELETE` → 405), el servidor calcula el **punto medio** (`temp_prom`) y deriva la **helada** del umbral del sistema, los registros de fuente `API` solo se editan con `confirmar_reemplazo=true` (y **pasan a MANUAL**), consulta a **Open-Meteo sin clave** (≤ 92 días, throttle 10/hora, informe de 6 contadores, 502 si cae — decisiones 11/12/19) y dataset con la CTE `clima_c` **documentada, no materializada** (decisión 15); preguntas abiertas **K** (`umbral_helada_c`, CONFIRMAR), **L** (costo, Semana 9) y la nueva **M** (fuente meteorológica).
+- **Tabla `clima`** en `seguimiento/` con **3 migraciones reversibles** (`seguimiento/0005_clima.py`, `seguimiento/0006_trg_clima_actualizado.py` y `sistema/0002_umbral_helada_c.py` con `RunPython` reversible); **19 triggers** en total; diseño SQL actualizado (CTE `clima_c` del dataset, índice `ix_clima_fecha`, fila `umbral_helada_c`); migración verificada desde cero en BD temporal (borrada).
+- **API:** `/api/clima/` (listado con **10 filtros**, detalle, alta, edición, sin `DELETE` → 405), `POST /api/clima/consulta-api/` (HU-84), `resumen_clima` en el detalle de campaña, bloque `clima` en el detalle de parcela y la **quinta clave** `umbral_helada_c` (−10 a 5 °C) en `/api/parametros/`; permisos `clima.*` por acción (sembrados **desde la Semana 1**; `clima.desactivar` queda **sin uso**) con ámbito del Técnico y Coordinador solo `ver`; contrato completo en `docs/api_clima.md`.
+- **Frontend:** pantalla **`/clima`** (filtros en URL), `ClimaFormulario` (con la casilla de reemplazo para registros `API`), `ClimaFicha`, `ClimaConsulta` (HU-84 con informe), sección **«Clima»** en `ParcelaFicha` y **«Resumen de clima»** en `CampaniaFicha`, entrada «Clima» en el menú; checklist `docs/verificacion_ui_semana10.md`.
+- **Cierre:** **155 pruebas** (18 nuevas, 138–155), `check` en 0 issues, `lint`/`build` en 0 y **smoke E2E 15/15** con Open-Meteo real (hallazgo corregido en F5: el adaptador **cuantiza a 1 decimal** con `ROUND_HALF_UP`); en F7 la colección `coleccion_api_semana10.json` se **validó 270/270** (269 obligatorias + 1 opcional, 496/496 aserciones) en la BD temporal `sigpa_ga_coleccion10` (borrada al terminar) y el commit semanal único queda por ejecutar tras el visto bueno.
+
 ### No hecho todavía
-- **Recursos e insumos ya implementados (Semana 9)**; faltan clima, incidencias, reportes, alertas y el resto de tablas (con sus triggers: `fn_validar_etapa`, `fn_validar_incidencia`) y la vista del dataset. `fn_produccion_post` está **parcial**: solo pasa la campaña a `COSECHADA`; la parte de `predicciones` (rendimiento real y error) entra en los **Sprints 13–14**.
-- Pantallas React de los módulos que faltan (listado de **Producción** — la entrada del menú es placeholder —, Predicción, Reportes, Usuarios, Auditoría; hoy: login, 403, 404, productores, parcelas, catálogos, campañas, actividades, **parámetros**, **recursos** y producción/recursos dentro de las fichas).
+- **Recursos e insumos (Semana 9) y clima (Semana 10) ya implementados**; faltan incidencias, reportes, alertas y el resto de tablas (con sus triggers: `fn_validar_etapa`, `fn_validar_incidencia`) y la vista del dataset. `fn_produccion_post` está **parcial**: solo pasa la campaña a `COSECHADA`; la parte de `predicciones` (rendimiento real y error) entra en los **Sprints 13–14**.
+- Pantallas React de los módulos que faltan (listado de **Producción** — la entrada del menú es placeholder —, Predicción, Reportes, Usuarios, Auditoría; hoy: login, 403, 404, productores, parcelas, catálogos, campañas, actividades, **parámetros**, **recursos** y **clima** con producción, recursos y clima dentro de las fichas).
 - Administración de usuarios/roles desde React, cambio de contraseña y recuperación de acceso.
 - Diagrama entidad-relación y modelo lógico para el Capítulo IV.
-- Ejecutar los checklists de UI de las Semanas 4 a 9 en navegador.
+- Ejecutar los checklists de UI de las Semanas 4 a 10 en navegador.
 
 ### Ojo: cosas que quedaron superadas
 - Antes se propuso un modelo `Usuario` con un campo de texto `rol` (ADMIN/TECNICO/COORDINADOR). **Está descartado.** El diseño vigente usa `rol_id` → tabla `roles` con permisos (secciones 5.C y 8).
@@ -336,7 +343,7 @@ Están en `DB_sql/02_reglas_y_vista.sql`: **13 funciones y 24 triggers**. Existe
 | `fn_produccion_post` | producciones (AFTER) | Pasa la campaña a `COSECHADA`; **rellena `rendimiento_real`, `error_abs` y `error_pct`** de las predicciones previas | Comparación predicho vs. real sin trabajo manual. **Implementada parcial** en `produccion.0002` (Semana 8): solo el `UPDATE` de la campaña, porque `predicciones` no existe hasta los **Sprints 13–14** (reemplazar con `CREATE OR REPLACE`) |
 
 **Detalles que conviene recordar.**
-- Desde la Semana 9, los triggers **implementados** en las migraciones propias son 18 de 24 (`trg_roles_proteger`, `trg_productores_actualizado`, `trg_productores_codigo`, `trg_parcelas_actualizado`, `trg_parcelas_codigo`, `trg_asignaciones_validar`, `trg_campanias_validar`, `trg_campanias_actualizado`, `trg_actividades_actualizado`, `trg_actividades_fecha`, `trg_actividades_siembra`, `trg_producciones_validar`, `trg_producciones_post`, `trg_producciones_actualizado`, `trg_parametros_sistema_actualizado`, `trg_uso_recursos_base`, `trg_uso_recursos_fecha` y `trg_uso_recursos_actualizado`); el detalle está en `docs/evidencias_capitulo4.md`.
+- Desde la Semana 10, los triggers **implementados** en las migraciones propias son 19 de 24 (`trg_roles_proteger`, `trg_productores_actualizado`, `trg_productores_codigo`, `trg_parcelas_actualizado`, `trg_parcelas_codigo`, `trg_asignaciones_validar`, `trg_campanias_validar`, `trg_campanias_actualizado`, `trg_actividades_actualizado`, `trg_actividades_fecha`, `trg_actividades_siembra`, `trg_producciones_validar`, `trg_producciones_post`, `trg_producciones_actualizado`, `trg_parametros_sistema_actualizado`, `trg_uso_recursos_base`, `trg_uso_recursos_fecha`, `trg_uso_recursos_actualizado` y `trg_clima_actualizado`); el detalle está en `docs/evidencias_capitulo4.md`.
 - Las fechas de actividades se validan de forma estricta contra `fecha_fin_prevista`. Si una cosecha se retrasa, hay que ampliar esa fecha (se puede relajar la regla más adelante).
 - Si el rendimiento cae fuera de `rendimiento_min_plausible` o `rendimiento_max_plausible`, la producción queda marcada para revisión y **el administrador decide** si se incluye en el entrenamiento (`incluir_en_entrenamiento`).
 - La densidad de siembra tiene un CHECK (número y unidad van juntos), pero **no** se obliga a que solo la actividad de siembra la use.
@@ -384,7 +391,7 @@ Están en `DB_sql/02_reglas_y_vista.sql`: **13 funciones y 24 triggers**. Existe
 - El administrador no debe poder quitarse a sí mismo `roles.gestionar` (bloquearía la administración).
 - Los cambios en roles y permisos se registran en `auditoria`.
 
-**Estado:** **Semana 1** — modelos, migración `0002` con la configuración inicial de los tres roles y trigger `trg_roles_proteger` (migración `0003`). **Semana 2** — verificación de permisos en **cada petición** con la clase `TienePermiso` (1 consulta cacheada) y tasa de login. **Semana 3** — los endpoints nuevos exigen `catalogos.*` y `productores.*` según la acción, con las mismas respuestas 401/403. Todas estas reglas están cubiertas por pruebas (37 en total).
+**Estado:** **Semana 1** — modelos, migración `0002` con la configuración inicial de los tres roles y trigger `trg_roles_proteger` (migración `0003`). **Semana 2** — verificación de permisos en **cada petición** con la clase `TienePermiso` (1 consulta cacheada) y tasa de login. **Semana 3** — los endpoints nuevos exigen `catalogos.*` y `productores.*` según la acción, con las mismas respuestas 401/403. **Semana 10** — el módulo **clima** entra en uso: `clima.ver/crear/editar` por acción con ámbito del Técnico (Coordinador solo `ver`); `clima.desactivar` queda **sembrado sin uso** porque la tabla no tiene anulación ni borrado. Todas estas reglas están cubiertas por pruebas (155 en total).
 
 ---
 
@@ -402,11 +409,11 @@ En `DB_sql/03_insert.sql`. Lo marcado **CONFIRMAR** es un supuesto a validar con
 | Agentes | 5 de ejemplo: Kcona kcona (polilla de la quinua), Ticona (gusano cortador), Pulgón, Mildiu, Mancha foliar (**CONFIRMAR**) |
 | Unidades | 9: kg, g, quintal (**CONFIRMAR 46 kg**), tonelada, ha, m³, litro, jornal, hora |
 | Etapas fenológicas | 6 de ejemplo para quinua y cañihua: siembra, emergencia, desarrollo vegetativo, floración, maduración, cosecha (**CONFIRMAR**) |
-| Parámetros | `dias_sin_actividad = 30`, `umbral_rendimiento_bajo = 800`, `rendimiento_min_plausible = 100`, `rendimiento_max_plausible = 5000` (**CONFIRMAR todos**) |
+| Parámetros | `dias_sin_actividad = 30`, `umbral_rendimiento_bajo = 800`, `rendimiento_min_plausible = 100`, `rendimiento_max_plausible = 5000` (**CONFIRMAR todos**) y `umbral_helada_c = 0` (rango −10 a 5 °C, **CONFIRMAR**; Semana 10) |
 
 **No hay datos precargados** de provincias, distritos, comunidades, variedades ni recursos: los aporta el proyecto. La Semana 3 añadió el comando `cargar_ubicacion` (CSV/Excel, idempotente) y un CSV de **ejemplo inventado** (`datos/ejemplo_ubicaciones.csv`) para probar; se retira cuando el responsable entregue la lista real.
 
-**Estado:** los 3 roles, los 55 permisos y las 101 asignaciones **ya están cargados** en la base real por la migración `backend/usuarios/migrations/0002_datos_iniciales.py` (idempotente y reversible). El resto de los seeds (cultivos, tipos, unidades, parámetros…) depende de tablas de sprints posteriores y se cargará cuando esas migraciones existan.
+**Estado:** los 3 roles, los 55 permisos y las 101 asignaciones **ya están cargados** en la base real por la migración `backend/usuarios/migrations/0002_datos_iniciales.py` (idempotente y reversible). Los **5 parámetros del sistema** también (los 4 primeros en `sistema.0001`, Semana 8; `umbral_helada_c` en `sistema.0002`, Semana 10). Los catálogos (cultivos, tipos, unidades, etapas, agentes…) los carga el comando `cargar_catalogos` (Semana 5) y la ubicación `cargar_ubicacion` (Semana 3); solo faltan seeds ligados a tablas de sprints posteriores (incidencias y ML).
 
 ---
 
@@ -423,7 +430,7 @@ No son fallas del diseño: son tareas del backend y del frontend.
 | Escribir la auditoría | La tabla existe, pero alguien debe escribir en ella |
 | Generar alertas | «Campaña sin actividades en 30 días» necesita un proceso programado que revise periódicamente |
 | Importar Excel/CSV | Leer el archivo, validar fila por fila, registrar en `importaciones` |
-| Clima por API | Consultar una API gratuita (Open-Meteo o NASA POWER) con las coordenadas de la parcela (**deseable**, el registro manual es el respaldo) |
+| Clima por API | ~~Consultar una API gratuita (Open-Meteo o NASA POWER) con las coordenadas de la parcela (**deseable**, el registro manual es el respaldo)~~ **Implementado en la Semana 10:** Open-Meteo (`archive-api`, sin clave) desde `POST /api/clima/consulta-api/`; el registro manual sigue siendo el respaldo |
 | ML | Entrenar, guardar el `.joblib`, predecir, calcular métricas |
 | Reportes | Exportar a PDF y Excel |
 | Respaldos | Copias periódicas de la base de datos |
@@ -513,7 +520,7 @@ No son fallas del diseño: son tareas del backend y del frontend.
 2. ~~Modelo de usuario con rol (FK) y primera migración~~ (hecho: `usuarios.0001`–`0003`).
 3. ~~Endpoints de login y refresh, y vista con los permisos del usuario~~ (hecho en la Semana 2; ver `docs/api_autenticacion.md`).
 4. ~~Rate limit del login~~ (hecho en la Semana 2: throttle por IP + bloqueo por cuenta).
-5. Modelos de Django del resto de tablas, con triggers y vista como migraciones. ~~Los de ubicación, productores, parcelas, campañas, catálogos y actividades ya están;~~ quedan recursos, clima, incidencias, producción, ML y sistema.
+5. Modelos de Django del resto de tablas, con triggers y vista como migraciones. ~~Los de ubicación, productores, parcelas, campañas, catálogos, actividades, recursos, clima, producción y sistema (parámetros) ya están;~~ quedan `seguimiento_etapas`, `incidencias`, `alertas`, `importaciones` y las 3 de ML.
 6. ~~Pantalla de login en React y rutas protegidas por permiso~~ (hecho en la Semana 2; el menú ya filtra por permiso).
 7. Pantallas de cada módulo y administración de usuarios/roles desde React (cambio de contraseña y recuperación pendientes).
 8. Diagrama entidad-relación y modelo lógico (Capítulo IV, 4.3.2 y 4.3.3).
@@ -534,7 +541,8 @@ No son fallas del diseño: son tareas del backend y del frontend.
 - ¿Qué cultivos tendrán datos? (supuesto: quinua y cañihua)
 - ¿Cuántas campañas históricas con rendimiento conocido existen y en qué formato están?
 - ¿Cuál es la fecha límite para sustentar, y cuándo necesita el sistema funcionando?
-- Valores a validar: el quintal (46 kg), los umbrales de rendimiento, los 30 días sin actividad, las etapas fenológicas y los agentes de ejemplo.
+- Valores a validar: el quintal (46 kg), los umbrales de rendimiento, los 30 días sin actividad, las etapas fenológicas, los agentes de ejemplo y el **umbral de helada** (`umbral_helada_c = 0 °C`, rango −10 a 5; pregunta K, Semana 10).
+- **¿Open-Meteo como fuente del clima?** (Semana 10, pregunta M): implementado con `archive-api` (sin clave de API); el adaptador es un solo archivo (`seguimiento/servicio_meteorologico.py`) por si el responsable prefiere otra fuente (p. ej. NASA POWER).
 - ¿La densidad de siembra se mide en kg/ha, plantas/m² o ambas? (Semana 7, pregunta I: se implementaron **las dos** del diseño; la API exige valor+unidad juntos y `UNIDADES_DENSIDAD` del frontend fija la medida en un solo sitio).
 - **¿Rechazar fechas futuras en actividades?** (Semana 7, pregunta H): implementado (`fecha ≤ hoy` en hora de **America/Lima**); pendiente de confirmar — si se admite planificar a futuro, se retira la comprobación.
 - ¿Cuántos técnicos usarán el sistema a la vez? (supuesto: 20 usuarios simultáneos)

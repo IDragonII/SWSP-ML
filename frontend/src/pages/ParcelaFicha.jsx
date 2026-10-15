@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { mensajeDeError } from '../api/errores.js'
 import { cliente } from '../api/cliente.js'
 import { estadoParcela, obtenerParcela } from '../api/parcelas.js'
@@ -10,6 +11,7 @@ import Tabla from '../components/Tabla.jsx'
 import { useSesion } from '../context/useSesion.js'
 import { useToast } from '../context/useToast.js'
 import CampaniaFormulario from './CampaniaFormulario.jsx'
+import ClimaFormulario from './ClimaFormulario.jsx'
 import ParcelaFormulario from './ParcelaFormulario.jsx'
 import ProductorFicha from './ProductorFicha.jsx'
 
@@ -25,6 +27,7 @@ function Dato({ rotulo, valor }) {
 export default function ParcelaFicha({ id, abierto, onCerrar }) {
   const { tienePermiso } = useSesion()
   const { avisar } = useToast()
+  const navegar = useNavigate()
   const [ficha, setFicha] = useState(null)
   const [comunidad, setComunidad] = useState(null)
   const [error, setError] = useState(null)
@@ -34,12 +37,14 @@ export default function ParcelaFicha({ id, abierto, onCerrar }) {
   const [nuevaCampania, setNuevaCampania] = useState(false)
   const [campaniaEditando, setCampaniaEditando] = useState(null)
   const [productorFicha, setProductorFicha] = useState(false)
+  const [nuevoClima, setNuevoClima] = useState(false)
   const [confirmacion, setConfirmacion] = useState(null)
 
   const puedeEditar = tienePermiso('parcelas.editar')
   const puedeDesactivar = tienePermiso('parcelas.desactivar')
   const puedeCrearCampania = tienePermiso('campanias.crear')
   const puedeEditarCampania = tienePermiso('campanias.editar')
+  const puedeCrearClima = tienePermiso('clima.crear')
 
   const recargar = useCallback(() => setRecarga((n) => n + 1), [])
 
@@ -184,6 +189,56 @@ export default function ParcelaFicha({ id, abierto, onCerrar }) {
           </section>
 
           <section className="panel">
+            <h2>Clima</h2>
+            {ficha.clima && ficha.clima.registros > 0 ? (
+              <>
+                <dl className="datos-rejilla">
+                  <Dato rotulo="Registros" valor={ficha.clima.registros} />
+                  <Dato rotulo="Último día" valor={ficha.clima.ultimo_dia} />
+                </dl>
+                <div className="ficha-acciones">
+                  <button
+                    type="button"
+                    className="boton-texto"
+                    onClick={() => {
+                      navegar(`/clima?parcela=${ficha.id}`)
+                      onCerrar?.()
+                    }}
+                  >
+                    Ver registros
+                  </button>
+                  {puedeCrearClima && (
+                    <button
+                      type="button"
+                      className="boton-texto"
+                      onClick={() => setNuevoClima(true)}
+                    >
+                      Registrar clima
+                    </button>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="nota">
+                  Esta parcela todavía no tiene registros de clima.
+                </p>
+                {puedeCrearClima && (
+                  <div className="ficha-acciones">
+                    <button
+                      type="button"
+                      className="boton-texto"
+                      onClick={() => setNuevoClima(true)}
+                    >
+                      Registrar clima
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </section>
+
+          <section className="panel">
             <h2>Campañas</h2>
             {ficha.campanias.length > 0 ? (
               <Tabla
@@ -281,6 +336,18 @@ export default function ParcelaFicha({ id, abierto, onCerrar }) {
             setCampaniaEditando(null)
             recargar()
           }}
+        />
+      )}
+
+      {nuevoClima && ficha && (
+        <ClimaFormulario
+          parcelaInicial={ficha.id}
+          abierto
+          onGuardado={() => {
+            setNuevoClima(false)
+            recargar()
+          }}
+          onCancelar={() => setNuevoClima(false)}
         />
       )}
 

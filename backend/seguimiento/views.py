@@ -27,12 +27,28 @@ recursos.ver/crear/editar/desactivar. Búsqueda por código de parcela,
 productor, recurso y observaciones; filtros por campaña, actividad,
 recurso, categoría, fechas (desde/hasta), productor, parcela, cultivo y
 estado (ACTIVA/ANULADA).
+
+Registro de clima (Semana 10, HU-76 a HU-84): una fila por parcela y
+día, SIN DELETE (405) y SIN anulación (un error se corrige editando el
+mismo registro). Permisos clima.ver/crear/editar; clima.desactivar queda
+sembrado sin uso (anotado en CONTEXTO_PROYECTO.md). El Técnico solo ve y
+registra clima de SUS productores asignados (una parcela ajena responde
+el mismo mensaje que si no existiera). Búsqueda por código de parcela,
+apellidos y nombres del productor y comunidad; filtros por parcela,
+productor, comunidad, distrito, provincia, fechas (desde/hasta), fuente
+(MANUAL/API) y heladas; orden por fecha descendente (el Meta del modelo).
+La acción consulta-api (HU-84) baja lecturas de Open-Meteo para una
+parcela con coordenadas: 10 consultas por usuario y hora, transacción
+única (o se guarda todo el rango o nada) y 502 si el servicio no responde.
 """
+from datetime import timedelta
+
 from django.db import IntegrityError, transaction
 from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import APIException, ValidationError
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 
 from campanias.models import Campania
 from productores.views import (
@@ -42,14 +58,23 @@ from productores.views import (
     _id_numerico,
 )
 
-from .models import Actividad, UsoRecurso
+from .models import Actividad, Clima, UsoRecurso
 from .serializers import (
     ActividadDetalleSerializer,
     ActividadEscrituraSerializer,
     ActividadListaSerializer,
+    ClimaConsultaApiSerializer,
+    ClimaDetalleSerializer,
+    ClimaEscrituraSerializer,
+    ClimaListaSerializer,
     UsoRecursoDetalleSerializer,
     UsoRecursoEscrituraSerializer,
     UsoRecursoListaSerializer,
+)
+from .servicio_meteorologico import (
+    CLAVES_SALIDA,
+    ErrorServicioMeteorologico,
+    consultar_dias,
 )
 
 
@@ -460,3 +485,268 @@ class UsoRecursoViewSet(
         uso.refresh_from_db()
         uso.campania.refresh_from_db()
         return Response(self._lectura(uso).data)
+
+
+class ServicioMeteorologicoNoDisponible(APIException):
+    """502 de la consulta HU-84: Open-Meteo no respondió, no contestó a
+    tiempo o devolvió algo ilegible. El detalle técnico se queda en la
+    excepción (nunca en la respuesta) y el usuario ve el mensaje en
+    español."""
+
+    status_code = 502
+    default_detail = (
+        "El servicio meteorológico no está disponible en este momento."
+    )
+    default_code = "servicio_meteorologico_no_disponible"
+
+
+class PermisosClima(PermisosPorAccion):
+    """Permisos de clima: clima.ver/crear/editar. clima.desactivar está
+    sembrado pero sin uso (no hay anulación ni borrado: decisión de la
+    Semana 10) — se anota en CONTEXTO_PROYECTO.md. La consulta a la API
+    meteorológica (HU-84) usa clima.crear."""
+
+    permiso_requerido = "clima.ver"
+    PERMISOS = {
+        "list": "clima.ver",
+        "retrieve": "clima.ver",
+        "create": "clima.crear",
+        "update": "clima.editar",
+        "partial_update": "clima.editar",
+        "consulta_api": "clima.crear",
+    }
+
+
+class ClimaViewSet(
+    PermisosClima,
+    SoloSusProductores,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin,
+    mixins.UpdateModelMixin,
+    viewsets.GenericViewSet,
+):
+    """CRUD de registros de clima sin DELETE (405). Una fila por parcela y
+    día: el duplicado se responde en 400 antes de que choque la base y la
+    edición de un registro de la API exige confirmar_reemplazo=true (la
+    fuente pasa a MANUAL)."""
+
+    queryset = Clima.objects.select_related(
+        "parcela",
+        "parcela__productor",
+        "parcela__comunidad",
+        "registrado_por",
+    )
+    serializer_class = ClimaDetalleSerializer
+    escritura_serializer = ClimaEscrituraSerializer
+    # El límite de 10 consultas/hora solo aplica a consulta-api: el scope
+    # nulo deja pasar el resto de acciones tal cual
+    throttle_classes = (ScopedRateThrottle,)
+    filter_backends = (BusquedaPorNombre,)
+    search_fields = (
+        "parcela__codigo",
+        "parcela__productor__apellidos",
+        "parcela__productor__nombres",
+        "parcela__comunidad__nombre",
+    )
+
+    def get_serializer_class(self):
+        if self.action in ("create", "update", "partial_update"):
+            return self.escritura_serializer
+        if self.action == "list":
+            return ClimaListaSerializer
+        return self.serializer_class
+
+    def get_queryset(self):
+        queryset = self._filtrar_asignados(
+            super().get_queryset(), "parcela__productor_id"
+        )
+        params = self.request.query_params
+        if params.get("parcela"):
+            queryset = queryset.filter(
+                parcela_id=_id_numerico(params["parcela"], "parcela")
+            )
+        if params.get("productor"):
+            queryset = queryset.filter(
+                parcela__productor_id=_id_numerico(params["productor"], "productor")
+            )
+        if params.get("comunidad"):
+            queryset = queryset.filter(
+                parcela__comunidad_id=_id_numerico(params["comunidad"], "comunidad")
+            )
+        if params.get("distrito"):
+            queryset = queryset.filter(
+                parcela__comunidad__distrito_id=_id_numerico(
+                    params["distrito"], "distrito"
+                )
+            )
+        if params.get("provincia"):
+            queryset = queryset.filter(
+                parcela__comunidad__distrito__provincia_id=_id_numerico(
+                    params["provincia"], "provincia"
+                )
+            )
+        if params.get("fecha_desde"):
+            queryset = queryset.filter(fecha__gte=params["fecha_desde"])
+        if params.get("fecha_hasta"):
+            queryset = queryset.filter(fecha__lte=params["fecha_hasta"])
+        if params.get("fuente"):
+            fuente = params["fuente"]
+            if fuente not in ("MANUAL", "API"):
+                raise ValidationError({"fuente": "Use MANUAL o API."})
+            queryset = queryset.filter(fuente=fuente)
+        if params.get("heladas") is not None:
+            valor = str(params["heladas"]).lower()
+            if valor in ("1", "true", "si", "sí"):
+                queryset = queryset.filter(helada=True)
+            elif valor in ("0", "false", "no"):
+                queryset = queryset.filter(helada=False)
+            else:
+                raise ValidationError({"heladas": "Use 1 o 0."})
+        return queryset
+
+    def get_throttles(self):
+        self.throttle_scope = (
+            "clima_consulta" if self.action == "consulta_api" else None
+        )
+        return super().get_throttles()
+
+    def perform_create(self, serializer):
+        serializer.save(registrado_por=self.request.user)
+
+    # ------------------------------------------------------------------ #
+    # HU-84: consulta a la API meteorológica (Open-Meteo)
+    # ------------------------------------------------------------------ #
+    @action(detail=False, methods=("post",), url_path="consulta-api")
+    def consulta_api(self, request):
+        """Baja las lecturas diarias de un rango (máx. 92 días) para una
+        parcela con coordenadas y las guarda como fuente API. Un registro
+        manual nunca se pisa (queda omitido); un registro de la API se
+        refresca; los días sin dato o inválidos se reportan en el informe.
+        Todo el rango se guarda en una sola transacción."""
+        entrada = ClimaConsultaApiSerializer(
+            data=request.data, context={"request": request}
+        )
+        entrada.is_valid(raise_exception=True)
+        parcela = entrada.validated_data["parcela"]
+        desde = entrada.validated_data["fecha_desde"]
+        hasta = entrada.validated_data["fecha_hasta"]
+        # Coordenadas a 2 decimales (decisión de la Semana 10)
+        latitud = round(float(parcela.latitud), 2)
+        longitud = round(float(parcela.longitud), 2)
+        try:
+            consultados = consultar_dias(latitud, longitud, desde, hasta)
+        except ErrorServicioMeteorologico:
+            raise ServicioMeteorologicoNoDisponible()
+        por_fecha = {dia["fecha"]: dia for dia in consultados}
+        informe = {
+            "creados": 0,
+            "actualizados": 0,
+            "omitidos_manual": 0,
+            "omitidos_api": 0,
+            "sin_datos": 0,
+            "descartados": 0,
+        }
+        try:
+            with transaction.atomic():
+                for posicion in range((hasta - desde).days + 1):
+                    fecha = desde + timedelta(days=posicion)
+                    self._procesar_dia(
+                        request, parcela, fecha, por_fecha.get(fecha), informe
+                    )
+        except IntegrityError as exc:
+            # Carrera con uq_clima_parcela_fecha: la transacción se
+            # revierte entera (no queda ningún día del rango a medias)
+            raise ValidationError(
+                "No se pudieron guardar los datos consultados: uno de los "
+                "días ya tiene un registro para esta parcela."
+            ) from exc
+        return Response(
+            {
+                "consulta": {
+                    "parcela": parcela.pk,
+                    "fecha_desde": desde.isoformat(),
+                    "fecha_hasta": hasta.isoformat(),
+                    "latitud": latitud,
+                    "longitud": longitud,
+                },
+                **informe,
+            }
+        )
+
+    def _procesar_dia(self, request, parcela, fecha, datos, informe):
+        """Un día de la consulta: sin datos, omitido, creado, actualizado
+        o descartado (si las medidas no pasan las reglas del alta
+        manual). Los registros existentes se bloquean con select_for_update
+        para que dos consultas simultáneas no choquen."""
+        existente = (
+            Clima.objects.select_for_update()
+            .filter(parcela=parcela, fecha=fecha)
+            .first()
+        )
+        if datos is None or all(
+            datos.get(clave) is None for clave in CLAVES_SALIDA
+        ):
+            # Sin dato del servicio: si ya había una fila de la API se
+            # conserva tal cual (omitida); si no, es un día sin datos
+            if existente is not None and existente.fuente == Clima.FUENTE_API:
+                informe["omitidos_api"] += 1
+            else:
+                informe["sin_datos"] += 1
+            return
+        if existente is not None and existente.fuente == Clima.FUENTE_MANUAL:
+            # La mano del técnico manda: la API no lo pisa
+            informe["omitidos_manual"] += 1
+            return
+        payload = {"parcela": parcela.pk, "fecha": fecha}
+        payload.update({clave: datos.get(clave) for clave in CLAVES_SALIDA})
+        contexto = {"request": request, "fuente_externa": True}
+        if existente is not None:
+            serializer = ClimaEscrituraSerializer(
+                existente, data=payload, context=contexto
+            )
+        else:
+            serializer = ClimaEscrituraSerializer(data=payload, context=contexto)
+        if not serializer.is_valid():
+            informe["descartados"] += 1
+            return
+        serializer.save(registrado_por=request.user)
+        if existente is not None:
+            informe["actualizados"] += 1
+        else:
+            informe["creados"] += 1
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            with transaction.atomic():
+                self.perform_create(serializer)
+        except IntegrityError:
+            # Carrera improbable con uq_clima_parcela_fecha: 400 en vez
+            # de un 500 (la validación previa ya cubre el caso normal)
+            raise ValidationError(
+                "No se pudo guardar el registro de clima: ya existe un "
+                "registro para esta parcela y fecha."
+            )
+        serializer.instance.refresh_from_db()
+        return Response(self._lectura(serializer.instance).data, status=201)
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        try:
+            with transaction.atomic():
+                self.perform_update(serializer)
+        except IntegrityError:
+            raise ValidationError(
+                "No se pudo guardar el registro de clima: ya existe un "
+                "registro para esta parcela y fecha."
+            )
+        serializer.instance.refresh_from_db()
+        return Response(self._lectura(serializer.instance).data)
+
+    def _lectura(self, obj):
+        return ClimaDetalleSerializer(obj, context=self.get_serializer_context())

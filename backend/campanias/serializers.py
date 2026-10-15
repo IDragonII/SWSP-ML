@@ -12,11 +12,12 @@ reglas únicas nombrando la campaña existente. El estado del request
 los mismos campos que en producción y en cerrada no se admite nada.
 """
 import re
-from datetime import date
-from decimal import Decimal
+from datetime import date, datetime
+from decimal import ROUND_HALF_UP, Decimal
+from zoneinfo import ZoneInfo
 
 from django.core.exceptions import ObjectDoesNotExist
-from django.db.models import Count, Max, Sum
+from django.db.models import Avg, Count, Max, Q, Sum
 from rest_framework import serializers
 
 from catalogos.models import Cultivo, Variedad
@@ -100,7 +101,11 @@ class CampaniaDetalleSerializer(serializers.ModelSerializer):
     fecha registrada (ambas excluyen anuladas). La Semana 9 añade
     resumen_recursos: total por categoría en unidad base y por hectárea
     sembrada, con el número de registros (solo usos activos; el
-    combustible se muestra en litros)."""
+    combustible se muestra en litros). La Semana 10 añade resumen_clima:
+    la ventana siembra→cosecha (hoy si aún no hay producción) con
+    precipitación acumulada, temperaturas y humedad promedio, heladas,
+    días con datos, días de ventana y cobertura — los mismos números que
+    las columnas clima_c de vw_dataset_entrenamiento."""
 
     parcela = serializers.SerializerMethodField()
     cultivo = serializers.SerializerMethodField()
@@ -110,6 +115,7 @@ class CampaniaDetalleSerializer(serializers.ModelSerializer):
     fecha_ultima_actividad = serializers.SerializerMethodField()
     produccion = serializers.SerializerMethodField()
     resumen_recursos = serializers.SerializerMethodField()
+    resumen_clima = serializers.SerializerMethodField()
 
     class Meta:
         model = Campania
@@ -129,6 +135,7 @@ class CampaniaDetalleSerializer(serializers.ModelSerializer):
             "fecha_ultima_actividad",
             "produccion",
             "resumen_recursos",
+            "resumen_clima",
             "creado_por",
             "creado_en",
             "actualizado_en",
@@ -140,6 +147,7 @@ class CampaniaDetalleSerializer(serializers.ModelSerializer):
             "fecha_ultima_actividad",
             "produccion",
             "resumen_recursos",
+            "resumen_clima",
             "creado_por",
             "creado_en",
             "actualizado_en",
@@ -216,6 +224,60 @@ class CampaniaDetalleSerializer(serializers.ModelSerializer):
                 }
             )
         return resultado
+
+    def get_resumen_clima(self, obj):
+        """Ventana de clima de la campaña (HU-79, Semana 10): desde la
+        fecha de siembra (o la de inicio si aún no se siembra) hasta la
+        cosecha; sin producción, hasta hoy (ventana provisional en curso).
+        Dentro de la ventana se suman las precipitaciones y se promedian
+        temperatura y humedad con los MISMOS cálculos que las columnas
+        clima_c de vw_dataset_entrenamiento (redondeo a 1 decimal, heladas
+        y días de conteo). Sin registros: bloque vacío, no error."""
+        desde = obj.fecha_siembra or obj.fecha_inicio
+        try:
+            hasta = obj.produccion.fecha_cosecha
+            provisional = False
+        except ObjectDoesNotExist:
+            hasta = datetime.now(ZoneInfo("America/Lima")).date()
+            provisional = True
+        dias_ventana = 0
+        if hasta >= desde:
+            dias_ventana = (hasta - desde).days + 1
+        registros = obj.parcela.registros_clima.filter(
+            fecha__gte=desde, fecha__lte=hasta
+        )
+        resumen = registros.aggregate(
+            precipitacion=Sum("precipitacion_mm"),
+            temperatura=Avg("temp_prom"),
+            humedad=Avg("humedad_pct"),
+            heladas=Count("id", filter=Q(helada=True)),
+            dias=Count("id"),
+        )
+        temperatura = resumen["temperatura"]
+        if temperatura is not None:
+            temperatura = temperatura.quantize(
+                Decimal("0.1"), rounding=ROUND_HALF_UP
+            )
+        humedad = resumen["humedad"]
+        if humedad is not None:
+            humedad = humedad.quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
+        cobertura = None
+        if dias_ventana > 0:
+            cobertura = (
+                (Decimal(resumen["dias"]) / Decimal(dias_ventana)) * 100
+            ).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
+        return {
+            "desde": desde,
+            "hasta": hasta,
+            "provisional": provisional,
+            "precipitacion_acum_mm": resumen["precipitacion"],
+            "temp_prom_c": temperatura,
+            "humedad_prom_pct": humedad,
+            "n_heladas": resumen["heladas"],
+            "dias_con_clima": resumen["dias"],
+            "dias_ventana": dias_ventana,
+            "cobertura_pct": cobertura,
+        }
 
 
 class CampaniaEscrituraSerializer(serializers.ModelSerializer):

@@ -88,8 +88,10 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.IsAuthenticated',
     ],
     # Rate limit del login por IP (docs/decisiones_seguridad.md §5 y §6)
+    # y de la consulta a la API meteorológica por usuario (HU-84, S10)
     'DEFAULT_THROTTLE_RATES': {
         'login': os.getenv('LOGIN_RATE_IP', '30/min'),
+        'clima_consulta': os.getenv('CLIMA_CONSULTA_RATE', '10/hour'),
     },
     'EXCEPTION_HANDLER': 'usuarios.excepciones.manejar_excepciones',
     # Listados paginados (Semana 3): 20 por página, configurable en el .env

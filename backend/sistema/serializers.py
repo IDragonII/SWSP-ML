@@ -1,15 +1,21 @@
 """Serializadores de la API de parámetros del sistema (Semana 8).
 
 La lista muestra clave, valor, descripción y trazabilidad; el de escritura
-solo admite el valor (la clave es fija, cargada por la migración 0001) y
-valida que sea un número mayor que 0 y que el par de umbrales de
-rendimiento siga coherente (mínimo menor que máximo).
+solo admite el valor (la clave es fija, cargada por las migraciones 0001 y
+0002) y valida que sea un número mayor que 0 y que el par de umbrales de
+rendimiento siga coherente (mínimo menor que máximo). La Semana 10 añade
+umbral_helada_c: un caso aparte, porque admite negativos (entre −10 y 5 °C)
+y es el que usa el registro de clima para derivar las heladas.
 """
 from decimal import Decimal, InvalidOperation
 
 from rest_framework import serializers
 
 from .models import ParametroSistema
+
+# Umbral de helada (Semana 10): rango admitido por la API
+_UMBRAL_HELADA_MIN = Decimal("-10")
+_UMBRAL_HELADA_MAX = Decimal("5")
 
 
 class ParametroSerializer(serializers.ModelSerializer):
@@ -34,12 +40,25 @@ class ParametroEscrituraSerializer(serializers.ModelSerializer):
 
     def validate_valor(self, valor):
         valor = (valor or "").strip()
+        # El umbral de helada (Semana 10) es la única clave que admite
+        # negativos: su rango propio manda sobre «mayor que 0»
+        clave = self.instance.clave if self.instance is not None else None
         try:
             numero = Decimal(valor)
         except InvalidOperation:
+            if clave == "umbral_helada_c":
+                raise serializers.ValidationError(
+                    "El umbral de helada debe ser un número entre -10 y 5 °C."
+                )
             raise serializers.ValidationError(
                 "El valor debe ser un número mayor que 0."
             )
+        if clave == "umbral_helada_c":
+            if not _UMBRAL_HELADA_MIN <= numero <= _UMBRAL_HELADA_MAX:
+                raise serializers.ValidationError(
+                    "El umbral de helada debe estar entre -10 y 5 °C."
+                )
+            return valor
         if numero <= 0:
             raise serializers.ValidationError(
                 "El valor debe ser un número mayor que 0."

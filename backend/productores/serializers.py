@@ -13,6 +13,7 @@ import re
 from decimal import Decimal
 
 from django.core.exceptions import ObjectDoesNotExist
+from django.db.models import Count, Max
 from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
 
@@ -387,12 +388,14 @@ class ParcelaDetalleSerializer(serializers.ModelSerializer):
     """Ficha completa de la parcela. codigo, creado_por y fechas son de
     sólo lectura (los rellena la base de datos); el productor se muestra
     anidado y no se puede cambiar al editar. Desde la Semana 6 incluye
-    sus campañas (HU-44)."""
+    sus campañas (HU-44); desde la Semana 10, el conteo de registros de
+    clima y su último día (HU-80)."""
 
     productor = serializers.SerializerMethodField()
     comunidad = ComunidadSerializer(read_only=True)
     creado_por = serializers.StringRelatedField(read_only=True)
     campanias = serializers.SerializerMethodField()
+    clima = serializers.SerializerMethodField()
 
     class Meta:
         model = Parcela
@@ -412,6 +415,7 @@ class ParcelaDetalleSerializer(serializers.ModelSerializer):
             "sistema_riego",
             "estado",
             "campanias",
+            "clima",
             "creado_por",
             "creado_en",
             "actualizado_en",
@@ -423,6 +427,18 @@ class ParcelaDetalleSerializer(serializers.ModelSerializer):
             "id": obj.productor_id,
             "codigo": obj.productor.codigo,
             "nombre_completo": f"{obj.productor.apellidos}, {obj.productor.nombres}",
+        }
+
+    def get_clima(self, obj):
+        """Número de registros de clima de la parcela y su último día
+        (lazy: solo se consulta en la ficha)."""
+        resumen = obj.registros_clima.aggregate(
+            registros=Count("id"), ultimo_dia=Max("fecha")
+        )
+        ultimo = resumen["ultimo_dia"]
+        return {
+            "registros": resumen["registros"],
+            "ultimo_dia": ultimo.isoformat() if ultimo is not None else None,
         }
 
     def get_campanias(self, obj):

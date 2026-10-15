@@ -5,6 +5,7 @@ from django.utils import timezone
 
 from campanias.models import Campania
 from catalogos.models import Recurso, TipoActividad, Unidad
+from productores.models import Parcela
 
 
 class Actividad(models.Model):
@@ -228,3 +229,145 @@ class UsoRecurso(models.Model):
 
     def __str__(self):
         return f"{self.fecha} · {self.recurso} · {self.campania}"
+
+
+class Clima(models.Model):
+    """Registro climático diario de una parcela (01_tablas.sql:324-342).
+
+    Una fila por parcela y día (uq_clima_parcela_fecha): no hay anulación
+    ni borrado (decisión de la Semana 10) — un error se corrige editando el
+    mismo registro. Al menos una medida o la helada marcada lo validan en la
+    API; las reglas de rango viven en los CHECK y, en la API, además la
+    mínima ≤ máxima y el promedio entre ambas.
+
+    Campos calculados por el servidor (nunca por el cliente): temp_prom
+    como punto medio si vienen mínima y máxima, helada derivada del umbral
+    del sistema cuando hay mínima y fuente (MANUAL o API; editar a mano un
+    registro de API lo convierte en MANUAL). El umbral vive en
+    parametros_sistema (clave umbral_helada_c, Semana 10).
+
+    trg_clima_actualizado (migración 0006) fija actualizado_en con
+    fn_set_actualizado_en de productores.0002: es el único trigger de la
+    tabla, porque el resto de sus reglas son restricciones de la tabla.
+    """
+
+    FUENTE_MANUAL = "MANUAL"
+    FUENTE_API = "API"
+    FUENTES = [
+        (FUENTE_MANUAL, "Manual"),
+        (FUENTE_API, "API"),
+    ]
+
+    parcela = models.ForeignKey(
+        Parcela,
+        on_delete=models.CASCADE,
+        related_name="registros_clima",
+        verbose_name="parcela",
+        db_index=False,
+    )
+    fecha = models.DateField("fecha")
+    temp_min = models.DecimalField(
+        "temperatura mínima (°C)", max_digits=4, decimal_places=1, null=True, blank=True
+    )
+    temp_max = models.DecimalField(
+        "temperatura máxima (°C)", max_digits=4, decimal_places=1, null=True, blank=True
+    )
+    temp_prom = models.DecimalField(
+        "temperatura promedio (°C)", max_digits=4, decimal_places=1, null=True, blank=True
+    )
+    precipitacion_mm = models.DecimalField(
+        "precipitación (mm)", max_digits=6, decimal_places=1, null=True, blank=True
+    )
+    humedad_pct = models.DecimalField(
+        "humedad (%)", max_digits=4, decimal_places=1, null=True, blank=True
+    )
+    viento_ms = models.DecimalField(
+        "viento (m/s)", max_digits=4, decimal_places=1, null=True, blank=True
+    )
+    radiacion_mj = models.DecimalField(
+        "radiación (MJ/m²)", max_digits=5, decimal_places=1, null=True, blank=True
+    )
+    helada = models.BooleanField("helada", default=False, db_default=False)
+    fuente = models.CharField(
+        "fuente",
+        max_length=10,
+        choices=FUENTES,
+        default=FUENTE_MANUAL,
+        db_default="MANUAL",
+    )
+    registrado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="clima_registrado",
+        verbose_name="registrado por",
+        db_index=False,
+    )
+    creado_en = models.DateTimeField("creado en", default=timezone.now, db_default=Now())
+    actualizado_en = models.DateTimeField(
+        "actualizado en", default=timezone.now, db_default=Now()
+    )
+
+    class Meta:
+        db_table = "clima"
+        verbose_name = "registro de clima"
+        verbose_name_plural = "registros de clima"
+        ordering = ("-fecha", "id")
+        constraints = [
+            # Rangos del diseño (01_tablas.sql:328-334): las temperaturas
+            # entre −30 y 45, precipitación/viento/radiación ≥ 0 y humedad
+            # entre 0 y 100; NULL no se toca.
+            models.CheckConstraint(
+                condition=models.Q(temp_min__isnull=True)
+                | models.Q(temp_min__gte=-30, temp_min__lte=45),
+                name="ck_clima_temp_min_rango",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(temp_max__isnull=True)
+                | models.Q(temp_max__gte=-30, temp_max__lte=45),
+                name="ck_clima_temp_max_rango",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(temp_prom__isnull=True)
+                | models.Q(temp_prom__gte=-30, temp_prom__lte=45),
+                name="ck_clima_temp_prom_rango",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(precipitacion_mm__isnull=True)
+                | models.Q(precipitacion_mm__gte=0),
+                name="ck_clima_precipitacion",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(humedad_pct__isnull=True)
+                | models.Q(humedad_pct__gte=0, humedad_pct__lte=100),
+                name="ck_clima_humedad",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(viento_ms__isnull=True) | models.Q(viento_ms__gte=0),
+                name="ck_clima_viento",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(radiacion_mj__isnull=True)
+                | models.Q(radiacion_mj__gte=0),
+                name="ck_clima_radiacion",
+            ),
+            # ck_clima_temp del diseño: la mínima no supera a la máxima
+            models.CheckConstraint(
+                condition=models.Q(temp_min__isnull=True)
+                | models.Q(temp_max__isnull=True)
+                | models.Q(temp_min__lte=models.F("temp_max")),
+                name="ck_clima_temp",
+            ),
+            # Una fila por parcela y día (uq_clima_parcela_fecha; también
+            # sirve de índice, como en el diseño)
+            models.UniqueConstraint(
+                fields=["parcela", "fecha"], name="uq_clima_parcela_fecha"
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["fecha"], name="ix_clima_fecha"),
+        ]
+
+    def __str__(self):
+        return f"{self.fecha} · {self.parcela}"

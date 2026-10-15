@@ -596,12 +596,13 @@ class ProduccionApiTests(Semana8Base):
     def test_116_parametros_del_sistema(self):
         self._entrar_admin()
         listado = self._json(self.client.get("/api/parametros/"))
-        self.assertEqual(listado["count"], 4)
+        self.assertEqual(listado["count"], 5)
         self.assertEqual(
             {p["clave"] for p in listado["results"]},
             {
                 "dias_sin_actividad", "umbral_rendimiento_bajo",
                 "rendimiento_min_plausible", "rendimiento_max_plausible",
+                "umbral_helada_c",
             },
         )
 
@@ -887,8 +888,8 @@ class ProduccionApiTests(Semana8Base):
         self.assertIn("campania", campania_mala)
 
     # ------------------------------------------------------------------ #
-    # 120: los 18 triggers del proyecto (15 de la S8 + 3 de uso_recursos
-    #     de la S9) y la reversibilidad del SQL
+    # 120: los 19 triggers del proyecto (15 de la S8 + 3 de uso_recursos
+    #     de la S9 + 1 de clima de la S10) y la reversibilidad del SQL
     # ------------------------------------------------------------------ #
     def test_120_triggers_y_reversibilidad_de_las_migraciones(self):
         triggers = {
@@ -899,8 +900,9 @@ class ProduccionApiTests(Semana8Base):
                 "WHERE relnamespace = 'public'::regnamespace)"
             )
         }
-        # 15 al cerrar la Semana 8; la Semana 9 añade los 3 de uso_recursos
-        self.assertEqual(len(triggers), 18)
+        # 15 al cerrar la Semana 8; la Semana 9 añade los 3 de
+        # uso_recursos y la Semana 10 el de actualizado de clima
+        self.assertEqual(len(triggers), 19)
         self.assertLessEqual(
             {
                 "trg_producciones_validar",
@@ -910,7 +912,8 @@ class ProduccionApiTests(Semana8Base):
             triggers,
         )
         self.assertLessEqual(
-            {"trg_parametros_sistema_actualizado"}, triggers
+            {"trg_parametros_sistema_actualizado", "trg_clima_actualizado"},
+            triggers,
         )
 
         prosrc = {

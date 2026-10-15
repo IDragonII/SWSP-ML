@@ -1,6 +1,9 @@
+from decimal import ROUND_HALF_UP, Decimal
+
 from django.contrib import admin
 
-from .models import Actividad, UsoRecurso
+from .models import Actividad, Clima, UsoRecurso
+from .serializers import _umbral_helada
 
 
 @admin.register(Actividad)
@@ -73,4 +76,58 @@ class UsoRecursoAdmin(admin.ModelAdmin):
     def save_model(self, request, obj, form, change):
         if not change:
             obj.registrado_por = request.user
+        super().save_model(request, obj, form, change)
+
+
+@admin.register(Clima)
+class ClimaAdmin(admin.ModelAdmin):
+    """Semana 10: consulta y trazabilidad del registro de clima. Solo
+    lectura lo que calcula el servidor: fuente (siempre MANUAL desde el
+    admin), temp_prom (punto medio si vienen mínima y máxima) y helada
+    (derivada del umbral cuando hay mínima; sin mínima, sin marcar). Los
+    datos se dan de alta y se corrigen por la API (decisión de la
+    Semana 10)."""
+
+    list_display = (
+        "fecha",
+        "parcela",
+        "temp_min",
+        "temp_max",
+        "temp_prom",
+        "precipitacion_mm",
+        "helada",
+        "fuente",
+    )
+    list_filter = ("fuente", "helada")
+    search_fields = (
+        "parcela__codigo",
+        "parcela__productor__apellidos",
+        "parcela__productor__nombres",
+        "parcela__comunidad__nombre",
+    )
+    date_hierarchy = "fecha"
+    readonly_fields = (
+        "fuente",
+        "temp_prom",
+        "helada",
+        "registrado_por",
+        "creado_en",
+        "actualizado_en",
+    )
+    raw_id_fields = ("parcela",)
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.registrado_por = request.user
+        obj.fuente = Clima.FUENTE_MANUAL
+        if (
+            obj.temp_prom is None
+            and obj.temp_min is not None
+            and obj.temp_max is not None
+        ):
+            obj.temp_prom = (
+                (obj.temp_min + obj.temp_max) / Decimal("2")
+            ).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
+        if obj.temp_min is not None:
+            obj.helada = obj.temp_min <= _umbral_helada()
         super().save_model(request, obj, form, change)

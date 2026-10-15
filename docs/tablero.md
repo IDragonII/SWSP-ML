@@ -1,12 +1,52 @@
-# Tablero SIGPA-GA — Semana 9: recursos e insumos
+# Tablero SIGPA-GA — Semana 10: clima
 
-> Tablero de la semana del **30 nov al 6 de diciembre** (calendario referencial).
+> Tablero de la semana del **7 al 13 de diciembre** (calendario referencial).
 > Sustituye mientras tanto a Trello/GitHub Projects (decisión de metodología:
 > se confirmará con el responsable qué herramienta usa él).
 > Los textos originales de las historias de usuario **no están en este
 > repositorio**: las descripciones siguientes son el **mapeo propuesto**
 > (igual que en semanas anteriores), anclado a los RF/RN del documento de
 > requerimientos.
+
+## Semana 10 — 7/7 fases terminadas
+
+El tema «clima» (cierre del **Sprint 5**) corresponde al **mapeo HU-76 a
+HU-84** de la semana; se ejecuta **por fases F1–F7** acordadas con el
+responsable (**F7 cerrada**: colección de Postman validada 270/270; el
+commit semanal único se ejecuta tras el visto bueno).
+
+| HU | Descripción (propuesta) | Estado | Evidencia |
+|---|---|---|---|
+| **HU-76** | Listar registros de clima con 10 filtros (parcela, productor, comunidad, distrito, provincia, rango de fechas, fuente, heladas y búsqueda) y orden por fecha descendente | ✅ Hecha | `GET /api/clima/` · prueba 147 |
+| **HU-77** | Ver la ficha del registro (medidas, trazabilidad y los dos cálculos del servidor: `temp_prom_calculado` y `helada_calculada`; `registrado_por` oculto al ámbito) | ✅ Hecha | `GET /api/clima/{id}/` · pruebas 144, 146 |
+| **HU-78** | Registrar clima a mano: al menos una medida o la helada, temperaturas coherentes y en rango, fechas no futuras (hora de Lima), parcela activa y **una fila por parcela y día**; el servidor guarda el punto medio y deriva la helada del umbral | ✅ Hecha | `POST /api/clima/` · pruebas 138–144, 151 |
+| **HU-79** | Editar un registro (medidas, fechas y helada; `confirmar_reemplazo` según la fuente; sin `DELETE` → 405) | ✅ Hecha | `PATCH /api/clima/{id}/` · pruebas 145, 148 |
+| **HU-80** | Fuente MANUAL/API: editar un registro que vino de la API exige `confirmar_reemplazo=true` y lo **pasa a MANUAL**; los registros manuales nunca los pisa la API | ✅ Hecha | validación en `ClimaEscrituraSerializer` · pruebas 145, 153 |
+| **HU-81** | Permisos por acción y ámbito: Administrador los 4 `clima.*`; Técnico `ver/crear/editar` solo en sus productores (parcela ajena → «no existe»); Coordinador solo `ver` | ✅ Hecha | `PermisosClima` + `SoloSusProductores` · prueba 146 |
+| **HU-82** | Resumen de clima en la ficha de campaña (`resumen_clima`: precipitación acumulada, temperaturas, heladas y cobertura de la ventana; nota de provisionalidad) | ✅ Hecha | `campanias/serializers.py` · pruebas 149, 150 |
+| **HU-83** | Bloque «Clima» en la ficha de parcela (registros y último día) y clave `umbral_helada_c` en `/api/parametros/` (−10 a 5 °C) | ✅ Hecha | `parcelas/serializers.py`, `sistema/` · pruebas 150, 155 |
+| **HU-84** | Consultar la API meteorológica Open-Meteo por parcela y rango (≤ 92 días, throttle 10/hora, informe de 6 contadores, 502 si el servicio cae) | ✅ Hecha | `POST /api/clima/consulta-api/` + `servicio_meteorologico.py` · pruebas 152–154 · smoke E2E 15/15 |
+
+> **Nota:** el mapeo HU-76..HU-84 es el **mapeo propuesto** de la semana (los
+> textos originales no están en el repositorio); la numeración de la colección
+> (236–269, más la 270 opcional) se validó en F7.
+
+| Fase | Contenido | Estado | Evidencia |
+|---|---|---|---|
+| **F1** | Estructura: tabla **`clima`** en `seguimiento/` (15 columnas, `parcela`+`fecha` únicos, check de temperaturas, `fuente` MANUAL/API, sin anulación ni borrado) + **3 migraciones reversibles** (`seguimiento/0005_clima.py`, `0006_trg_clima_actualizado.py`, `sistema/0002_umbral_helada_c.py`); diseño SQL actualizado (CTE `clima_c` del dataset, índice `ix_clima_fecha`, fila `umbral_helada_c`); **19 triggers** en total; migración verificada desde cero en BD temporal | ✅ Hecha | `backend/seguimiento/models.py`, `migrations/0005`, `0006` · `backend/sistema/` · `DB_sql/01_tablas.sql`, `02_reglas_y_vista.sql`, `03_insert.sql` |
+| **F2** | API completa: listado con 10 filtros, detalle, alta, edición, sin `DELETE` (405); `resumen_clima` en el detalle de campaña, bloque `clima` en el detalle de parcela y `umbral_helada_c` en parámetros; permisos `clima.*` por acción, ámbito del Técnico, `registrado_por` oculto al ámbito | ✅ Hecha | `views.py`, `serializers.py`, `urls.py` + `campanias/`, `parcelas/`, `sistema/` · pruebas 138–151, 155 |
+| **F3** | HU-84: servicio Open-Meteo (`urllib`, sin clave, `timezone=America/Lima`), acción `consulta-api/` con throttle `clima_consulta` (10/hora), `select_for_update` por día en una sola transacción, 502 en español si cae y el par `confirmar_reemplazo` 400/200 | ✅ Hecha | `servicio_meteorologico.py`, `views.py` · pruebas 152–154 |
+| **F4** | Pantallas: **`/clima`** (10 filtros en URL, `Tabla`+`Paginacion`), alta/edición en modal (`ClimaFormulario`, casilla de reemplazo solo para registros API), ficha en modal (`ClimaFicha`), **modal HU-84** (`ClimaConsulta` con informe), secciones **«Clima»** en `ParcelaFicha` y **«Resumen de clima»** en `CampaniaFicha`; entrada «Clima» en el menú | ✅ Hecha | `pages/Climas.jsx`, `ClimaFormulario.jsx`, `ClimaFicha.jsx`, `ClimaConsulta.jsx`, `ParcelaFicha.jsx`, `CampaniaFicha.jsx`, `api/clima.js` · checklist `verificacion_ui_semana10.md` |
+| **F5** | Verificación integral: **155 pruebas** (18 nuevas) + `check` en 0 issues + `makemigrations --check` sin cambios + `npm run lint`/`build` en 0 problemas; **smoke E2E 15/15** contra un `runserver` temporal y la BD `sigpa_ga_sm10` con Open-Meteo **real** (borrada al terminar); hallazgo corregido: cuantización a 1 decimal (`ROUND_HALF_UP`) en el adaptador | ✅ Hecha | `seguimiento/tests.py` · `servicio_meteorologico.py` (decisión 11 de `decisiones_semana10.md`) |
+| **F6** | Documentación de la semana | ✅ Hecha | `decisiones_semana10.md` (20 decisiones + preguntas K, L y M), `api_clima.md`, `verificacion_ui_semana10.md` |
+| **F7** | Cierre: colección de Postman (235 de la Semana 9 + 34 nuevas = **269 obligatorias** + 1 opcional), verificación final y commit semanal único | ✅ Hecha | `docs/coleccion_api_semana10.json` (236–270) — **validada 270/270 (496/496 aserciones)** en la BD temporal `sigpa_ga_coleccion10`, borrada al terminar · `evidencias_capitulo4.md` + `CONTEXTO_PROYECTO.md` §3/§6 · commit único: nombre entregado |
+
+**Cierre (7/7 fases):** 155 pruebas verdes (`manage.py test`;
+18 nuevas), `manage.py check` en 0 issues, `makemigrations --check` sin
+cambios, `npm run lint` y `npm run build` en 0 problemas, smoke E2E **15/15**,
+colección S10 **validada 270/270** (269 obligatorias + 1 opcional,
+496/496 aserciones) y documentación en `decisiones_semana10.md` (20
+decisiones), `verificacion_ui_semana10.md` y `api_clima.md`.
 
 ## Semana 9 — 7/7 fases terminadas
 
@@ -189,13 +229,13 @@ de **48 peticiones validada 48/48** contra el servidor (estados y aserciones),
 | 2 (12–18 oct) — autenticación y permisos | HU-07..HU-14 (login, refresh, logout, `/me`, permisos, rate limit, sesión y menú en React) | ✅ 20 pruebas · `api_autenticacion.md` |
 | 3 (19–25 oct) — ubicación y productores | HU-15..HU-22 (ubicación con `cargar_ubicacion`, productor con código PROD-000N, filtros, enmascarado, ficha parcial) | ✅ 37 pruebas · `api_ubicacion_productores.md` |
 
-## Siguiente (Semana 10, 7–13 dic)
+## Siguiente (Semana 11, 14–20 dic)
 
 | Tema | Nota |
 |---|---|
-| Recursos e insumos / clima | Siguiente sprint del roadmap (`CONTEXTO_PROYECTO.md` §13); fertilización y fitosanitarios aún sin cantidades de insumos (decisión 17 de la Semana 7); **recurso `usos_recursos` ya implementado en la Semana 9** |
-| Preguntas abiertas A, B, D, F, G, H, I, J, K y L | Lista de ubicaciones real, enmascarado, botón «usar mi ubicación», fechas vs período, bloqueo de desactivación, fechas futuras en actividades, unidad de densidad, producción bruta/neta, umbrales del sistema y costo de recursos |
-| Checklists de UI de las Semanas 4 a 9 | Ejecutar en navegador (Chrome/Edge/móvil) y anotar los resultados en cada documento |
+| Incidencias y línea de tiempo | **Sprint 6** del roadmap (`CONTEXTO_PROYECTO.md` §13); empieza el siguiente ciclo (el «Clima» queda cerrado salvo hallazgos de la verificación en navegador) |
+| Preguntas abiertas A, B, D, F, G, H, I, J, K, L y M | Lista de ubicaciones real, enmascarado, botón «usar mi ubicación», fechas vs período, bloqueo de desactivación, fechas futuras en actividades, unidad de densidad, producción bruta/neta, umbrales del sistema, costo de recursos y fuente meteorológica |
+| Checklists de UI de las Semanas 4 a 10 | Ejecutar en navegador (Chrome/Edge/móvil) y anotar los resultados en cada documento |
 | Demo 1 (cierre del Sprint 4) | Primera fila del dataset con producción y recursos; las predicciones quedan para los Sprints 13–14 (`fn_produccion_post` completa) |
 
 ## Preguntas abiertas que bloquean decisiones
@@ -233,7 +273,12 @@ de **48 peticiones validada 48/48** contra el servidor (estados y aserciones),
     `dias_sin_actividad = 30` y **quintal = 46 kg**) — **CONFIRMAR**; se
     cambian sin tocar código desde `/parametros` (y el catálogo de unidades).
 11. **¿Costo de los recursos: registro o cálculo?** (Semana 9, pregunta L):
-    rige que `costo` se **registra por cada uso** y no se agrega en ningún
-    resumen (decisión 19 de `decisiones_semana9.md`); si el responsable quiere
-    un costo total de campaña o por hectárea se añade al `resumen_recursos` —
-    **CONFIRMAR**.
+     rige que `costo` se **registra por cada uso** y no se agrega en ningún
+     resumen (decisión 19 de `decisiones_semana9.md`); si el responsable quiere
+     un costo total de campaña o por hectárea se añade al `resumen_recursos` —
+     **CONFIRMAR**.
+12. **¿Open-Meteo como fuente del clima?** (Semana 10, pregunta M — la plan
+     la citaba como «L»): implementado con `archive-api` (sin clave,
+     decisión 19 de `decisiones_semana10.md`); el adaptador es un solo archivo
+     (`servicio_meteorologico.py`) por si se prefiere otra fuente (p. ej. NASA
+     POWER) — **CONFIRMAR**.

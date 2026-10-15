@@ -368,6 +368,58 @@ export default function CampaniaFicha({ id, abierto, onCerrar }) {
               </p>
             )}
           </section>
+
+          <section className="panel">
+            <h2>Resumen de clima</h2>
+            {ficha.resumen_clima && ficha.resumen_clima.dias_con_clima > 0 ? (
+              <>
+                <dl className="datos-rejilla">
+                  <Dato
+                    rotulo="Precipitación acumulada"
+                    valor={
+                      ficha.resumen_clima.precipitacion_acum_mm !== null
+                        ? `${ficha.resumen_clima.precipitacion_acum_mm} mm`
+                        : null
+                    }
+                  />
+                  <Dato
+                    rotulo="Temperatura promedio"
+                    valor={
+                      ficha.resumen_clima.temp_prom_c !== null
+                        ? `${ficha.resumen_clima.temp_prom_c} °C`
+                        : null
+                    }
+                  />
+                  <Dato
+                    rotulo="Humedad promedio"
+                    valor={
+                      ficha.resumen_clima.humedad_prom_pct !== null
+                        ? `${ficha.resumen_clima.humedad_prom_pct} %`
+                        : null
+                    }
+                  />
+                  <Dato rotulo="Heladas" valor={ficha.resumen_clima.n_heladas} />
+                  <Dato
+                    rotulo="Cobertura"
+                    valor={`${ficha.resumen_clima.cobertura_pct} %`}
+                  />
+                  <Dato
+                    rotulo="Días con clima"
+                    valor={`${ficha.resumen_clima.dias_con_clima} de ${ficha.resumen_clima.dias_ventana}`}
+                  />
+                </dl>
+                <p className="nota">
+                  {ficha.resumen_clima.provisional
+                    ? `Ventana provisional (la campaña aún no tiene fecha de cosecha): de ${ficha.resumen_clima.desde} hasta hoy.`
+                    : `Ventana de la campaña: de ${ficha.resumen_clima.desde} a ${ficha.resumen_clima.hasta}.`}
+                </p>
+              </>
+            ) : (
+              <p className="nota">
+                Esta campaña todavía no tiene registros de clima en su ventana.
+              </p>
+            )}
+          </section>
         </>
       )}
 
