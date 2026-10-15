@@ -1,12 +1,13 @@
-"""Pruebas de las Semanas 7, 9 y 10: actividades productivas (HU-47 a
-HU-55), usos de recursos (HU-67 a HU-75) y registro de clima (HU-76 a
-HU-83).
+"""Pruebas de las Semanas 7, 9, 10 y 11: actividades productivas (HU-47 a
+HU-55), usos de recursos (HU-67 a HU-75), registro de clima (HU-76 a
+HU-83) e incidencias (HU-85 a HU-92).
 
 Numeración del repositorio: 87-102 (Semana 7, 16 pruebas), 121-137
-(Semana 9, 17 pruebas) y 138-151 y 155 (Semana 10, API de clima; la
-Semana 10 añade además 152-154 con la consulta a la API meteorológica
-y cierra con 155 pruebas). El repositorio llegaba a 120 al cerrar la
-Semana 8 y a 137 al cerrar la Semana 9.
+(Semana 9, 17 pruebas), 138-151 y 155 (Semana 10, API de clima; la
+Semana 10 añade además 152-154 con la consulta a la API meteorológica y
+cierra con 155 pruebas) y 156-172 (Semana 11, incidencias, 17 pruebas).
+El repositorio llegaba a 120 al cerrar la Semana 8, a 137 al cerrar la
+Semana 9 y a 155 al cerrar la Semana 10; cierra la Semana 11 con 172.
 """
 import importlib
 import json
@@ -22,7 +23,15 @@ from django.db import DatabaseError, IntegrityError, connection, transaction
 from django.test import TestCase
 
 from campanias.models import Campania
-from catalogos.models import Cultivo, Recurso, TipoActividad, Unidad, Variedad
+from catalogos.models import (
+    Agente,
+    Cultivo,
+    Recurso,
+    TipoActividad,
+    TipoIncidencia,
+    Unidad,
+    Variedad,
+)
 from productores.models import (
     AsignacionTecnico,
     Comunidad,
@@ -34,7 +43,7 @@ from productores.models import (
 from usuarios.models import Rol, Usuario
 from usuarios.tests import _post_login
 
-from .models import Clima
+from .models import Clima, Incidencia
 from .servicio_meteorologico import CLAVES_SALIDA, ErrorServicioMeteorologico
 
 
@@ -1342,7 +1351,9 @@ class UsoRecursoApiTests(Semana9Base):
         self.assertEqual(fila_semilla["tipo_unidad"], "MASA")
 
     # ------------------------------------------------------------------ #
-    # 137: 18 triggers (los 3 de uso_recursos) y reversibilidad de 0004
+    # 137: 19 triggers (los 3 de uso_recursos) y reversibilidad de 0004.
+    #     La Semana 11 añade los 3 de incidencias: el total sube a 22 y
+    #     la reversión de 0004 sigue tocando solo su bloque (19 → 22).
     # ------------------------------------------------------------------ #
     def test_137_triggers_y_reversibilidad_de_las_migraciones(self):
         triggers = {
@@ -1353,7 +1364,7 @@ class UsoRecursoApiTests(Semana9Base):
                 "WHERE relnamespace = 'public'::regnamespace)"
             )
         }
-        self.assertEqual(len(triggers), 19)
+        self.assertEqual(len(triggers), 22)
         self.assertLessEqual(
             {
                 "trg_uso_recursos_base",
@@ -2389,3 +2400,1061 @@ class ClimaConsultaApiTests(Semana10Base):
                 self.assertEqual(self._consulta_api().status_code, 200)
             rechazada = self._json(self._consulta_api())
         self.assertTrue(rechazada["detail"].startswith("Demasiadas solicitudes"))
+
+
+# ---------------------------------------------------------------------- #
+# Semana 11 — incidencias (HU-85 a HU-92)
+# ---------------------------------------------------------------------- #
+class Semana11Base(Semana7Base):
+    """Datos comunes de la Semana 11: la base de la Semana 7 más los tipos
+    de incidencia del catálogo sembrado (0002_datos_iniciales), dos
+    agentes (llegan por cargar_catalogos, no por migración), la unidad de
+    masa para cerrar campañas y los helpers de incidencias: alta por API,
+    fila directa por la base, inserción cruda con SQL y el bloque inc_c
+    de vw_dataset_entrenamiento con el TEXTO LITERAL del diseño."""
+
+    def setUp(self):
+        super().setUp()
+        self.helada = TipoIncidencia.objects.get(nombre="Helada")
+        self.sequia = TipoIncidencia.objects.get(nombre="Sequía")
+        self.plaga = TipoIncidencia.objects.get(nombre="Plaga")
+        self.enfermedad = TipoIncidencia.objects.get(nombre="Enfermedad")
+        self.otros = TipoIncidencia.objects.get(nombre="Otros")
+        self.pulgon = Agente.objects.create(nombre="Pulgón S11", tipo="PLAGA")
+        self.tizon = Agente.objects.create(nombre="Tizón S11", tipo="ENFERMEDAD")
+        self.kg = Unidad.objects.get(nombre="Kilogramo")
+
+    # ------------------------------------------------------------------ #
+    # helpers
+    # ------------------------------------------------------------------ #
+    def _datos_incidencia(self, **extra):
+        datos = {
+            "campania": self.campania.pk,
+            "tipo_incidencia": self.helada.pk,
+            "fecha": "2025-10-05",
+            "severidad": "MEDIA",
+            "descripcion": "Helada tardía en la parcela alta",
+        }
+        datos.update(extra)
+        return datos
+
+    def _crear_incidencia(self, **extra):
+        return self._api("post", "/api/incidencias/", self._datos_incidencia(**extra))
+
+    def _incidencia_bd(self, **extra):
+        datos = {
+            "campania": self.campania,
+            "tipo_incidencia": self.helada,
+            "fecha": date(2025, 10, 6),
+            "severidad": "ALTA",
+            "descripcion": "Helada fuerte registrada en campo",
+        }
+        datos.update(extra)
+        return Incidencia.objects.create(**datos)
+
+    def _sql_insert_incidencia(
+        self,
+        campania_id,
+        tipo_id,
+        fecha,
+        severidad="MEDIA",
+        descripcion="Registro crudo por SQL",
+        superficie=None,
+        agente_id=None,
+    ):
+        """INSERT directo en incidencias (sin pasar por la API): los
+        triggers de la base son los que deben rechazarlo."""
+        columnas = [
+            "campania_id",
+            "tipo_incidencia_id",
+            "fecha",
+            "severidad",
+            "descripcion",
+        ]
+        valores = [
+            str(campania_id),
+            str(tipo_id),
+            f"'{fecha}'",
+            f"'{severidad}'",
+            f"'{descripcion}'",
+        ]
+        if superficie is not None:
+            columnas.append("superficie_afectada_ha")
+            valores.append(str(superficie))
+        if agente_id is not None:
+            columnas.append("agente_id")
+            valores.append(str(agente_id))
+        self._sql(
+            f"INSERT INTO incidencias ({', '.join(columnas)}) "
+            f"VALUES ({', '.join(valores)})"
+        )
+
+    def _campania_ajena(self):
+        """Campaña del segundo productor (fuera del ámbito del Técnico)."""
+        return self._campania_bd(self.parcela_b, self.cultivo_b, self.variedad_b)
+
+    def _cerrar_campania(self):
+        """Pasa la campaña base a CERRADA con producción registrada
+        (mismo recorrido que la prueba 149)."""
+        self.campania.estado = Campania.ESTADO_EN_PRODUCCION
+        self.campania.fecha_siembra = date(2025, 9, 5)
+        self.campania.save(update_fields=("estado", "fecha_siembra"))
+        produccion = self._json(
+            self._api(
+                "post",
+                "/api/producciones/",
+                {
+                    "campania": self.campania.pk,
+                    "fecha_cosecha": "2026-04-15",
+                    "superficie_cosechada_ha": "1.50",
+                    "cantidad_producida": "7000",
+                    "unidad": self.kg.pk,
+                },
+            )
+        )
+        self.assertTrue(produccion["incluir_en_entrenamiento"])
+        self.assertEqual(
+            self._api("post", f"/api/campanias/{self.campania.pk}/cerrar/").status_code,
+            200,
+        )
+
+    def _consulta(self, consulta, parametros=None):
+        with connection.cursor() as cursor:
+            if parametros:
+                cursor.execute(consulta, parametros)
+            else:
+                cursor.execute(consulta)
+            return cursor.fetchall()
+
+    def _sql(self, consulta):
+        with connection.cursor() as cursor:
+            cursor.execute(consulta)
+
+    def _consulta_cte_incidencias(self, campania_id):
+        """Ejecuta el bloque inc_c de vw_dataset_entrenamiento con el
+        TEXTO LITERAL del diseño (DB_sql/02_reglas_y_vista.sql:399-406):
+        solo cuentan las incidencias activas y la severidad máxima es el
+        orden ALTA=3 > MEDIA=2 > BAJA=1 — los mismos números que
+        resumen_incidencias de la ficha de campaña."""
+        ruta = (
+            Path(__file__).resolve().parents[2]
+            / "DB_sql"
+            / "02_reglas_y_vista.sql"
+        )
+        texto = ruta.read_text(encoding="utf-8", errors="replace")
+        inicio = texto.index("inc_c AS (")
+        fin = texto.index("act_c AS (", inicio)
+        bloque = texto[inicio:fin].strip().rstrip(",").strip()
+        return self._consulta(
+            f"WITH {bloque}\n"
+            "SELECT n_incidencias, severidad_max FROM inc_c "
+            "WHERE campania_id = %s",
+            [campania_id],
+        )
+
+
+class IncidenciaApiTests(Semana11Base):
+    """Pruebas 156-172 (Semana 11: incidencias)."""
+
+    # ------------------------------------------------------------------ #
+    # 156: alta válida, campos protegidos que el cliente intenta forzar
+    #     y trazabilidad (registrado por, campaña anidada, mini de tipo)
+    # ------------------------------------------------------------------ #
+    def test_156_alta_valida_campos_protegidos_y_trazabilidad(self):
+        self._entrar_admin()
+        respuesta = self._crear_incidencia(
+            superficie_afectada_ha="0.75",
+            producto_aplicado="Aceite de neem 5%",
+            # Campos que el cliente NO puede forzar: se ignoran
+            anulada=True,
+            motivo_anulacion="intentado por el cliente",
+            registrado_por=999,
+        )
+        self.assertEqual(respuesta.status_code, 201)
+        fila = self._json(respuesta)
+        self.assertFalse(fila["anulada"])
+        self.assertIsNone(fila["motivo_anulacion"])
+        self.assertEqual(fila["registrado_por"], "admin_pruebas")
+        self.assertEqual(fila["fecha"], "2025-10-05")
+        self.assertEqual(fila["severidad"], "MEDIA")
+        self.assertEqual(fila["tipo_incidencia"]["nombre"], "Helada")
+        self.assertEqual(fila["tipo_incidencia"]["categoria"], "CLIMATICA")
+        self.assertIsNone(fila["agente"])
+        self.assertEqual(fila["superficie_afectada_ha"], "0.75")
+        self.assertEqual(fila["producto_aplicado"], "Aceite de neem 5%")
+        self.assertEqual(fila["campania"]["cultivo"]["nombre"], "Quinua S7")
+        self.assertEqual(
+            fila["campania"]["parcela"]["productor"]["nombre_completo"], "Alfa, Uno"
+        )
+        self.assertTrue(fila["actualizado_en"])
+
+        # El listado trae lo mínimo: fecha, tipo, severidad, agente,
+        # superficie, campaña y estado
+        listado = self._json(self.client.get("/api/incidencias/"))
+        self.assertEqual(listado["count"], 1)
+        fila_lista = listado["results"][0]
+        self.assertEqual(fila_lista["severidad"], "MEDIA")
+        self.assertEqual(fila_lista["tipo_incidencia"]["categoria"], "CLIMATICA")
+        self.assertFalse(fila_lista["anulada"])
+        # ...y en la base sigue sin estar anulada
+        guardada = Incidencia.objects.get(pk=fila["id"])
+        self.assertFalse(guardada.anulada)
+        self.assertIsNone(guardada.motivo_anulacion)
+        self.assertEqual(guardada.registrado_por, self.admin)
+
+    # ------------------------------------------------------------------ #
+    # 157: fechas — futura (pregunta H), fuera del período y campaña
+    #     cerrada, tanto en la API como con SQL directo
+    # ------------------------------------------------------------------ #
+    def test_157_fechas_futuras_fuera_de_periodo_y_campania_cerrada(self):
+        self._entrar_admin()
+        futura = self._crear_incidencia(
+            fecha=(self._hoy_lima() + timedelta(days=5)).isoformat()
+        )
+        self.assertEqual(futura.status_code, 400)
+        self.assertIn(
+            "La fecha no puede ser futura.", str(self._json(futura)["fecha"])
+        )
+        temprana = self._crear_incidencia(fecha="2025-08-15")
+        self.assertEqual(temprana.status_code, 400)
+        self.assertIn("fuera del período", str(self._json(temprana)["fecha"]))
+
+        # La base también lo defiende: INSERT fuera del período
+        with self.assertRaises(DatabaseError) as falla:
+            with transaction.atomic():
+                self._sql_insert_incidencia(
+                    self.campania.pk, self.helada.pk, date(2025, 8, 20)
+                )
+        self.assertIn("fuera del período", str(falla.exception))
+
+        # ...y UPDATE de la fecha
+        inc = self._incidencia_bd()
+        with self.assertRaises(DatabaseError) as falla:
+            with transaction.atomic():
+                self._sql(
+                    f"UPDATE incidencias SET fecha = '2026-06-15' WHERE id = {inc.pk}"
+                )
+        self.assertIn("fuera del período", str(falla.exception))
+        inc.refresh_from_db()
+        self.assertEqual(inc.fecha, date(2025, 10, 6))
+
+        # Cerrada la campaña: 400 en la API y excepción en la base
+        self._cerrar_campania()
+        cerrada = self._crear_incidencia()
+        self.assertEqual(cerrada.status_code, 400)
+        self.assertIn(
+            "La campaña está CERRADA", str(self._json(cerrada)["campania"])
+        )
+        with self.assertRaises(DatabaseError) as falla:
+            with transaction.atomic():
+                self._sql_insert_incidencia(
+                    self.campania.pk, self.helada.pk, date(2025, 10, 7)
+                )
+        self.assertIn("La campaña está CERRADA", str(falla.exception))
+
+    # ------------------------------------------------------------------ #
+    # 158: severidad de las tres, descripción obligatoria y tipo
+    #     inactivo (API y base)
+    # ------------------------------------------------------------------ #
+    def test_158_severidad_descripcion_y_tipo_inactivo(self):
+        self._entrar_admin()
+        severidad_mala = self._crear_incidencia(severidad="CRITICA")
+        self.assertEqual(severidad_mala.status_code, 400)
+        self.assertIn(
+            "La severidad solo puede ser BAJA, MEDIA o ALTA.",
+            str(self._json(severidad_mala)["severidad"]),
+        )
+        sin_severidad = self._datos_incidencia()
+        del sin_severidad["severidad"]
+        respuesta = self._json(
+            self._api("post", "/api/incidencias/", sin_severidad)
+        )
+        self.assertIn("La severidad es obligatoria.", str(respuesta["severidad"]))
+
+        en_blanco = self._crear_incidencia(descripcion="")
+        self.assertEqual(en_blanco.status_code, 400)
+        self.assertIn(
+            "La descripción es obligatoria.", str(self._json(en_blanco)["descripcion"])
+        )
+        sin_descripcion = self._datos_incidencia()
+        del sin_descripcion["descripcion"]
+        respuesta = self._json(
+            self._api("post", "/api/incidencias/", sin_descripcion)
+        )
+        self.assertIn("La descripción es obligatoria.", str(respuesta["descripcion"]))
+
+        # Tipo inactivo: mismo mensaje que inexistente
+        self.otros.activo = False
+        self.otros.save(update_fields=("activo",))
+        inactivo = self._crear_incidencia(tipo_incidencia=self.otros.pk)
+        self.assertEqual(inactivo.status_code, 400)
+        self.assertIn(
+            "El tipo de incidencia indicado no existe o está inactivo.",
+            str(self._json(inactivo)["tipo_incidencia"]),
+        )
+
+        # La base también: severidad fuera de las tres (CHECK)
+        with self.assertRaises(DatabaseError) as falla:
+            with transaction.atomic():
+                self._sql_insert_incidencia(
+                    self.campania.pk, self.helada.pk, date(2025, 10, 8),
+                    severidad="CRITICA",
+                )
+        self.assertIn("ck_incidencia_severidad", str(falla.exception))
+
+    # ------------------------------------------------------------------ #
+    # 159: superficie afectada — ≥ 0, ≤ sembrada y NULL opcional
+    #     (mensaje en español con los dos valores; la base lo repite)
+    # ------------------------------------------------------------------ #
+    def test_159_superficie_afectada_en_la_api_y_en_la_base(self):
+        self._entrar_admin()
+        demasiada = self._crear_incidencia(superficie_afectada_ha="2.50")
+        self.assertEqual(demasiada.status_code, 400)
+        self.assertIn(
+            "La superficie afectada (2.50 ha) supera la sembrada (1.50 ha).",
+            str(self._json(demasiada)["superficie_afectada_ha"]),
+        )
+        negativa = self._crear_incidencia(superficie_afectada_ha="-0.10")
+        self.assertEqual(negativa.status_code, 400)
+        self.assertIn(
+            "no puede ser negativa",
+            str(self._json(negativa)["superficie_afectada_ha"]),
+        )
+        sin_superficie = self._crear_incidencia()
+        self.assertEqual(sin_superficie.status_code, 201)
+        self.assertIsNone(self._json(sin_superficie)["superficie_afectada_ha"])
+
+        # La base lo defiende también (fn_validar_incidencia + CHECK)
+        with self.assertRaises(DatabaseError) as falla:
+            with transaction.atomic():
+                self._sql_insert_incidencia(
+                    self.campania.pk, self.helada.pk, date(2025, 10, 9),
+                    superficie="3.00",
+                )
+        self.assertIn("supera la sembrada", str(falla.exception))
+        with self.assertRaises(DatabaseError) as falla:
+            with transaction.atomic():
+                self._sql_insert_incidencia(
+                    self.campania.pk, self.helada.pk, date(2025, 10, 9),
+                    superficie="-1",
+                )
+        self.assertIn("ck_incidencia_superficie", str(falla.exception))
+
+    # ------------------------------------------------------------------ #
+    # 160: agente activo y solo en tipos biológicos (por categoría, no
+    #     por nombre), producto ≤ 100 (API y base)
+    # ------------------------------------------------------------------ #
+    def test_160_agente_por_categoria_y_producto_aplicado(self):
+        self._entrar_admin()
+        en_clima = self._crear_incidencia(agente=self.pulgon.pk)
+        self.assertEqual(en_clima.status_code, 400)
+        self.assertIn(
+            "El agente solo puede indicarse en incidencias de tipo biológico "
+            "(plaga o enfermedad).",
+            str(self._json(en_clima)["agente"]),
+        )
+        biologica = self._crear_incidencia(
+            tipo_incidencia=self.plaga.pk, agente=self.pulgon.pk
+        )
+        self.assertEqual(biologica.status_code, 201)
+        fila = self._json(biologica)
+        self.assertEqual(fila["agente"]["nombre"], "Pulgón S11")
+        self.assertEqual(fila["agente"]["tipo"], "PLAGA")
+
+        # La base también lo defiende (fn_validar_incidencia)
+        with self.assertRaises(DatabaseError) as falla:
+            with transaction.atomic():
+                self._sql_insert_incidencia(
+                    self.campania.pk, self.helada.pk, date(2025, 10, 11),
+                    agente_id=self.pulgon.pk,
+                )
+        self.assertIn(
+            "Solo las incidencias de tipo biológico", str(falla.exception)
+        )
+
+        # Agente inactivo: mismo mensaje que inexistente
+        self.tizon.activo = False
+        self.tizon.save(update_fields=("activo",))
+        inactivo = self._crear_incidencia(
+            tipo_incidencia=self.enfermedad.pk, agente=self.tizon.pk
+        )
+        self.assertEqual(inactivo.status_code, 400)
+        self.assertIn(
+            "El agente indicado no existe o está inactivo.",
+            str(self._json(inactivo)["agente"]),
+        )
+        inexistente = self._crear_incidencia(agente=99999)
+        self.assertEqual(inexistente.status_code, 400)
+        self.assertIn(
+            "El agente indicado no existe.",
+            str(self._json(inexistente)["agente"]),
+        )
+
+        largo = self._crear_incidencia(producto_aplicado="x" * 101)
+        self.assertEqual(largo.status_code, 400)
+        self.assertIn("100", str(self._json(largo)["producto_aplicado"]))
+
+    # ------------------------------------------------------------------ #
+    # 161: edición de campos editables, campaña inmutable y campos
+    #     protegidos ignorados también en PUT
+    # ------------------------------------------------------------------ #
+    def test_161_edicion_campania_inmutable_y_protegidos(self):
+        self._entrar_admin()
+        inc = self._json(self._crear_incidencia(superficie_afectada_ha="0.50"))
+        editada = self._json(
+            self._api(
+                "patch",
+                f"/api/incidencias/{inc['id']}/",
+                {
+                    "severidad": "ALTA",
+                    "descripcion": "Editada por el administrador",
+                    "superficie_afectada_ha": "1.00",
+                    "fecha": "2025-10-20",
+                },
+            )
+        )
+        self.assertEqual(editada["severidad"], "ALTA")
+        self.assertEqual(editada["fecha"], "2025-10-20")
+        self.assertEqual(editada["superficie_afectada_ha"], "1.00")
+
+        ajena = self._campania_ajena()
+        cambio = self._api(
+            "patch", f"/api/incidencias/{inc['id']}/", {"campania": ajena.pk}
+        )
+        self.assertEqual(cambio.status_code, 400)
+        self.assertIn(
+            "no se puede cambiar", str(self._json(cambio)["campania"])
+        )
+        self.assertEqual(
+            Incidencia.objects.get(pk=inc["id"]).campania_id, self.campania.pk
+        )
+
+        # PUT completo con campos protegidos: se ignoran
+        put = self._json(
+            self._api(
+                "put",
+                f"/api/incidencias/{inc['id']}/",
+                self._datos_incidencia(
+                    severidad="BAJA",
+                    descripcion="Intento de forzar la anulación en la edición",
+                    anulada=True,
+                    motivo_anulacion="del cliente",
+                ),
+            )
+        )
+        self.assertFalse(put["anulada"])
+        self.assertIsNone(put["motivo_anulacion"])
+        self.assertEqual(put["severidad"], "BAJA")
+
+    # ------------------------------------------------------------------ #
+    # 162: anular exige motivo e incidencias.desactivar; ya anulada →
+    #     400; reactivar exige campaña abierta y fecha aún válida
+    # ------------------------------------------------------------------ #
+    def test_162_anular_y_reactivar(self):
+        self._entrar_admin()
+        inc = self._json(self._crear_incidencia())
+        sin_motivo = self._json(
+            self._api("post", f"/api/incidencias/{inc['id']}/anular/", {})
+        )
+        self.assertIn(
+            "El motivo de anulación es obligatorio.", str(sin_motivo["motivo"])
+        )
+        anulada = self._json(
+            self._api(
+                "post",
+                f"/api/incidencias/{inc['id']}/anular/",
+                {"motivo": "Se atendió el parte técnico"},
+            )
+        )
+        self.assertTrue(anulada["anulada"])
+        self.assertEqual(anulada["motivo_anulacion"], "Se atendió el parte técnico")
+        otra_vez = self._json(
+            self._api(
+                "post",
+                f"/api/incidencias/{inc['id']}/anular/",
+                {"motivo": "de nuevo"},
+            )
+        )
+        self.assertIn("ya está anulada", str(otra_vez["estado"]))
+
+        reactivada = self._json(
+            self._api("post", f"/api/incidencias/{inc['id']}/reactivar/")
+        )
+        self.assertFalse(reactivada["anulada"])
+        self.assertIsNone(reactivada["motivo_anulacion"])
+        sin_anular = self._json(
+            self._api("post", f"/api/incidencias/{inc['id']}/reactivar/")
+        )
+        self.assertIn("no está anulada", str(sin_anular["estado"]))
+
+        # El Técnico no tiene incidencias.desactivar
+        self._entrar_tecnico()
+        prohibido = self._api(
+            "post", f"/api/incidencias/{inc['id']}/anular/", {"motivo": "x"}
+        )
+        self.assertEqual(prohibido.status_code, 403)
+
+        # Cerrada la campaña: ni anular ni reactivar
+        self._entrar_admin()
+        anulada2 = self._json(
+            self._api(
+                "post",
+                f"/api/incidencias/{inc['id']}/anular/",
+                {"motivo": "antes de cerrar"},
+            )
+        )
+        self.assertTrue(anulada2["anulada"])
+        self._cerrar_campania()
+        cerrada = self._api(
+            "post", f"/api/incidencias/{inc['id']}/reactivar/"
+        )
+        self.assertEqual(cerrada.status_code, 400)
+        self.assertIn("La campaña está CERRADA", str(self._json(cerrada)["estado"]))
+
+        # Reactivar con la fecha ya fuera del período (se acorta el fin)
+        corta = self._campania_bd(
+            self.parcela_b,
+            self.cultivo_b,
+            self.variedad_b,
+            periodo="2024-2025",
+            fecha_inicio=date(2025, 10, 1),
+            fecha_fin_prevista=date(2025, 10, 15),
+        )
+        otra = self._json(
+            self._crear_incidencia(campania=corta.pk, fecha="2025-10-10")
+        )
+        self._json(
+            self._api(
+                "post",
+                f"/api/incidencias/{otra['id']}/anular/",
+                {"motivo": "acortar el período"},
+            )
+        )
+        corta.fecha_fin_prevista = date(2025, 10, 5)
+        corta.save(update_fields=("fecha_fin_prevista",))
+        fuera = self._api("post", f"/api/incidencias/{otra['id']}/reactivar/")
+        self.assertEqual(fuera.status_code, 400)
+        self.assertIn("fuera del período", str(self._json(fuera)["fecha"]))
+
+    # ------------------------------------------------------------------ #
+    # 163: sin DELETE — 405 con sesión y 401 sin ella; la fila sigue
+    # ------------------------------------------------------------------ #
+    def test_163_sin_delete(self):
+        self._entrar_admin()
+        inc = self._json(self._crear_incidencia())
+        borrada = self._api("delete", f"/api/incidencias/{inc['id']}/")
+        self.assertEqual(borrada.status_code, 405)
+        self.assertEqual(Incidencia.objects.filter(pk=inc["id"]).count(), 1)
+        self.client.cookies.clear()
+        sin_sesion = self._api("delete", f"/api/incidencias/{inc['id']}/")
+        self.assertEqual(sin_sesion.status_code, 401)
+        self.assertEqual(Incidencia.objects.count(), 1)
+
+    # ------------------------------------------------------------------ #
+    # 164: permisos — 401 sin sesión, 403 al Coordinador (solo tiene
+    #     incidencias.ver) y ámbito del Técnico en creación y lectura
+    # ------------------------------------------------------------------ #
+    def test_164_permisos_y_ambitos_por_rol(self):
+        self._entrar_admin()
+        propia = self._json(self._crear_incidencia())
+        ajena_campania = self._campania_ajena()
+        ajena = self._json(
+            self._crear_incidencia(
+                campania=ajena_campania.pk,
+                fecha="2025-11-10",
+                tipo_incidencia=self.plaga.pk,
+                agente=self.pulgon.pk,
+                severidad="ALTA",
+                descripcion="Pulgón en la parcela de Beta",
+            )
+        )
+
+        self._entrar_tecnico()
+        listado = self._json(self.client.get("/api/incidencias/"))
+        self.assertEqual([f["id"] for f in listado["results"]], [propia["id"]])
+        detalle_ajeno = self.client.get(f"/api/incidencias/{ajena['id']}/")
+        self.assertEqual(detalle_ajeno.status_code, 404)
+        crear_ajena = self._json(self._crear_incidencia(campania=ajena_campania.pk))
+        self.assertIn(
+            "La campaña indicada no existe.", str(crear_ajena["campania"])
+        )
+        self.assertEqual(self._crear_incidencia().status_code, 201)
+        # registrado_por se oculta a los roles con limita_a_asignados
+        detalle = self._json(self.client.get(f"/api/incidencias/{propia['id']}/"))
+        self.assertNotIn("registrado_por", detalle)
+        editar = self._api(
+            "patch", f"/api/incidencias/{propia['id']}/", {"severidad": "ALTA"}
+        )
+        self.assertEqual(editar.status_code, 200)
+
+        self._entrar_coordinador()
+        self.assertEqual(self.client.get("/api/incidencias/").status_code, 200)
+        crear_coord = self._api("post", "/api/incidencias/", self._datos_incidencia())
+        self.assertEqual(crear_coord.status_code, 403)
+        editar_coord = self._api(
+            "patch", f"/api/incidencias/{propia['id']}/", {"severidad": "BAJA"}
+        )
+        self.assertEqual(editar_coord.status_code, 403)
+        anular_coord = self._api(
+            "post", f"/api/incidencias/{propia['id']}/anular/", {"motivo": "x"}
+        )
+        self.assertEqual(anular_coord.status_code, 403)
+
+        self.client.cookies.clear()
+        self.assertEqual(self.client.get("/api/incidencias/").status_code, 401)
+
+    # ------------------------------------------------------------------ #
+    # 165: el ámbito del Técnico — ajeno responde 404 (nunca 403) en
+    #     detalle y edición; anular/reactivar se niegan con 403 antes de
+    #     mirar el objeto (no tiene incidencias.desactivar) y los filtros
+    #     no abren la puerta
+    # ------------------------------------------------------------------ #
+    def test_165_ambito_del_tecnico_responde_404(self):
+        self._entrar_admin()
+        ajena_campania = self._campania_ajena()
+        ajena = self._json(
+            self._crear_incidencia(campania=ajena_campania.pk, fecha="2025-11-05")
+        )
+
+        self._entrar_tecnico()
+        self.assertEqual(
+            self._api(
+                "patch", f"/api/incidencias/{ajena['id']}/", {"severidad": "ALTA"}
+            ).status_code,
+            404,
+        )
+        # Anular y reactivar exigen incidencias.desactivar (solo
+        # Administrador): el permiso global niega antes del objeto
+        self.assertEqual(
+            self._api(
+                "post",
+                f"/api/incidencias/{ajena['id']}/anular/",
+                {"motivo": "x"},
+            ).status_code,
+            403,
+        )
+        self.assertEqual(
+            self._api("post", f"/api/incidencias/{ajena['id']}/reactivar/").status_code,
+            403,
+        )
+        # El filtro de campaña no amplía el ámbito
+        por_campania = self._json(
+            self.client.get(f"/api/incidencias/?campania={ajena_campania.pk}")
+        )
+        self.assertEqual(por_campania["count"], 0)
+        # ...y seguir registrando en las suyas
+        self.assertEqual(self._crear_incidencia().status_code, 201)
+
+    # ------------------------------------------------------------------ #
+    # 166: Administrador y Coordinador ven todas las incidencias y el
+    #     Coordinador sí ve registrado_por (solo se oculta al ámbito
+    #     limitado)
+    # ------------------------------------------------------------------ #
+    def test_166_admin_y_coordinador_ven_todas(self):
+        self._entrar_admin()
+        propia = self._json(self._crear_incidencia())
+        ajena = self._json(
+            self._crear_incidencia(
+                campania=self._campania_ajena().pk, fecha="2025-11-12"
+            )
+        )
+        listado = self._json(self.client.get("/api/incidencias/"))
+        self.assertEqual(listado["count"], 2)
+        self.assertEqual(
+            self._json(self.client.get(f"/api/incidencias/{ajena['id']}/"))["id"],
+            ajena["id"],
+        )
+
+        self._entrar_coordinador()
+        self.assertEqual(self._json(self.client.get("/api/incidencias/"))["count"], 2)
+        detalle = self._json(self.client.get(f"/api/incidencias/{propia['id']}/"))
+        self.assertEqual(detalle["registrado_por"], "admin_pruebas")
+
+    # ------------------------------------------------------------------ #
+    # 167: 11 filtros, búsqueda q, valores inválidos, orden por fecha y
+    #     paginación global de 20
+    # ------------------------------------------------------------------ #
+    def test_167_filtros_busqueda_orden_y_paginacion(self):
+        self._entrar_admin()
+        self._json(
+            self._crear_incidencia(
+                fecha="2025-10-01", severidad="BAJA",
+                descripcion="Helada temprana en la parcela",
+            )
+        )
+        self._json(
+            self._crear_incidencia(
+                fecha="2025-10-05", severidad="ALTA",
+                tipo_incidencia=self.plaga.pk, agente=self.pulgon.pk,
+                descripcion="Chupadores en hojas",
+            )
+        )
+        self._json(
+            self._crear_incidencia(
+                fecha="2025-10-10", severidad="MEDIA",
+                tipo_incidencia=self.otros.pk,
+                descripcion="Robo de cosecha almacenada",
+            )
+        )
+        self._json(
+            self._crear_incidencia(
+                campania=self._campania_ajena().pk,
+                fecha="2025-11-10",
+                descripcion="Helada en la parcela de Beta",
+            )
+        )
+        anulada = self._json(self._crear_incidencia(fecha="2025-10-15"))
+        self._json(
+            self._api(
+                "post",
+                f"/api/incidencias/{anulada['id']}/anular/",
+                {"motivo": "registrada por duplicado"},
+            )
+        )
+
+        por_campania = self._json(
+            self.client.get(f"/api/incidencias/?campania={self.campania.pk}")
+        )
+        self.assertEqual(por_campania["count"], 4)
+        por_tipo = self._json(
+            self.client.get(f"/api/incidencias/?tipo={self.helada.pk}")
+        )
+        self.assertEqual(por_tipo["count"], 3)
+        por_categoria = self._json(
+            self.client.get("/api/incidencias/?categoria=CLIMATICA")
+        )
+        self.assertEqual(por_categoria["count"], 3)
+        por_severidad = self._json(
+            self.client.get("/api/incidencias/?severidad=ALTA")
+        )
+        self.assertEqual(por_severidad["count"], 1)
+        por_agente = self._json(
+            self.client.get(f"/api/incidencias/?agente={self.pulgon.pk}")
+        )
+        self.assertEqual(por_agente["count"], 1)
+        por_fechas = self._json(
+            self.client.get(
+                "/api/incidencias/?fecha_desde=2025-10-05&fecha_hasta=2025-10-15"
+            )
+        )
+        self.assertEqual(por_fechas["count"], 3)
+        por_productor = self._json(
+            self.client.get(f"/api/incidencias/?productor={self.p1.pk}")
+        )
+        self.assertEqual(por_productor["count"], 4)
+        por_parcela = self._json(
+            self.client.get(f"/api/incidencias/?parcela={self.parcela.pk}")
+        )
+        self.assertEqual(por_parcela["count"], 4)
+        por_cultivo = self._json(
+            self.client.get(f"/api/incidencias/?cultivo={self.cultivo_b.pk}")
+        )
+        self.assertEqual(por_cultivo["count"], 1)
+        por_distrito = self._json(
+            self.client.get(f"/api/incidencias/?distrito={self.distrito.pk}")
+        )
+        self.assertEqual(por_distrito["count"], 5)
+        anuladas = self._json(self.client.get("/api/incidencias/?estado=ANULADA"))
+        self.assertEqual(anuladas["count"], 1)
+        activas = self._json(self.client.get("/api/incidencias/?estado=ACTIVA"))
+        self.assertEqual(activas["count"], 4)
+        # Valores inválidos → 400 con la clave del filtro
+        self.assertIn(
+            "categoria", self._json(self.client.get("/api/incidencias/?categoria=X"))
+        )
+        self.assertIn(
+            "severidad", self._json(self.client.get("/api/incidencias/?severidad=X"))
+        )
+        self.assertIn(
+            "tipo", self._json(self.client.get("/api/incidencias/?tipo=abc"))
+        )
+
+        # Búsqueda: código de parcela, apellidos, descripción y agente
+        por_codigo = self._json(
+            self.client.get(f"/api/incidencias/?busqueda={self.parcela.codigo}")
+        )
+        self.assertEqual(por_codigo["count"], 4)
+        por_apellido = self._json(
+            self.client.get("/api/incidencias/?busqueda=Beta")
+        )
+        self.assertEqual(por_apellido["count"], 1)
+        por_descripcion = self._json(
+            self.client.get("/api/incidencias/?busqueda=Robo")
+        )
+        self.assertEqual(por_descripcion["count"], 1)
+        por_agente_txt = self._json(
+            self.client.get("/api/incidencias/?busqueda=Pulgón")
+        )
+        self.assertEqual(por_agente_txt["count"], 1)
+
+        # Orden por fecha descendente (el Meta del modelo)
+        ordenado = self._json(self.client.get("/api/incidencias/"))
+        fechas = [f["fecha"] for f in ordenado["results"]]
+        self.assertEqual(fechas, sorted(fechas, reverse=True))
+
+        # Paginación global de 20 por página
+        Incidencia.objects.all().delete()
+        Incidencia.objects.bulk_create(
+            [
+                Incidencia(
+                    campania=self.campania,
+                    tipo_incidencia=self.helada,
+                    fecha=date(2025, 9, 1) + timedelta(days=i),
+                    severidad="MEDIA",
+                    descripcion=f"Incidencia {i}",
+                )
+                for i in range(21)
+            ]
+        )
+        pagina1 = self._json(self.client.get("/api/incidencias/"))
+        self.assertEqual(pagina1["count"], 21)
+        self.assertEqual(len(pagina1["results"]), 20)
+        self.assertEqual(pagina1["results"][0]["fecha"], "2025-09-21")
+        pagina2 = self._json(self.client.get("/api/incidencias/?page=2"))
+        self.assertEqual(len(pagina2["results"]), 1)
+        self.assertEqual(pagina2["results"][0]["fecha"], "2025-09-01")
+
+    # ------------------------------------------------------------------ #
+    # 168: resumen por campaña — total, por severidad, severidad máxima,
+    #     última fecha y mayor superficie; vacío ≠ error
+    # ------------------------------------------------------------------ #
+    def test_168_resumen_de_incidencias_de_la_campania(self):
+        self._entrar_admin()
+        vacia = self._json(
+            self._api("get", f"/api/campanias/{self.campania.pk}/")
+        )["resumen_incidencias"]
+        self.assertEqual(vacia["total"], 0)
+        self.assertEqual(
+            vacia["por_severidad"], {"baja": 0, "media": 0, "alta": 0}
+        )
+        self.assertIsNone(vacia["severidad_maxima"])
+        self.assertIsNone(vacia["ultima_fecha"])
+        self.assertIsNone(vacia["mayor_superficie_ha"])
+
+        self._json(
+            self._crear_incidencia(
+                fecha="2025-10-02", severidad="BAJA", superficie_afectada_ha="0.20"
+            )
+        )
+        self._json(
+            self._crear_incidencia(
+                fecha="2025-10-08", severidad="MEDIA", superficie_afectada_ha="0.50"
+            )
+        )
+        self._json(
+            self._crear_incidencia(
+                fecha="2025-11-02", severidad="ALTA", superficie_afectada_ha="1.20"
+            )
+        )
+        anulada = self._json(
+            self._crear_incidencia(
+                fecha="2025-11-20", severidad="ALTA", superficie_afectada_ha="1.40"
+            )
+        )
+        self._json(
+            self._api(
+                "post",
+                f"/api/incidencias/{anulada['id']}/anular/",
+                {"motivo": "era un duplicado"},
+            )
+        )
+
+        resumen = self._json(
+            self._api("get", f"/api/campanias/{self.campania.pk}/")
+        )["resumen_incidencias"]
+        self.assertEqual(resumen["total"], 3)
+        self.assertEqual(
+            resumen["por_severidad"], {"baja": 1, "media": 1, "alta": 1}
+        )
+        self.assertEqual(resumen["severidad_maxima"], "ALTA")
+        self.assertEqual(resumen["ultima_fecha"], "2025-11-02")
+        # La anulada (1.40 ha) no cuenta: la mayor es la de 1.20 ha
+        self.assertEqual(float(resumen["mayor_superficie_ha"]), 1.2)
+
+    # ------------------------------------------------------------------ #
+    # 169: historial por parcela agrupado por campaña; las anuladas se
+    #     ocultan y ?incluir_anuladas=1 las muestra
+    # ------------------------------------------------------------------ #
+    def test_169_historial_de_la_parcela_agrupado_por_campania(self):
+        self._entrar_admin()
+        self._json(
+            self._crear_incidencia(fecha="2025-10-03", severidad="BAJA")
+        )
+        self._json(
+            self._crear_incidencia(fecha="2025-11-11", severidad="ALTA")
+        )
+        anulada = self._json(self._crear_incidencia(fecha="2025-11-15"))
+        self._json(
+            self._api(
+                "post",
+                f"/api/incidencias/{anulada['id']}/anular/",
+                {"motivo": "se corrigió el registro"},
+            )
+        )
+
+        parcela = self._json(self._api("get", f"/api/parcelas/{self.parcela.pk}/"))
+        historial = parcela["incidencias"]
+        self.assertEqual(len(historial), 1)
+        grupo = historial[0]
+        self.assertEqual(grupo["campania"]["id"], self.campania.pk)
+        self.assertEqual(grupo["campania"]["periodo"], "2025-2026")
+        self.assertEqual(grupo["campania"]["cultivo"]["nombre"], "Quinua S7")
+        self.assertEqual(len(grupo["incidencias"]), 2)
+        fechas = [i["fecha"] for i in grupo["incidencias"]]
+        self.assertEqual(fechas, sorted(fechas, reverse=True))
+        self.assertTrue(all(not i["anulada"] for i in grupo["incidencias"]))
+
+        con_anuladas = self._json(
+            self._api("get", f"/api/parcelas/{self.parcela.pk}/?incluir_anuladas=1")
+        )
+        self.assertEqual(len(con_anuladas["incidencias"][0]["incidencias"]), 3)
+
+    # ------------------------------------------------------------------ #
+    # 170: el bloque inc_c de vw_dataset_entrenamiento (texto literal)
+    #     da los mismos números que resumen_incidencias
+    # ------------------------------------------------------------------ #
+    def test_170_vista_del_dataset_igual_que_el_resumen(self):
+        self._entrar_admin()
+        self._json(
+            self._crear_incidencia(fecha="2025-10-02", severidad="BAJA")
+        )
+        self._json(
+            self._crear_incidencia(fecha="2025-11-02", severidad="ALTA")
+        )
+        anulada = self._json(
+            self._crear_incidencia(fecha="2025-11-20", severidad="ALTA")
+        )
+        self._json(
+            self._api(
+                "post",
+                f"/api/incidencias/{anulada['id']}/anular/",
+                {"motivo": "no entra al dataset"},
+            )
+        )
+
+        resumen = self._json(
+            self._api("get", f"/api/campanias/{self.campania.pk}/")
+        )["resumen_incidencias"]
+        vista = self._consulta_cte_incidencias(self.campania.pk)
+        self.assertEqual(len(vista), 1)
+        n_vista, severidad_vista = vista[0]
+        self.assertEqual(resumen["total"], n_vista)
+        orden = {"BAJA": 1, "MEDIA": 2, "ALTA": 3}
+        self.assertEqual(orden[resumen["severidad_maxima"]], severidad_vista)
+        # ...y los valores esperados a mano: la anulada no cuenta
+        self.assertEqual(n_vista, 2)
+        self.assertEqual(severidad_vista, 3)
+        self.assertEqual(Incidencia.objects.count(), 3)
+
+    # ------------------------------------------------------------------ #
+    # 171: privacidad — registrado_por solo lo ven los roles sin
+    #     limita_a_asignados (detalle de propio y ajeno)
+    # ------------------------------------------------------------------ #
+    def test_171_registrado_por_oculto_al_ambito_limitado(self):
+        self._entrar_admin()
+        creada = self._json(self._crear_incidencia())
+        admin_detalle = self._json(
+            self.client.get(f"/api/incidencias/{creada['id']}/")
+        )
+        self.assertEqual(admin_detalle["registrado_por"], "admin_pruebas")
+
+        self._entrar_tecnico()
+        propia = self._json(self._crear_incidencia(fecha="2025-10-04"))
+        tecnico_detalle = self._json(
+            self.client.get(f"/api/incidencias/{propia['id']}/")
+        )
+        self.assertNotIn("registrado_por", tecnico_detalle)
+        ajeno = self._json(
+            self.client.get(f"/api/incidencias/{creada['id']}/")
+        )
+        self.assertNotIn("registrado_por", ajeno)
+
+        self._entrar_coordinador()
+        coord_detalle = self._json(
+            self.client.get(f"/api/incidencias/{creada['id']}/")
+        )
+        self.assertEqual(coord_detalle["registrado_por"], "admin_pruebas")
+
+    # ------------------------------------------------------------------ #
+    # 172: 22 triggers (los 3 de incidencias), fn_validar_incidencia,
+    #     reversibilidad de 0008 sin tocar las funciones compartidas y
+    #     el CHECK de anulación con SQL directo
+    # ------------------------------------------------------------------ #
+    def test_172_triggers_reversibilidad_y_sql_directo(self):
+        triggers = {
+            fila[0]
+            for fila in self._consulta(
+                "SELECT tgname FROM pg_trigger "
+                "WHERE NOT tgisinternal AND tgrelid IN (SELECT oid FROM pg_class "
+                "WHERE relnamespace = 'public'::regnamespace)"
+            )
+        }
+        self.assertEqual(len(triggers), 22)
+        self.assertLessEqual(
+            {
+                "trg_incidencias_superficie",
+                "trg_incidencias_fecha",
+                "trg_incidencias_actualizado",
+            },
+            triggers,
+        )
+        fuentes = {
+            fila[0]: fila[1]
+            for fila in self._consulta(
+                "SELECT proname, prosrc FROM pg_proc "
+                "WHERE proname IN ('fn_validar_incidencia',"
+                " 'fn_validar_fecha_campania', 'fn_set_actualizado_en')"
+            )
+        }
+        self.assertIn("supera la sembrada", fuentes["fn_validar_incidencia"])
+        self.assertIn("BIOLOGICA", fuentes["fn_validar_incidencia"])
+        self.assertIn("'CERRADA'", fuentes["fn_validar_fecha_campania"])
+        self.assertIn("actualizado_en", fuentes["fn_set_actualizado_en"])
+
+        # Reversibilidad real: la reversión de 0008 quita los 3 triggers
+        # y fn_validar_incidencia; las funciones compartidas NO se tocan
+        mig = importlib.import_module(
+            "seguimiento.migrations.0008_fn_trg_incidencias"
+        )
+        for consulta in mig.Migration.operations[0].reverse_sql:
+            self._sql(consulta)
+        restantes = self._consulta(
+            "SELECT count(*) FROM pg_trigger "
+            "WHERE NOT tgisinternal AND tgrelid = 'incidencias'::regclass"
+        )[0][0]
+        self.assertEqual(restantes, 0)
+        sin_fn = self._consulta(
+            "SELECT count(*) FROM pg_proc WHERE proname = 'fn_validar_incidencia'"
+        )[0][0]
+        self.assertEqual(sin_fn, 0)
+        compartidas = self._consulta(
+            "SELECT count(*) FROM pg_proc WHERE proname IN "
+            "('fn_validar_fecha_campania', 'fn_set_actualizado_en')"
+        )[0][0]
+        self.assertEqual(compartidas, 2)
+        for consulta in mig.Migration.operations[0].sql:
+            self._sql(consulta)
+        restaurados = {
+            fila[0]
+            for fila in self._consulta(
+                "SELECT tgname FROM pg_trigger "
+                "WHERE NOT tgisinternal AND tgrelid = 'incidencias'::regclass"
+            )
+        }
+        self.assertEqual(
+            restaurados,
+            {
+                "trg_incidencias_superficie",
+                "trg_incidencias_fecha",
+                "trg_incidencias_actualizado",
+            },
+        )
+
+        # La base también exige motivo al anular (CHECK de anulación)
+        inc = self._incidencia_bd()
+        with self.assertRaises(DatabaseError) as falla:
+            with transaction.atomic():
+                self._sql(f"UPDATE incidencias SET anulada = TRUE WHERE id = {inc.pk}")
+        self.assertIn("ck_incidencia_anulacion", str(falla.exception))
+        inc.refresh_from_db()
+        self.assertFalse(inc.anulada)
