@@ -20,7 +20,9 @@ from rest_framework.response import Response
 
 from campanias.models import Campania
 from usuarios.models import Usuario
-from usuarios.permisos import TienePermiso
+from usuarios.permisos import DebeCambiarClave, TienePermiso
+
+from auditoria.mixins import AuditoriaMixin
 
 from .models import AsignacionTecnico, Comunidad, Distrito, Parcela, Productor, Provincia
 from .serializers import (
@@ -79,7 +81,12 @@ class SoloSusProductores:
 
 class PermisosPorAccion:
     """Asigna permiso_requerido según la acción (PERMISOS) y exige con
-    la clase TienePermiso de la Semana 2."""
+    la clase TienePermiso de la Semana 2.
+
+    get_permissions() sustituye a la cadena por defecto, así que la
+    puerta del cambio obligatorio de contraseña (HU-112, Semana 13) se
+    antepone AQUÍ: con debe_cambiar_clave en TRUE, todo endpoint que
+    escribe o lee datos responde 403 hasta cambiarla."""
 
     permiso_requerido = None
     PERMISOS = {}
@@ -88,7 +95,7 @@ class PermisosPorAccion:
         self.permiso_requerido = self.PERMISOS.get(
             self.action, self.permiso_requerido
         )
-        return [TienePermiso()]
+        return [DebeCambiarClave(), TienePermiso()]
 
 
 class PermisosCatalogo(PermisosPorAccion):
@@ -144,12 +151,17 @@ class FiltrosUbicacion:
             raise ValidationError({"activo": "Debe ser true o false."})
         objeto = self.get_object()
         if objeto.activo != activo:
-            objeto.activo = activo
-            objeto.save(update_fields=("activo",))
+            with transaction.atomic():
+                objeto.activo = activo
+                objeto.save(update_fields=("activo",))
+                self._registrar_auditoria(
+                    "ACTIVAR" if activo else "DESACTIVAR", objeto
+                )
         return Response(self.get_serializer(objeto).data)
 
 
 class _VistaUbicacion(
+    AuditoriaMixin,
     FiltrosUbicacion,
     PermisosCatalogo,
     mixins.ListModelMixin,
@@ -160,6 +172,7 @@ class _VistaUbicacion(
 ):
     """Sin DestroyModelMixin: DELETE responde 405 (decisión 6)."""
 
+    auditoria_modulo = "ubicacion"
     escritura_serializer = None
 
     def get_serializer_class(self):
@@ -226,6 +239,7 @@ class ComunidadViewSet(_VistaUbicacion):
 
 
 class ProductorViewSet(
+    AuditoriaMixin,
     PermisosProductor,
     SoloSusProductores,
     mixins.ListModelMixin,
@@ -237,6 +251,7 @@ class ProductorViewSet(
     """Alta/edición sin DELETE (405). El código lo genera la base de datos
     y creado_por lo pone el servidor; ambos se releen tras guardar."""
 
+    auditoria_modulo = "productores"
     queryset = Productor.objects.select_related(
         "comunidad",
         "comunidad__distrito",
@@ -308,6 +323,7 @@ class ProductorViewSet(
                 AsignacionTecnico.objects.create(
                     tecnico=self.request.user, productor=productor
                 )
+            self._registrar_auditoria("CREAR", productor)
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -354,8 +370,12 @@ class ProductorViewSet(
                     }
                 )
         if productor.estado != valor:
-            productor.estado = valor
-            productor.save(update_fields=("estado",))
+            with transaction.atomic():
+                productor.estado = valor
+                productor.save(update_fields=("estado",))
+                self._registrar_auditoria(
+                    "ACTIVAR" if valor == "ACTIVO" else "DESACTIVAR", productor
+                )
             productor.refresh_from_db()
         return Response(self._detalle(productor).data)
 
@@ -378,6 +398,7 @@ class PermisosParcela(PermisosPorAccion):
 
 
 class ParcelaViewSet(
+    AuditoriaMixin,
     PermisosParcela,
     SoloSusProductores,
     mixins.ListModelMixin,
@@ -390,6 +411,7 @@ class ParcelaViewSet(
     datos y creado_por lo pone el servidor; ambos se releen tras guardar.
     El productor de una parcela existente no se puede cambiar (decisión 1)."""
 
+    auditoria_modulo = "parcelas"
     queryset = Parcela.objects.select_related(
         "productor",
         "comunidad",
@@ -461,7 +483,9 @@ class ParcelaViewSet(
         return queryset
 
     def perform_create(self, serializer):
-        serializer.save(creado_por=self.request.user)
+        with transaction.atomic():
+            parcela = serializer.save(creado_por=self.request.user)
+            self._registrar_auditoria("CREAR", parcela)
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -506,8 +530,12 @@ class ParcelaViewSet(
                     }
                 )
         if parcela.estado != valor:
-            parcela.estado = valor
-            parcela.save(update_fields=("estado",))
+            with transaction.atomic():
+                parcela.estado = valor
+                parcela.save(update_fields=("estado",))
+                self._registrar_auditoria(
+                    "ACTIVAR" if valor == "ACTIVA" else "DESACTIVAR", parcela
+                )
             parcela.refresh_from_db()
         return Response(self._detalle(parcela).data)
 
@@ -525,6 +553,7 @@ class PermisosAsignacion(PermisosPorAccion):
 
 
 class AsignacionViewSet(
+    AuditoriaMixin,
     PermisosAsignacion,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
@@ -538,6 +567,7 @@ class AsignacionViewSet(
     Filtros: ?tecnico=ID y ?productor=ID.
     """
 
+    auditoria_modulo = "asignaciones"
     queryset = AsignacionTecnico.objects.select_related("tecnico", "productor")
     serializer_class = AsignacionSerializer
 
@@ -562,7 +592,9 @@ class AsignacionViewSet(
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        asignacion = serializer.save()
+        with transaction.atomic():
+            asignacion = serializer.save()
+            self._registrar_auditoria("ASIGNAR", asignacion)
         # Responde con el serializador de lectura (con id y anidados)
         return Response(
             AsignacionSerializer(
@@ -579,8 +611,12 @@ class AsignacionViewSet(
             raise ValidationError({"activo": "Debe ser true o false."})
         asignacion = self.get_object()
         if asignacion.activo != activo:
-            asignacion.activo = activo
-            asignacion.save(update_fields=("activo",))
+            with transaction.atomic():
+                asignacion.activo = activo
+                asignacion.save(update_fields=("activo",))
+                self._registrar_auditoria(
+                    "ASIGNAR" if activo else "DESASIGNAR", asignacion
+                )
         return Response(
             AsignacionSerializer(
                 asignacion, context=self.get_serializer_context()

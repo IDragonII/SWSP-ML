@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     'seguimiento',
     'produccion',
     'sistema',
+    'auditoria',
 ]
 
 # Modelo de usuario propio: DEBE declararse antes del primer migrate.
@@ -85,6 +86,9 @@ REST_FRAMEWORK = {
         'usuarios.autenticacion.AutenticacionJWT',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
+        # Semana 13 (HU-112): la puerta del cambio obligatorio de contraseña
+        # va antes de IsAuthenticated (los anónimos la ignoran).
+        'usuarios.permisos.DebeCambiarClave',
         'rest_framework.permissions.IsAuthenticated',
     ],
     # Rate limit del login por IP (docs/decisiones_seguridad.md §5 y §6)

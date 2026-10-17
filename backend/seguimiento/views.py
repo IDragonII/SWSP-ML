@@ -1,5 +1,6 @@
-"""API de seguimiento: actividades productivas (Semana 7) y usos de
-recursos (Semana 9).
+"""API de seguimiento: actividades productivas (Semana 7), usos de
+recursos (Semana 9), clima (Semana 10), incidencias (Semana 11) y
+etapas de la campaña (Semana 12).
 
 Actividades: listar, ver detalle, crear, editar, anular y reactivar. SIN
 borrado: DELETE responde 405 (la anulación es el «borrado lógico»: conserva
@@ -53,6 +54,19 @@ de parcela, apellidos y nombres del productor, descripción y agente;
 filtros por campaña, tipo, categoría, severidad, agente, fechas
 (desde/hasta), productor, parcela, cultivo, distrito y estado
 (ACTIVA/ANULADA); orden por fecha descendente y paginación global (20).
+
+Etapas de la campaña (Semana 12, HU-93 a HU-99): etapa fenológica que
+una campaña alcanzó (emergencia, floración…), primera pieza de la línea
+del tiempo. SIN DELETE (405) ni anulación: un error se corrige editando.
+Permisos campanias.ver (ver) y campanias.editar (crear/editar) — no hay
+módulo propio de seguimiento —, con el ámbito del Técnico (campaña ajena
+→ el mismo mensaje que si no existiera). Una etapa por campaña y
+coherencia cronológica por orden del catálogo se validan en el
+serializador (400 en español, nunca 500); el cierre automático de la
+etapa anterior en curso ocurre en la misma transacción con la campaña
+bloqueada. Búsqueda por etapa, observaciones, parcela y productor; filtros
+por campaña, etapa, cultivo, parcela, productor, fechas (desde/hasta) y
+en_curso; orden por fecha de inicio descendente (el Meta del modelo).
 """
 from datetime import timedelta
 
@@ -71,7 +85,9 @@ from productores.views import (
     _id_numerico,
 )
 
-from .models import Actividad, Clima, Incidencia, UsoRecurso
+from auditoria.mixins import AuditoriaMixin
+
+from .models import Actividad, Clima, Incidencia, SeguimientoEtapa, UsoRecurso
 from .serializers import (
     ActividadDetalleSerializer,
     ActividadEscrituraSerializer,
@@ -80,6 +96,9 @@ from .serializers import (
     ClimaDetalleSerializer,
     ClimaEscrituraSerializer,
     ClimaListaSerializer,
+    EtapaCampaniaDetalleSerializer,
+    EtapaCampaniaEscrituraSerializer,
+    EtapaCampaniaListaSerializer,
     IncidenciaDetalleSerializer,
     IncidenciaEscrituraSerializer,
     IncidenciaListaSerializer,
@@ -112,6 +131,7 @@ class PermisosActividad(PermisosPorAccion):
 
 
 class ActividadViewSet(
+    AuditoriaMixin,
     PermisosActividad,
     SoloSusProductores,
     mixins.ListModelMixin,
@@ -122,6 +142,7 @@ class ActividadViewSet(
 ):
     """CRUD de actividades sin DELETE (405) y con las acciones de anulación."""
 
+    auditoria_modulo = "seguimiento"
     queryset = Actividad.objects.select_related(
         "campania",
         "campania__parcela",
@@ -187,7 +208,9 @@ class ActividadViewSet(
         return queryset
 
     def perform_create(self, serializer):
-        serializer.save(registrado_por=self.request.user)
+        with transaction.atomic():
+            obj = serializer.save(registrado_por=self.request.user)
+            self._registrar_auditoria("CREAR", obj)
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -252,6 +275,9 @@ class ActividadViewSet(
             usos = UsoRecurso.objects.filter(actividad=actividad, anulada=False)
             recursos_anulados = usos.count()
             usos.update(anulada=True, motivo_anulacion=motivo)
+            self._registrar_auditoria(
+                "ANULAR", actividad, detalle={"motivo": motivo}
+            )
         actividad.refresh_from_db()
         actividad.campania.refresh_from_db()
         datos = self._lectura(actividad).data
@@ -287,9 +313,11 @@ class ActividadViewSet(
                     )
                 }
             )
-        actividad.anulada = False
-        actividad.motivo_anulacion = None
-        actividad.save(update_fields=("anulada", "motivo_anulacion"))
+        with transaction.atomic():
+            actividad.anulada = False
+            actividad.motivo_anulacion = None
+            actividad.save(update_fields=("anulada", "motivo_anulacion"))
+            self._registrar_auditoria("REACTIVAR", actividad)
         actividad.refresh_from_db()
         actividad.campania.refresh_from_db()
         return Response(self._lectura(actividad).data)
@@ -313,6 +341,7 @@ class PermisosUsoRecurso(PermisosPorAccion):
 
 
 class UsoRecursoViewSet(
+    AuditoriaMixin,
     PermisosUsoRecurso,
     SoloSusProductores,
     mixins.ListModelMixin,
@@ -323,6 +352,7 @@ class UsoRecursoViewSet(
 ):
     """CRUD de usos de recursos sin DELETE (405) y con anulación lógica."""
 
+    auditoria_modulo = "seguimiento"
     queryset = UsoRecurso.objects.select_related(
         "campania",
         "campania__parcela",
@@ -397,7 +427,9 @@ class UsoRecursoViewSet(
         return queryset
 
     def perform_create(self, serializer):
-        serializer.save(registrado_por=self.request.user)
+        with transaction.atomic():
+            obj = serializer.save(registrado_por=self.request.user)
+            self._registrar_auditoria("CREAR", obj)
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -459,9 +491,11 @@ class UsoRecursoViewSet(
             raise ValidationError(
                 {"motivo": "El motivo de anulación es obligatorio."}
             )
-        uso.anulada = True
-        uso.motivo_anulacion = motivo
-        uso.save(update_fields=("anulada", "motivo_anulacion"))
+        with transaction.atomic():
+            uso.anulada = True
+            uso.motivo_anulacion = motivo
+            uso.save(update_fields=("anulada", "motivo_anulacion"))
+            self._registrar_auditoria("ANULAR", uso, detalle={"motivo": motivo})
         uso.refresh_from_db()
         uso.campania.refresh_from_db()
         return Response(self._lectura(uso).data)
@@ -495,9 +529,11 @@ class UsoRecursoViewSet(
                     )
                 }
             )
-        uso.anulada = False
-        uso.motivo_anulacion = None
-        uso.save(update_fields=("anulada", "motivo_anulacion"))
+        with transaction.atomic():
+            uso.anulada = False
+            uso.motivo_anulacion = None
+            uso.save(update_fields=("anulada", "motivo_anulacion"))
+            self._registrar_auditoria("REACTIVAR", uso)
         uso.refresh_from_db()
         uso.campania.refresh_from_db()
         return Response(self._lectura(uso).data)
@@ -534,6 +570,7 @@ class PermisosClima(PermisosPorAccion):
 
 
 class ClimaViewSet(
+    AuditoriaMixin,
     PermisosClima,
     SoloSusProductores,
     mixins.ListModelMixin,
@@ -547,6 +584,7 @@ class ClimaViewSet(
     edición de un registro de la API exige confirmar_reemplazo=true (la
     fuente pasa a MANUAL)."""
 
+    auditoria_modulo = "seguimiento"
     queryset = Clima.objects.select_related(
         "parcela",
         "parcela__productor",
@@ -628,7 +666,9 @@ class ClimaViewSet(
         return super().get_throttles()
 
     def perform_create(self, serializer):
-        serializer.save(registrado_por=self.request.user)
+        with transaction.atomic():
+            obj = serializer.save(registrado_por=self.request.user)
+            self._registrar_auditoria("CREAR", obj)
 
     # ------------------------------------------------------------------ #
     # HU-84: consulta a la API meteorológica (Open-Meteo)
@@ -670,6 +710,12 @@ class ClimaViewSet(
                     self._procesar_dia(
                         request, parcela, fecha, por_fecha.get(fecha), informe
                     )
+                self._registrar_auditoria(
+                    "CREAR",
+                    registro_id=parcela.pk,
+                    detalle=informe,
+                    tabla="clima",
+                )
         except IntegrityError as exc:
             # Carrera con uq_clima_parcela_fecha: la transacción se
             # revierte entera (no queda ningún día del rango a medias)
@@ -789,6 +835,7 @@ class PermisosIncidencia(PermisosPorAccion):
 
 
 class IncidenciaViewSet(
+    AuditoriaMixin,
     PermisosIncidencia,
     SoloSusProductores,
     mixins.ListModelMixin,
@@ -799,6 +846,7 @@ class IncidenciaViewSet(
 ):
     """CRUD de incidencias sin DELETE (405) y con anulación lógica."""
 
+    auditoria_modulo = "seguimiento"
     queryset = Incidencia.objects.select_related(
         "campania",
         "campania__parcela",
@@ -887,7 +935,9 @@ class IncidenciaViewSet(
         return queryset
 
     def perform_create(self, serializer):
-        serializer.save(registrado_por=self.request.user)
+        with transaction.atomic():
+            obj = serializer.save(registrado_por=self.request.user)
+            self._registrar_auditoria("CREAR", obj)
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -943,9 +993,13 @@ class IncidenciaViewSet(
         motivo = (request.data.get("motivo") or "").strip()
         if not motivo:
             raise ValidationError({"motivo": "El motivo de anulación es obligatorio."})
-        incidencia.anulada = True
-        incidencia.motivo_anulacion = motivo
-        incidencia.save(update_fields=("anulada", "motivo_anulacion"))
+        with transaction.atomic():
+            incidencia.anulada = True
+            incidencia.motivo_anulacion = motivo
+            incidencia.save(update_fields=("anulada", "motivo_anulacion"))
+            self._registrar_auditoria(
+                "ANULAR", incidencia, detalle={"motivo": motivo}
+            )
         incidencia.refresh_from_db()
         return Response(self._lectura(incidencia).data)
 
@@ -977,8 +1031,191 @@ class IncidenciaViewSet(
                     )
                 }
             )
-        incidencia.anulada = False
-        incidencia.motivo_anulacion = None
-        incidencia.save(update_fields=("anulada", "motivo_anulacion"))
+        with transaction.atomic():
+            incidencia.anulada = False
+            incidencia.motivo_anulacion = None
+            incidencia.save(update_fields=("anulada", "motivo_anulacion"))
+            self._registrar_auditoria("REACTIVAR", incidencia)
         incidencia.refresh_from_db()
         return Response(self._lectura(incidencia).data)
+
+
+# ---------------------------------------------------------------------- #
+# Etapas de la campaña (Semana 12)
+# ---------------------------------------------------------------------- #
+class PermisosEtapaCampania(PermisosPorAccion):
+    """Etapas de la línea de tiempo (HU-93 a HU-99): no hay módulo
+    propio de seguimiento, se usa el de campañas — ver requiere
+    campanias.ver y registrar o corregir, campanias.editar. Así el
+    Técnico registra las de sus campañas y el Coordinador solo
+    consulta."""
+
+    permiso_requerido = "campanias.ver"
+    PERMISOS = {
+        "list": "campanias.ver",
+        "retrieve": "campanias.ver",
+        "create": "campanias.editar",
+        "update": "campanias.editar",
+        "partial_update": "campanias.editar",
+    }
+
+
+class EtapaCampaniaViewSet(
+    AuditoriaMixin,
+    PermisosEtapaCampania,
+    SoloSusProductores,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin,
+    mixins.UpdateModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Etapas fenológicas de las campañas (Semana 12): alta y edición,
+    SIN DELETE (405) y sin anulación — un error se corrige editando.
+
+    Una etapa por campaña (uq_seguimiento_etapa; el serializador
+    responde 400 nombrando el registro existente y la vista traduce
+    cualquier IntegrityError de carrera a 400, nunca 500). Al crear una
+    etapa (o al dejar una en curso al editar), la anterior en curso se
+    cierra con la fecha de inicio de la nueva: una sola operación
+    dentro de la transacción, con la campaña bloqueada
+    (select_for_update) — nunca hay dos etapas en curso."""
+
+    auditoria_modulo = "seguimiento"
+    queryset = SeguimientoEtapa.objects.select_related(
+        "campania",
+        "campania__parcela",
+        "campania__parcela__productor",
+        "campania__cultivo",
+        "etapa",
+        "registrado_por",
+    )
+    serializer_class = EtapaCampaniaDetalleSerializer
+    escritura_serializer = EtapaCampaniaEscrituraSerializer
+    filter_backends = (BusquedaPorNombre,)
+    search_fields = (
+        "etapa__nombre",
+        "observaciones",
+        "campania__parcela__codigo",
+        "campania__parcela__productor__apellidos",
+        "campania__parcela__productor__nombres",
+    )
+
+    def get_serializer_class(self):
+        if self.action in ("create", "update", "partial_update"):
+            return self.escritura_serializer
+        if self.action == "list":
+            return EtapaCampaniaListaSerializer
+        return self.serializer_class
+
+    def get_queryset(self):
+        queryset = self._filtrar_asignados(
+            super().get_queryset(), "campania__parcela__productor_id"
+        )
+        params = self.request.query_params
+        if params.get("campania"):
+            queryset = queryset.filter(
+                campania_id=_id_numerico(params["campania"], "campania")
+            )
+        if params.get("etapa"):
+            queryset = queryset.filter(
+                etapa_id=_id_numerico(params["etapa"], "etapa")
+            )
+        if params.get("cultivo"):
+            queryset = queryset.filter(
+                campania__cultivo_id=_id_numerico(params["cultivo"], "cultivo")
+            )
+        if params.get("parcela"):
+            queryset = queryset.filter(
+                campania__parcela_id=_id_numerico(params["parcela"], "parcela")
+            )
+        if params.get("productor"):
+            queryset = queryset.filter(
+                campania__parcela__productor_id=_id_numerico(
+                    params["productor"], "productor"
+                )
+            )
+        if params.get("fecha_desde"):
+            queryset = queryset.filter(fecha_inicio__gte=params["fecha_desde"])
+        if params.get("fecha_hasta"):
+            queryset = queryset.filter(fecha_inicio__lte=params["fecha_hasta"])
+        if params.get("en_curso"):
+            queryset = queryset.filter(fecha_fin__isnull=True)
+        return queryset
+
+    def perform_create(self, serializer):
+        with transaction.atomic():
+            obj = serializer.save(registrado_por=self.request.user)
+            self._registrar_auditoria("CREAR", obj)
+
+    @staticmethod
+    def _cerrar_en_curso(campania, excepto, fecha_fin):
+        """Cierra la etapa que estaba en curso (si otra quedó abierta):
+        una sola fila en curso por campaña."""
+        SeguimientoEtapa.objects.filter(
+            campania=campania, fecha_fin__isnull=True
+        ).exclude(pk=excepto.pk).update(fecha_fin=fecha_fin)
+
+    @staticmethod
+    def _bloquear_campania(pk):
+        """Bloquea la campaña para serializar el alta/cierre (y relee
+        su estado, que pudo cambiar desde la validación)."""
+        campania = Campania.objects.select_for_update().get(pk=pk)
+        if campania.estado not in Campania.ESTADOS_ACTIVOS:
+            raise ValidationError(
+                {
+                    "campania": (
+                        f"La campaña está {campania.estado} y no admite "
+                        "nuevos registros."
+                    )
+                }
+            )
+        return campania
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            with transaction.atomic():
+                self._bloquear_campania(serializer.validated_data["campania"].pk)
+                self.perform_create(serializer)
+                self._cerrar_en_curso(
+                    serializer.instance.campania,
+                    excepto=serializer.instance,
+                    fecha_fin=serializer.instance.fecha_inicio,
+                )
+        except IntegrityError:
+            raise ValidationError(
+                "No se pudo guardar la etapa: los datos chocan con "
+                "una restricción de la base de datos."
+            )
+        serializer.instance.refresh_from_db()
+        return Response(self._lectura(serializer.instance).data, status=201)
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        try:
+            with transaction.atomic():
+                self._bloquear_campania(instance.campania_id)
+                self.perform_update(serializer)
+                # Si la edición la deja en curso, cierra la anterior
+                # (ojo: puede haber dejado su propia fecha_fin vacía)
+                if serializer.instance.fecha_fin is None:
+                    self._cerrar_en_curso(
+                        serializer.instance.campania,
+                        excepto=serializer.instance,
+                        fecha_fin=serializer.instance.fecha_inicio,
+                    )
+        except IntegrityError:
+            raise ValidationError(
+                "No se pudo guardar la etapa: los datos chocan con "
+                "una restricción de la base de datos."
+            )
+        serializer.instance.refresh_from_db()
+        return Response(self._lectura(serializer.instance).data)
+
+    def _lectura(self, obj):
+        return EtapaCampaniaDetalleSerializer(obj, context=self.get_serializer_context())

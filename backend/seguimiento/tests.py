@@ -1,13 +1,16 @@
-"""Pruebas de las Semanas 7, 9, 10 y 11: actividades productivas (HU-47 a
-HU-55), usos de recursos (HU-67 a HU-75), registro de clima (HU-76 a
-HU-83) e incidencias (HU-85 a HU-92).
+"""Pruebas de las Semanas 7, 9, 10, 11 y 12: actividades productivas
+(HU-47 a HU-55), usos de recursos (HU-67 a HU-75), registro de clima
+(HU-76 a HU-83), incidencias (HU-85 a HU-92) y etapas de la campaña con
+su línea de tiempo (HU-93 a HU-99).
 
 Numeración del repositorio: 87-102 (Semana 7, 16 pruebas), 121-137
 (Semana 9, 17 pruebas), 138-151 y 155 (Semana 10, API de clima; la
 Semana 10 añade además 152-154 con la consulta a la API meteorológica y
-cierra con 155 pruebas) y 156-172 (Semana 11, incidencias, 17 pruebas).
-El repositorio llegaba a 120 al cerrar la Semana 8, a 137 al cerrar la
-Semana 9 y a 155 al cerrar la Semana 10; cierra la Semana 11 con 172.
+cierra con 155 pruebas), 156-172 (Semana 11, incidencias, 17 pruebas) y
+173-185 (Semana 12, etapas y línea de tiempo, 13 pruebas). El repositorio
+llegaba a 120 al cerrar la Semana 8, a 137 al cerrar la Semana 9, a 155
+al cerrar la Semana 10, a 172 al cerrar la Semana 11 y cierra la Semana
+12 con 185 en este archivo (196 en total con usuarios).
 """
 import importlib
 import json
@@ -20,12 +23,13 @@ from zoneinfo import ZoneInfo
 
 from django.core.cache import cache
 from django.db import DatabaseError, IntegrityError, connection, transaction
-from django.test import TestCase
+from django.test import Client, TestCase
 
 from campanias.models import Campania
 from catalogos.models import (
     Agente,
     Cultivo,
+    EtapaFenologica,
     Recurso,
     TipoActividad,
     TipoIncidencia,
@@ -43,7 +47,7 @@ from productores.models import (
 from usuarios.models import Rol, Usuario
 from usuarios.tests import _post_login
 
-from .models import Clima, Incidencia
+from .models import Clima, Incidencia, SeguimientoEtapa
 from .servicio_meteorologico import CLAVES_SALIDA, ErrorServicioMeteorologico
 
 
@@ -1354,6 +1358,7 @@ class UsoRecursoApiTests(Semana9Base):
     # 137: 19 triggers (los 3 de uso_recursos) y reversibilidad de 0004.
     #     La Semana 11 añade los 3 de incidencias: el total sube a 22 y
     #     la reversión de 0004 sigue tocando solo su bloque (19 → 22).
+    #     La Semana 12 añade los 2 de seguimiento_etapas: total 24.
     # ------------------------------------------------------------------ #
     def test_137_triggers_y_reversibilidad_de_las_migraciones(self):
         triggers = {
@@ -1364,7 +1369,7 @@ class UsoRecursoApiTests(Semana9Base):
                 "WHERE relnamespace = 'public'::regnamespace)"
             )
         }
-        self.assertEqual(len(triggers), 22)
+        self.assertEqual(len(triggers), 25)
         self.assertLessEqual(
             {
                 "trg_uso_recursos_base",
@@ -3376,9 +3381,9 @@ class IncidenciaApiTests(Semana11Base):
         self.assertEqual(coord_detalle["registrado_por"], "admin_pruebas")
 
     # ------------------------------------------------------------------ #
-    # 172: 22 triggers (los 3 de incidencias), fn_validar_incidencia,
-    #     reversibilidad de 0008 sin tocar las funciones compartidas y
-    #     el CHECK de anulación con SQL directo
+    # 172: 24 triggers (los 3 de incidencias y los 2 de seguimiento),
+    #     fn_validar_incidencia, reversibilidad de 0008 sin tocar las
+    #     funciones compartidas y el CHECK de anulación con SQL directo
     # ------------------------------------------------------------------ #
     def test_172_triggers_reversibilidad_y_sql_directo(self):
         triggers = {
@@ -3389,12 +3394,14 @@ class IncidenciaApiTests(Semana11Base):
                 "WHERE relnamespace = 'public'::regnamespace)"
             )
         }
-        self.assertEqual(len(triggers), 22)
+        self.assertEqual(len(triggers), 25)
         self.assertLessEqual(
             {
                 "trg_incidencias_superficie",
                 "trg_incidencias_fecha",
                 "trg_incidencias_actualizado",
+                "trg_seguimiento_etapa",
+                "trg_seguimiento_fecha",
             },
             triggers,
         )
@@ -3458,3 +3465,551 @@ class IncidenciaApiTests(Semana11Base):
         self.assertIn("ck_incidencia_anulacion", str(falla.exception))
         inc.refresh_from_db()
         self.assertFalse(inc.anulada)
+
+
+# ---------------------------------------------------------------------- #
+# Semana 12: etapas de la campaña y línea de tiempo (HU-93 a HU-99)
+# ---------------------------------------------------------------------- #
+class Semana12Base(Semana11Base):
+    """Datos de la Semana 12: la base de la Semana 11 más las etapas del
+    catálogo para el cultivo de la campaña (Siembra, Emergencia,
+    Floración y Cosecha — con salto de orden 4, para probar saltos), una
+    etapa del otro cultivo para probar el rechazo, un rol sin permisos y
+    helpers de etapas por API y por la base."""
+
+    def setUp(self):
+        super().setUp()
+        self.siembra_etapa = EtapaFenologica.objects.create(
+            cultivo=self.cultivo, nombre="Siembra S12", orden=1
+        )
+        self.emergencia = EtapaFenologica.objects.create(
+            cultivo=self.cultivo, nombre="Emergencia S12", orden=2
+        )
+        self.floracion = EtapaFenologica.objects.create(
+            cultivo=self.cultivo, nombre="Floración S12", orden=3
+        )
+        self.cosecha_etapa = EtapaFenologica.objects.create(
+            cultivo=self.cultivo, nombre="Cosecha S12", orden=5
+        )
+        self.etapa_ajena = EtapaFenologica.objects.create(
+            cultivo=self.cultivo_b, nombre="Mazorca S12", orden=1
+        )
+        self.rol_sin_permisos = Rol.objects.create(
+            nombre="Sin permisos S12", descripcion="Rol vacío para pruebas"
+        )
+        self.ayudante = Usuario.objects.create_user(
+            username="ayudante_s12", password="Ayudante2026!",
+            rol=self.rol_sin_permisos,
+        )
+
+    # ------------------------------------------------------------------ #
+    # helpers
+    # ------------------------------------------------------------------ #
+    def _datos_etapa(self, **extra):
+        datos = {
+            "campania": self.campania.pk,
+            "etapa": self.siembra_etapa.pk,
+            "fecha_inicio": "2025-09-05",
+        }
+        datos.update(extra)
+        return datos
+
+    def _crear_etapa(self, **extra):
+        return self._api("post", "/api/etapas-campania/", self._datos_etapa(**extra))
+
+    def _etapa_bd(self, etapa, **extra):
+        datos = {
+            "campania": self.campania,
+            "etapa": etapa,
+            "fecha_inicio": date(2025, 9, 5),
+        }
+        datos.update(extra)
+        return SeguimientoEtapa.objects.create(**datos)
+
+    def _en_curso(self):
+        return SeguimientoEtapa.objects.filter(
+            campania=self.campania, fecha_fin__isnull=True
+        )
+
+    def _cerrar_campania_bd(self):
+        self.campania.estado = Campania.ESTADO_CERRADA
+        self.campania.save(update_fields=("estado",))
+
+    def _cancelar_campania_bd(self):
+        self.campania.estado = Campania.ESTADO_CANCELADA
+        self.campania.save(update_fields=("estado",))
+
+
+class EtapaCampaniaApiTests(Semana12Base):
+    """Pruebas 173 a 185: etapas de la campaña (alta, validaciones,
+    cierre automático, edición) y línea de tiempo (HU-93 a HU-99)."""
+
+    def test_173_alta_de_etapa_cierra_la_anterior_en_curso(self):
+        """Una etapa por campaña y solo una en curso: registrar la nueva
+        cierra la anterior con la fecha de inicio de la nueva, en la
+        misma transacción (regla de negocio de la Semana 12)."""
+        self._entrar_admin()
+        respuesta = self._crear_etapa()
+        self.assertEqual(respuesta.status_code, 201)
+        cuerpo = self._json(respuesta)
+        self.assertEqual(cuerpo["etapa"]["nombre"], "Siembra S12")
+        self.assertEqual(cuerpo["fecha_inicio"], "2025-09-05")
+        self.assertIsNone(cuerpo["fecha_fin"])
+        self.assertEqual(cuerpo["campania"]["id"], self.campania.pk)
+        self.assertEqual(cuerpo["registrado_por"], "admin_pruebas")
+        self.assertEqual(self._en_curso().count(), 1)
+
+        respuesta = self._crear_etapa(
+            etapa=self.emergencia.pk, fecha_inicio="2025-09-20"
+        )
+        self.assertEqual(respuesta.status_code, 201)
+        siembra = SeguimientoEtapa.objects.get(etapa=self.siembra_etapa)
+        emergencia = SeguimientoEtapa.objects.get(etapa=self.emergencia)
+        # La anterior quedó cerrada con la fecha de inicio de la nueva
+        self.assertEqual(siembra.fecha_fin, date(2025, 9, 20))
+        self.assertIsNone(emergencia.fecha_fin)
+        self.assertEqual(self._en_curso().count(), 1)
+        self.assertEqual(self._en_curso().get().pk, emergencia.pk)
+
+    def test_174_rechaza_etapa_de_otro_cultivo_con_las_validas(self):
+        self._entrar_admin()
+        respuesta = self._crear_etapa(etapa=self.etapa_ajena.pk)
+        self.assertEqual(respuesta.status_code, 400)
+        mensaje = str(respuesta.json()["etapa"])
+        self.assertIn("no corresponde al cultivo de la campaña", mensaje)
+        self.assertIn("Quinua S7", mensaje)
+        self.assertIn("Etapas válidas:", mensaje)
+        for nombre in (
+            "Siembra S12", "Emergencia S12", "Floración S12", "Cosecha S12",
+        ):
+            self.assertIn(nombre, mensaje)
+        self.assertEqual(SeguimientoEtapa.objects.count(), 0)
+
+    def test_175_una_etapa_por_campania_nombrando_la_existente(self):
+        self._entrar_admin()
+        self.assertEqual(self._crear_etapa().status_code, 201)
+        respuesta = self._crear_etapa()
+        self.assertEqual(respuesta.status_code, 400)
+        cuerpo = self._json(respuesta)
+        self.assertIn("Ya se registró la etapa «Siembra S12»", str(cuerpo["etapa"]))
+        existente = SeguimientoEtapa.objects.get()
+        self.assertEqual(cuerpo["etapa_existente"][0], str(existente.pk))
+        self.assertEqual(SeguimientoEtapa.objects.count(), 1)
+
+    def test_176_las_fechas_deben_estar_en_el_periodo_de_la_campania(self):
+        self._entrar_admin()
+        respuesta = self._crear_etapa(fecha_inicio="2025-08-15")
+        self.assertEqual(respuesta.status_code, 400)
+        mensaje = str(self._json(respuesta)["fecha_inicio"])
+        self.assertIn("fuera del período de la campaña", mensaje)
+        self.assertIn("2025-09-01 a 2026-05-31", mensaje)
+
+        respuesta = self._crear_etapa(fecha_fin="2026-06-15")
+        self.assertEqual(respuesta.status_code, 400)
+        mensaje = str(self._json(respuesta)["fecha_fin"])
+        self.assertIn("fuera del período", mensaje)
+        self.assertEqual(SeguimientoEtapa.objects.count(), 0)
+
+    def test_177_la_fecha_de_fin_no_puede_ser_anterior_al_inicio(self):
+        self._entrar_admin()
+        respuesta = self._crear_etapa(fecha_fin="2025-09-04")
+        self.assertEqual(respuesta.status_code, 400)
+        mensaje = str(self._json(respuesta)["fecha_fin"])
+        self.assertIn("no puede ser anterior a la de inicio (2025-09-05)", mensaje)
+
+    def test_178_edicion_campaña_inmutable_y_etapa_en_curso(self):
+        """La campaña no cambia al editar; dejar una etapa en curso cierra
+        la anterior (ojo: nunca dos en curso) y un PATCH de observaciones
+        no toca las fechas."""
+        self._entrar_admin()
+        self._crear_etapa(fecha_inicio="2025-09-05")
+        self._crear_etapa(etapa=self.emergencia.pk, fecha_inicio="2025-09-20")
+        siembra = SeguimientoEtapa.objects.get(etapa=self.siembra_etapa)
+        emergencia = SeguimientoEtapa.objects.get(etapa=self.emergencia)
+        self.assertEqual(siembra.fecha_fin, date(2025, 9, 20))
+
+        otra = self._campania_bd(self.parcela_b, self.cultivo_b, self.variedad_b)
+        respuesta = self._api(
+            "patch",
+            f"/api/etapas-campania/{emergencia.pk}/",
+            {"campania": otra.pk},
+        )
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertIn("no se puede cambiar", str(self._json(respuesta)["campania"]))
+
+        # Dejar la etapa en curso de nuevo cierra la anterior si la hubiera
+        respuesta = self._api(
+            "patch",
+            f"/api/etapas-campania/{emergencia.pk}/",
+            {"fecha_fin": None},
+        )
+        self.assertEqual(respuesta.status_code, 200)
+        emergencia.refresh_from_db()
+        self.assertIsNone(emergencia.fecha_fin)
+        siembra.refresh_from_db()
+        self.assertEqual(siembra.fecha_fin, date(2025, 9, 20))
+        self.assertEqual(self._en_curso().count(), 1)
+
+        # PATCH de observaciones: no toca fechas ni el cierre
+        respuesta = self._api(
+            "patch",
+            f"/api/etapas-campania/{siembra.pk}/",
+            {"observaciones": "Corrección de la nota"},
+        )
+        self.assertEqual(respuesta.status_code, 200)
+        siembra.refresh_from_db()
+        self.assertEqual(siembra.observaciones, "Corrección de la nota")
+        self.assertEqual(siembra.fecha_fin, date(2025, 9, 20))
+
+    def test_179_cronologia_por_orden_con_saltos_permitidos(self):
+        """La etapa nueva no empieza antes que una de menor orden ya
+        registrada (ni puede quedar en curso antes que otra en curso);
+        los saltos de etapa sí se permiten."""
+        self._entrar_admin()
+        # Siembra (orden1) registrada y cerrada el 2025-11-01/30
+        self.assertEqual(
+            self._crear_etapa(fecha_inicio="2025-11-01", fecha_fin="2025-11-30").status_code,
+            201,
+        )
+        # La emergencia (orden2) no puede empezar antes que la siembra
+        respuesta = self._crear_etapa(
+            etapa=self.emergencia.pk, fecha_inicio="2025-10-15"
+        )
+        self.assertEqual(respuesta.status_code, 400)
+        mensaje = str(self._json(respuesta)["fecha_inicio"])
+        self.assertIn("no puede empezar antes que «Siembra S12»", mensaje)
+        self.assertIn("2025-11-01", mensaje)
+
+        # Salto de orden (de 1 a 5) permitido; la cosecha queda en curso
+        self.assertEqual(
+            self._crear_etapa(
+                etapa=self.cosecha_etapa.pk, fecha_inicio="2025-12-01"
+            ).status_code,
+            201,
+        )
+        self.assertEqual(SeguimientoEtapa.objects.count(), 2)
+
+        # La floración (orden3) no puede quedar en curso antes que la
+        # cosecha que ya está en curso (su cierre sería imposible)
+        respuesta = self._crear_etapa(
+            etapa=self.floracion.pk, fecha_inicio="2025-11-15"
+        )
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertIn(
+            "no puede quedar en curso antes que «Cosecha S12»",
+            str(self._json(respuesta)["fecha_inicio"]),
+        )
+
+    def test_180_campania_cerrada_cancelada_o_ajena(self):
+        self._entrar_admin()
+        self._cerrar_campania()
+        respuesta = self._crear_etapa()
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertIn(
+            "La campaña está CERRADA", str(self._json(respuesta)["campania"])
+        )
+
+        # Cancelada: otra campaña (la cerrada ya no admite transiciones)
+        cancelada = self._campania_bd(
+            self.parcela_b, self.cultivo_b, self.variedad_b
+        )
+        cancelada.estado = Campania.ESTADO_CANCELADA
+        cancelada.save(update_fields=("estado",))
+        respuesta = self._api(
+            "post",
+            "/api/etapas-campania/",
+            {
+                "campania": cancelada.pk,
+                "etapa": self.etapa_ajena.pk,
+                "fecha_inicio": "2025-09-05",
+            },
+        )
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertIn(
+            "La campaña está CANCELADA", str(self._json(respuesta)["campania"])
+        )
+
+        # El Técnico no puede tocar la campaña ACTIVA de otro productor
+        ajena = self._campania_bd(
+            self.parcela_b,
+            self.cultivo,
+            self.variedad,
+            periodo="2026-2027",
+            fecha_inicio=date(2026, 8, 1),
+            fecha_fin_prevista=date(2027, 5, 31),
+        )
+        self._entrar_tecnico()
+        respuesta = self._api(
+            "post",
+            "/api/etapas-campania/",
+            {
+                "campania": ajena.pk,
+                "etapa": self.siembra_etapa.pk,
+                "fecha_inicio": "2026-08-05",
+            },
+        )
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertIn(
+            "La campaña indicada no existe.",
+            str(self._json(respuesta)["campania"]),
+        )
+
+    def test_181_sin_delete_ni_permisos(self):
+        etapa = self._etapa_bd(self.siembra_etapa)
+        self._entrar_admin()
+        respuesta = self._api("delete", f"/api/etapas-campania/{etapa.pk}/")
+        self.assertEqual(respuesta.status_code, 405)
+
+        self._entrar("ayudante_s12", "Ayudante2026!")
+        respuesta = self._crear_etapa()
+        self.assertEqual(respuesta.status_code, 403)
+        self.assertIn("No tienes permiso", respuesta.json()["detail"])
+
+        respuesta = Client().post(
+            "/api/etapas-campania/",
+            data=json.dumps(self._datos_etapa()),
+            content_type="application/json",
+        )
+        self.assertEqual(respuesta.status_code, 401)
+
+    def test_182_linea_de_tiempo_cronologica_completa(self):
+        """La línea de tiempo junta etapas, actividad, incidencia y
+        cosecha en orden cronológico (con desempate etapa → actividad →
+        incidencia → cosecha), deja las etapas pendientes al final y
+        señala la etapa actual."""
+        self.campania.estado = Campania.ESTADO_EN_PRODUCCION
+        self.campania.fecha_siembra = date(2025, 9, 5)
+        self.campania.save(update_fields=("estado", "fecha_siembra"))
+        self._entrar_admin()
+        self._crear_etapa(fecha_inicio="2025-09-05", fecha_fin="2025-09-19")
+        self._crear_etapa(etapa=self.emergencia.pk, fecha_inicio="2025-09-20")
+        self._crear_etapa(etapa=self.floracion.pk, fecha_inicio="2025-10-01")
+        self._crear()
+        self._crear_incidencia()
+        self._json(
+            self._api(
+                "post",
+                "/api/producciones/",
+                {
+                    "campania": self.campania.pk,
+                    "fecha_cosecha": "2026-04-15",
+                    "superficie_cosechada_ha": "1.50",
+                    "cantidad_producida": "7000",
+                    "unidad": self.kg.pk,
+                },
+            )
+        )
+
+        respuesta = self._api(
+            "get", f"/api/campanias/{self.campania.pk}/linea-tiempo/"
+        )
+        self.assertEqual(respuesta.status_code, 200)
+        cuerpo = self._json(respuesta)
+        self.assertEqual(cuerpo["campania"]["id"], self.campania.pk)
+        self.assertEqual(cuerpo["etapa_actual"]["nombre"], "Floración S12")
+        self.assertTrue(cuerpo["etapa_actual"]["en_curso"])
+        self.assertFalse(cuerpo["truncado"])
+        self.assertEqual(cuerpo["total_elementos"], 7)
+
+        tipos = [(e["tipo"], e["fecha"], e["estado"]) for e in cuerpo["elementos"]]
+        self.assertEqual(
+            tipos,
+            [
+                ("ETAPA", "2025-09-05", "REGISTRADA"),
+                ("ETAPA", "2025-09-20", "REGISTRADA"),
+                ("ETAPA", "2025-10-01", "EN_CURSO"),
+                ("ACTIVIDAD", "2025-10-01", "REGISTRADA"),
+                ("INCIDENCIA", "2025-10-05", "REGISTRADA"),
+                ("PRODUCCION", "2026-04-15", "REGISTRADA"),
+                ("ETAPA", None, "PENDIENTE"),
+            ],
+        )
+        # Emergencia se cerró al registrar Floración (mismo día que la
+        # actividad: la etapa va primero por el desempate)
+        self.assertEqual(cuerpo["elementos"][1]["fecha_fin"], "2025-10-01")
+        pendiente = cuerpo["elementos"][-1]
+        self.assertEqual(pendiente["titulo"], "Cosecha S12")
+        self.assertIsNone(pendiente["fecha"])
+
+        definidas = {d["nombre"]: d for d in cuerpo["etapas_definidas"]}
+        self.assertEqual(
+            [d["nombre"] for d in cuerpo["etapas_definidas"]],
+            ["Siembra S12", "Emergencia S12", "Floración S12", "Cosecha S12"],
+        )
+        self.assertTrue(definidas["Emergencia S12"]["registrada"])
+        self.assertFalse(definidas["Cosecha S12"]["registrada"])
+        self.assertIsNone(definidas["Cosecha S12"]["fecha_inicio"])
+
+        incidencia = next(e for e in cuerpo["elementos"] if e["tipo"] == "INCIDENCIA")
+        self.assertEqual(incidencia["titulo"], "Helada")
+        self.assertEqual(incidencia["severidad"], "MEDIA")
+        cosecha = next(e for e in cuerpo["elementos"] if e["tipo"] == "PRODUCCION")
+        self.assertEqual(cosecha["fecha"], "2026-04-15")
+        self.assertIn("kg", cosecha["detalle"])
+
+    def test_183_linea_de_tiempo_vacia_ajena_y_sin_permiso(self):
+        # Vacía: solo las etapas del catálogo, todas pendientes
+        self._entrar_admin()
+        respuesta = self._api(
+            "get", f"/api/campanias/{self.campania.pk}/linea-tiempo/"
+        )
+        cuerpo = self._json(respuesta)
+        self.assertIsNone(cuerpo["etapa_actual"])
+        self.assertEqual(cuerpo["total_elementos"], 4)
+        self.assertEqual(
+            [e["estado"] for e in cuerpo["elementos"]], ["PENDIENTE"] * 4
+        )
+        self.assertEqual(
+            [e["titulo"] for e in cuerpo["elementos"]],
+            ["Siembra S12", "Emergencia S12", "Floración S12", "Cosecha S12"],
+        )
+
+        # Campaña ajena: el Técnico recibe 404 (nunca ve lo que no es suyo)
+        otra = self._campania_bd(self.parcela_b, self.cultivo_b, self.variedad_b)
+        self._entrar_tecnico()
+        respuesta = self._api("get", f"/api/campanias/{otra.pk}/linea-tiempo/")
+        self.assertEqual(respuesta.status_code, 404)
+
+        # Sin el permiso campanias.ver: 403
+        self._entrar("ayudante_s12", "Ayudante2026!")
+        respuesta = self._api(
+            "get", f"/api/campanias/{self.campania.pk}/linea-tiempo/"
+        )
+        self.assertEqual(respuesta.status_code, 403)
+
+    def test_184_etapa_actual_en_listado_y_ficha(self):
+        self._entrar_admin()
+        cuerpo = self._json(self._api("get", f"/api/campanias/{self.campania.pk}/"))
+        self.assertIsNone(cuerpo["etapa_actual"])
+        listado = self._json(self._api("get", "/api/campanias/"))
+        self.assertIsNone(listado["results"][0]["etapa_actual"])
+
+        self._crear_etapa()
+        cuerpo = self._json(self._api("get", f"/api/campanias/{self.campania.pk}/"))
+        self.assertEqual(cuerpo["etapa_actual"]["nombre"], "Siembra S12")
+        self.assertTrue(cuerpo["etapa_actual"]["en_curso"])
+        self.assertEqual(cuerpo["etapa_actual"]["fecha_inicio"], "2025-09-05")
+        listado = self._json(self._api("get", "/api/campanias/"))
+        self.assertEqual(listado["results"][0]["etapa_actual"]["nombre"], "Siembra S12")
+
+        # Cerrada, sigue siendo la última registrada (ya no en curso)
+        self._api(
+            "patch",
+            f"/api/etapas-campania/{SeguimientoEtapa.objects.get().pk}/",
+            {"fecha_fin": "2025-09-19"},
+        )
+        cuerpo = self._json(self._api("get", f"/api/campanias/{self.campania.pk}/"))
+        self.assertEqual(cuerpo["etapa_actual"]["nombre"], "Siembra S12")
+        self.assertFalse(cuerpo["etapa_actual"]["en_curso"])
+
+        # Con una nueva en curso, manda la nueva
+        self._crear_etapa(etapa=self.emergencia.pk, fecha_inicio="2025-09-20")
+        cuerpo = self._json(self._api("get", f"/api/campanias/{self.campania.pk}/"))
+        self.assertEqual(cuerpo["etapa_actual"]["nombre"], "Emergencia S12")
+        self.assertTrue(cuerpo["etapa_actual"]["en_curso"])
+
+    def test_185_sin_fechas_futuras_y_registrado_por_de_la_sesion(self):
+        futuro = self._hoy_lima() + timedelta(days=1)
+        self._entrar_admin()
+        respuesta = self._crear_etapa(fecha_inicio=futuro.isoformat())
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertIn("no puede ser futura", str(self._json(respuesta)["fecha_inicio"]))
+        respuesta = self._crear_etapa(fecha_fin=futuro.isoformat())
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertIn("no puede ser futura", str(self._json(respuesta)["fecha_fin"]))
+
+        # registrado_por no se acepta del cliente: lo pone la sesión
+        respuesta = self._crear_etapa(registrado_por=self.tecnico.pk)
+        self.assertEqual(respuesta.status_code, 201)
+        registro = SeguimientoEtapa.objects.get()
+        self.assertEqual(registro.registrado_por_id, self.admin.pk)
+
+        # El Técnico no ve registrado_por en su ficha; el Administrador sí
+        otra = self._etapa_bd(
+            self.emergencia, fecha_inicio=date(2025, 9, 20), registrado_por=self.tecnico
+        )
+        self._entrar_tecnico()
+        cuerpo = self._json(self._api("get", f"/api/etapas-campania/{otra.pk}/"))
+        self.assertNotIn("registrado_por", cuerpo)
+        self.assertEqual(cuerpo["etapa"]["nombre"], "Emergencia S12")
+        self._entrar_admin()
+        cuerpo = self._json(self._api("get", f"/api/etapas-campania/{otra.pk}/"))
+        self.assertEqual(cuerpo["registrado_por"], "tec_pruebas")
+
+    def test_197_listado_de_etapas_con_filtros(self):
+        """Prueba 197 (HU-97): el listado se pagina y filtra por campaña,
+        etapa, estado en curso, búsqueda y rango de fechas, con el ámbito
+        del Técnico aplicado antes que los filtros."""
+        self._entrar_admin()
+        self._crear_etapa(fecha_inicio="2025-09-05", fecha_fin="2025-09-19")
+        self._crear_etapa(etapa=self.emergencia.pk, fecha_inicio="2025-09-20")  # queda en curso
+        ajena = self._campania_bd(
+            self.parcela_b,
+            self.cultivo,
+            self.variedad,
+            periodo="2026-2027",
+            fecha_inicio=date(2026, 8, 1),
+            fecha_fin_prevista=date(2027, 5, 31),
+        )
+        self._etapa_bd(
+            self.siembra_etapa,
+            campania=ajena,
+            fecha_inicio=date(2026, 8, 5),
+            fecha_fin=date(2026, 8, 15),
+        )
+
+        respuesta = self._api("get", "/api/etapas-campania/")
+        self.assertEqual(respuesta.status_code, 200)
+        cuerpo = self._json(respuesta)
+        self.assertEqual(cuerpo["count"], 3)
+        fila = next(
+            f
+            for f in cuerpo["results"]
+            if f["etapa"]["nombre"] == "Siembra S12"
+            and f["campania"]["id"] == self.campania.pk
+        )
+        self.assertEqual(fila["etapa"]["orden"], 1)
+        self.assertEqual(fila["fecha_fin"], "2025-09-19")
+
+        # Paginación (20 por página): todo cabe en la primera y una
+        # página fuera de rango responde 404
+        self.assertIsNone(cuerpo["next"])
+        self.assertIsNone(cuerpo["previous"])
+        pagina2 = self._api("get", "/api/etapas-campania/?page=2")
+        self.assertEqual(pagina2.status_code, 404)
+
+        # ?campania= solo esa campaña
+        cuerpo = self._json(self._api("get", f"/api/etapas-campania/?campania={self.campania.pk}"))
+        self.assertEqual(cuerpo["count"], 2)
+
+        # ?en_curso=1 solo la etapa sin fecha de fin
+        cuerpo = self._json(self._api("get", "/api/etapas-campania/?en_curso=1"))
+        self.assertEqual(cuerpo["count"], 1)
+        self.assertEqual(cuerpo["results"][0]["etapa"]["nombre"], "Emergencia S12")
+
+        # ?etapa= por el catálogo
+        cuerpo = self._json(
+            self._api("get", f"/api/etapas-campania/?etapa={self.emergencia.pk}")
+        )
+        self.assertEqual(cuerpo["count"], 1)
+        self.assertEqual(cuerpo["results"][0]["etapa"]["nombre"], "Emergencia S12")
+
+        # ?busqueda= sobre el nombre de la etapa
+        cuerpo = self._json(self._api("get", "/api/etapas-campania/?busqueda=emergencia"))
+        self.assertEqual(cuerpo["count"], 1)
+        self.assertEqual(cuerpo["results"][0]["etapa"]["orden"], 2)
+
+        # ?fecha_desde= y ?fecha_hasta= sobre fecha_inicio
+        cuerpo = self._json(
+            self._api("get", "/api/etapas-campania/?fecha_desde=2025-09-15&fecha_hasta=2025-09-25")
+        )
+        self.assertEqual(cuerpo["count"], 1)
+        self.assertEqual(cuerpo["results"][0]["etapa"]["nombre"], "Emergencia S12")
+
+        # Ámbito del Técnico: solo ve las etapas de sus campañas, y el
+        # filtro por una campaña ajena devuelve 0 (el ámbito va primero)
+        self._entrar_tecnico()
+        cuerpo = self._json(self._api("get", "/api/etapas-campania/"))
+        self.assertEqual(cuerpo["count"], 2)
+        cuerpo = self._json(self._api("get", f"/api/etapas-campania/?campania={ajena.pk}"))
+        self.assertEqual(cuerpo["count"], 0)

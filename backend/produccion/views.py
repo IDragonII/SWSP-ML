@@ -35,6 +35,8 @@ from productores.views import (
     _id_numerico,
 )
 
+from auditoria.mixins import AuditoriaMixin
+
 from .models import Produccion
 from .serializers import (
     ProduccionDetalleSerializer,
@@ -69,6 +71,7 @@ class PermisosProduccion(PermisosPorAccion):
 
 
 class ProduccionViewSet(
+    AuditoriaMixin,
     PermisosProduccion,
     SoloSusProductores,
     mixins.ListModelMixin,
@@ -80,6 +83,7 @@ class ProduccionViewSet(
     """CRUD de producciones sin DELETE (405) y con las acciones de revisión
     y deshacer cosecha."""
 
+    auditoria_modulo = "produccion"
     queryset = Produccion.objects.select_related(
         "campania",
         "campania__parcela",
@@ -169,7 +173,9 @@ class ProduccionViewSet(
         return queryset
 
     def perform_create(self, serializer):
-        serializer.save(registrado_por=self.request.user)
+        with transaction.atomic():
+            obj = serializer.save(registrado_por=self.request.user)
+            self._registrar_auditoria("CREAR", obj)
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -252,21 +258,27 @@ class ProduccionViewSet(
                     )
                 }
             )
-        produccion.requiere_revision = False
-        if produccion.motivo_revision:
-            produccion.motivo_revision = (
-                f"{produccion.motivo_revision} — Revisión: {nota}"
-            )[:200]
-        else:
-            produccion.motivo_revision = f"Revisión: {nota}"[:200]
-        produccion.incluir_en_entrenamiento = incluir
-        produccion.save(
-            update_fields=(
-                "requiere_revision",
-                "motivo_revision",
-                "incluir_en_entrenamiento",
+        with transaction.atomic():
+            produccion.requiere_revision = False
+            if produccion.motivo_revision:
+                produccion.motivo_revision = (
+                    f"{produccion.motivo_revision} — Revisión: {nota}"
+                )[:200]
+            else:
+                produccion.motivo_revision = f"Revisión: {nota}"[:200]
+            produccion.incluir_en_entrenamiento = incluir
+            produccion.save(
+                update_fields=(
+                    "requiere_revision",
+                    "motivo_revision",
+                    "incluir_en_entrenamiento",
+                )
             )
-        )
+            self._registrar_auditoria(
+                "MODIFICAR",
+                produccion,
+                detalle={"nota": nota, "incluir_en_entrenamiento": incluir},
+            )
         produccion.refresh_from_db()
         return Response(self._lectura(produccion).data)
 
@@ -295,7 +307,13 @@ class ProduccionViewSet(
             # COSECHADA -> EN_PRODUCCION) y luego el borrado físico
             campania.estado = Campania.ESTADO_EN_PRODUCCION
             campania.save(update_fields=("estado",))
+            produccion_pk = produccion.pk
             produccion.delete()
+            self._registrar_auditoria(
+                "ELIMINAR",
+                registro_id=produccion_pk,
+                detalle={"motivo": motivo, "campania": campania.pk},
+            )
         campania.refresh_from_db()
         return Response(
             {"campania": campania.id, "estado": campania.estado, "motivo": motivo}

@@ -364,6 +364,114 @@
   cursor: default;
 }
 
+/* ---------- Línea de tiempo de la campaña (Semana 12) ---------- */
+
+.linea-tiempo-actual {
+  margin: 0 0 0.75rem;
+}
+
+.linea-tiempo-progreso {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+  padding: 0;
+}
+
+.linea-tiempo-paso {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid rgba(30, 58, 45, 0.25);
+  border-radius: 8px;
+  background: transparent;
+  font-size: 0.875rem;
+}
+
+.linea-tiempo-paso-nombre {
+  font-weight: 600;
+}
+
+.linea-tiempo-paso.completada {
+  background: rgba(30, 58, 45, 0.08);
+  border-color: var(--bosque);
+}
+
+.linea-tiempo-paso.activa {
+  border-color: var(--marigold);
+  box-shadow: inset 3px 0 0 var(--marigold);
+}
+
+.linea-tiempo-lista {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 1rem;
+  border-left: 2px solid rgba(30, 58, 45, 0.3);
+}
+
+.linea-tiempo-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 9.5rem 1fr;
+  gap: 0.25rem 1rem;
+  padding: 0.5rem 0 0.5rem 1rem;
+}
+
+.linea-tiempo-item::before {
+  content: '';
+  position: absolute;
+  left: -1.3125rem;
+  top: 0.85rem;
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 50%;
+  background: var(--bosque);
+  border: 2px solid var(--crema);
+}
+
+.linea-tiempo-item--etapa::before {
+  background: var(--marigold);
+}
+
+.linea-tiempo-item--incidencia::before {
+  background: #b23a2f;
+}
+
+.linea-tiempo-item--produccion::before {
+  background: #2f6f8f;
+}
+
+.linea-tiempo-fecha {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.875rem;
+  color: var(--tenue);
+}
+
+.linea-tiempo-cuerpo {
+  margin: 0;
+}
+
+.linea-tiempo-titulo {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.linea-tiempo-titulo strong {
+  font-weight: 600;
+}
+
+.linea-tiempo-detalle {
+  margin: 0.25rem 0 0;
+  font-size: 0.9375rem;
+  color: var(--tenue);
+}
+
 /* ---------- Responsive ---------- */
 
 @media (max-width: 860px) {

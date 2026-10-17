@@ -29,6 +29,10 @@ export function cerrarCampania(id) {
   return cliente.post(`/campanias/${id}/cerrar/`).then((r) => r.data)
 }
 
+export function obtenerLineaTiempo(id) {
+  return cliente.get(`/campanias/${id}/linea-tiempo/`).then((r) => r.data)
+}
+
 // Mismos valores que models.Campania.ESTADOS.
 export const ESTADOS_CAMPANIA = [
   ['PLANIFICADA', 'Planificada'],

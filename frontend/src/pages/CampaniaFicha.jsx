@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { mensajeDeError } from '../api/errores.js'
 import { listarTodo } from '../api/catalogos.js'
-import { cerrarCampania, obtenerCampania } from '../api/campanias.js'
+import {
+  cerrarCampania,
+  obtenerCampania,
+  obtenerLineaTiempo,
+} from '../api/campanias.js'
+import { listarEtapasCampania } from '../api/etapasCampania.js'
 import Aviso from '../components/Aviso.jsx'
 import Cargando from '../components/Cargando.jsx'
 import Chip from '../components/Chip.jsx'
+import LineaTiempo from '../components/LineaTiempo.jsx'
 import Modal from '../components/Modal.jsx'
 import Tabla from '../components/Tabla.jsx'
 import { useSesion } from '../context/useSesion.js'
@@ -12,6 +19,8 @@ import { useToast } from '../context/useToast.js'
 import ActividadFicha from './ActividadFicha.jsx'
 import ActividadFormulario from './ActividadFormulario.jsx'
 import CampaniaFormulario from './CampaniaFormulario.jsx'
+import EtapaFormulario from './EtapaFormulario.jsx'
+import IncidenciaFormulario from './IncidenciaFormulario.jsx'
 import ProduccionFicha from './ProduccionFicha.jsx'
 import ProduccionFormulario from './ProduccionFormulario.jsx'
 import RecursoFormulario from './RecursoFormulario.jsx'
@@ -28,8 +37,11 @@ function Dato({ rotulo, valor }) {
 export default function CampaniaFicha({ id, abierto, onCerrar }) {
   const { tienePermiso } = useSesion()
   const { avisar } = useToast()
+  const navegar = useNavigate()
   const [ficha, setFicha] = useState(null)
   const [actividades, setActividades] = useState([])
+  const [lineaTiempo, setLineaTiempo] = useState(null)
+  const [etapas, setEtapas] = useState([])
   const [error, setError] = useState(null)
   const [recarga, setRecarga] = useState(0)
   const [editando, setEditando] = useState(false)
@@ -40,6 +52,9 @@ export default function CampaniaFicha({ id, abierto, onCerrar }) {
   const [produccionEditando, setProduccionEditando] = useState(null)
   const [produccionFichaId, setProduccionFichaId] = useState(null)
   const [recursoAbierto, setRecursoAbierto] = useState(false)
+  const [nuevaIncidencia, setNuevaIncidencia] = useState(false)
+  const [nuevaEtapa, setNuevaEtapa] = useState(false)
+  const [etapaEditandoId, setEtapaEditandoId] = useState(null)
   const [ocupado, setOcupado] = useState(false)
   const [confirmacion, setConfirmacion] = useState(null)
 
@@ -47,6 +62,7 @@ export default function CampaniaFicha({ id, abierto, onCerrar }) {
   const puedeCrearActividad = tienePermiso('actividades.crear')
   const puedeCrearProduccion = tienePermiso('produccion.crear')
   const puedeCrearRecurso = tienePermiso('recursos.crear')
+  const puedeCrearIncidencia = tienePermiso('incidencias.crear')
   const puedeCerrarCampania = tienePermiso('campanias.desactivar')
 
   const recargar = useCallback(() => setRecarga((n) => n + 1), [])
@@ -106,6 +122,19 @@ export default function CampaniaFicha({ id, abierto, onCerrar }) {
     listarTodo('/actividades/', { campania: id })
       .then((lista) => activo && setActividades(lista))
       .catch(() => activo && setActividades([]))
+    return () => {
+      activo = false
+    }
+  }, [id, recarga])
+
+  useEffect(() => {
+    let activo = true
+    obtenerLineaTiempo(id)
+      .then((datos) => activo && setLineaTiempo(datos))
+      .catch(() => activo && setLineaTiempo(null))
+    listarEtapasCampania({ campania: id })
+      .then((respuesta) => activo && setEtapas(respuesta.results ?? []))
+      .catch(() => activo && setEtapas([]))
     return () => {
       activo = false
     }
@@ -203,6 +232,78 @@ export default function CampaniaFicha({ id, abierto, onCerrar }) {
               <Dato rotulo="Observaciones" valor={ficha.observaciones} />
               <Dato rotulo="Creado por" valor={ficha.creado_por} />
             </dl>
+          </section>
+
+          <section className="panel">
+            <div className="ficha-cabecera">
+              <h2>Línea de tiempo</h2>
+              <div className="ficha-acciones">
+                {puedeEditarCampania &&
+                  ficha.estado !== 'CERRADA' &&
+                  ficha.estado !== 'CANCELADA' && (
+                    <button
+                      type="button"
+                      className="boton-texto"
+                      onClick={() => setNuevaEtapa(true)}
+                    >
+                      Registrar etapa
+                    </button>
+                  )}
+              </div>
+            </div>
+            <LineaTiempo datos={lineaTiempo} />
+            {etapas.length > 0 && (
+              <Tabla
+                filas={etapas}
+                columnas={[
+                  {
+                    clave: 'etapa',
+                    etiqueta: 'Etapa',
+                    celda: (fila) => (
+                      <strong>
+                        {fila.etapa.nombre}{' '}
+                        <span className="nota">(orden {fila.etapa.orden})</span>
+                      </strong>
+                    ),
+                  },
+                  {
+                    clave: 'fecha_inicio',
+                    etiqueta: 'Inicio',
+                    celda: (fila) => fila.fecha_inicio,
+                  },
+                  {
+                    clave: 'fecha_fin',
+                    etiqueta: 'Fin',
+                    celda: (fila) =>
+                      fila.fecha_fin ?? <Chip>EN CURSO</Chip>,
+                  },
+                  {
+                    clave: 'observaciones',
+                    etiqueta: 'Observaciones',
+                    celda: (fila) => fila.observaciones || '—',
+                  },
+                  {
+                    clave: 'acciones',
+                    etiqueta: 'Acciones',
+                    acciones: true,
+                    celda: (fila) =>
+                      puedeEditarCampania &&
+                      ficha.estado !== 'CERRADA' &&
+                      ficha.estado !== 'CANCELADA' ? (
+                        <button
+                          type="button"
+                          className="boton-texto"
+                          onClick={() => setEtapaEditandoId(fila.id)}
+                        >
+                          Editar
+                        </button>
+                      ) : (
+                        <span className="nota">Solo lectura</span>
+                      ),
+                  },
+                ]}
+              />
+            )}
           </section>
 
           <section className="panel">
@@ -420,6 +521,70 @@ export default function CampaniaFicha({ id, abierto, onCerrar }) {
               </p>
             )}
           </section>
+
+          <section className="panel">
+            <div className="ficha-cabecera">
+              <h2>Incidencias</h2>
+              <div className="ficha-acciones">
+                {puedeCrearIncidencia &&
+                  ficha.estado !== 'CERRADA' &&
+                  ficha.estado !== 'CANCELADA' && (
+                    <button
+                      type="button"
+                      className="boton-texto"
+                      onClick={() => setNuevaIncidencia(true)}
+                    >
+                      Registrar incidencia
+                    </button>
+                  )}
+                <button
+                  type="button"
+                  className="boton-texto"
+                  onClick={() => {
+                    navegar(`/incidencias?campania=${ficha.id}`)
+                    onCerrar?.()
+                  }}
+                >
+                  Ver todas
+                </button>
+              </div>
+            </div>
+            {ficha.resumen_incidencias && ficha.resumen_incidencias.total > 0 ? (
+              <>
+                <dl className="datos-rejilla">
+                  <Dato rotulo="Activas" valor={ficha.resumen_incidencias.total} />
+                  <Dato
+                    rotulo="Por severidad"
+                    valor={`Baja ${ficha.resumen_incidencias.por_severidad.baja} · Media ${ficha.resumen_incidencias.por_severidad.media} · Alta ${ficha.resumen_incidencias.por_severidad.alta}`}
+                  />
+                  <Dato
+                    rotulo="Severidad máxima"
+                    valor={ficha.resumen_incidencias.severidad_maxima}
+                  />
+                  <Dato
+                    rotulo="Última incidencia"
+                    valor={ficha.resumen_incidencias.ultima_fecha}
+                  />
+                  <Dato
+                    rotulo="Mayor superficie"
+                    valor={
+                      ficha.resumen_incidencias.mayor_superficie_ha !== null
+                        ? `${ficha.resumen_incidencias.mayor_superficie_ha} ha`
+                        : null
+                    }
+                  />
+                </dl>
+                <p className="nota">
+                  Solo cuentan las incidencias activas; las anuladas no se
+                  incluyen en el resumen ni en el dataset.
+                </p>
+              </>
+            ) : (
+              <p className="nota">
+                Esta campaña todavía no tiene incidencias activas.
+              </p>
+            )}
+          </section>
         </>
       )}
 
@@ -523,6 +688,46 @@ export default function CampaniaFicha({ id, abierto, onCerrar }) {
             recargar()
           }}
           onCancelar={() => setRecursoAbierto(false)}
+        />
+      )}
+
+      {nuevaIncidencia && ficha && (
+        <IncidenciaFormulario
+          campaniaInicial={ficha.id}
+          abierto
+          onGuardado={() => {
+            setNuevaIncidencia(false)
+            recargar()
+          }}
+          onCancelar={() => setNuevaIncidencia(false)}
+        />
+      )}
+
+      {nuevaEtapa && ficha && (
+        <EtapaFormulario
+          campaniaInicial={ficha.id}
+          abierto
+          onGuardado={() => {
+            setNuevaEtapa(false)
+            recargar()
+          }}
+          onCancelar={() => setNuevaEtapa(false)}
+        />
+      )}
+
+      {etapaEditandoId !== null && ficha && (
+        <EtapaFormulario
+          id={etapaEditandoId}
+          campaniaInicial={ficha.id}
+          abierto
+          onGuardado={() => {
+            setEtapaEditandoId(null)
+            recargar()
+          }}
+          onCancelar={() => {
+            setEtapaEditandoId(null)
+            recargar()
+          }}
         />
       )}
 

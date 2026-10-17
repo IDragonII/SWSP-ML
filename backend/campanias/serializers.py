@@ -1,15 +1,16 @@
-"""Serializadores de la API de campañas (Semana 6).
+"""Serializadores de la API de campañas (Semanas 6, 8 y 12).
 
-La lista muestra productor, parcela, cultivo, variedad, período y estado
-(sin DNI ni teléfono, decisión de docs/decisiones_semana6.md); la ficha
-añade fechas, superficie, observaciones, trazabilidad y (Semana 8) el
-bloque de producción. El de escritura no acepta estado, fecha de siembra
-ni creador (son de solo lectura: el estado solo cambia con
-iniciar/cancelar/cerrar y la siembra la llena el Sprint 4) y valida ANTES
-que la base: período, fechas dentro del período, superficie y las dos
-reglas únicas nombrando la campaña existente. El estado del request
-(edición según estado) también se controla aquí: en cosechada se bloquean
-los mismos campos que en producción y en cerrada no se admite nada.
+La lista muestra productor, parcela, cultivo, variedad, período, estado
+(Semana 6, decisión de docs/decisiones_semana6.md) y etapa_actual
+(Semana 12); la ficha añade fechas, superficie, observaciones,
+trazabilidad, el bloque de producción (Semana 8) y etapa_actual. El de
+escritura no acepta estado, fecha de siembra ni creador (son de solo
+lectura: el estado solo cambia con iniciar/cancelar/cerrar y la siembra
+la llena el Sprint 4) y valida ANTES que la base: período, fechas dentro
+del período, superficie y las dos reglas únicas nombrando la campaña
+existente. El estado del request (edición según estado) también se
+controla aquí: en cosechada se bloquean los mismos campos que en
+producción y en cerrada no se admite nada.
 """
 import re
 from datetime import date, datetime
@@ -72,17 +73,48 @@ def _mini_parcela(obj):
     }
 
 
+def _etapa_actual(obj):
+    """Etapa de la línea del tiempo que manda hoy (Semana 12): la que
+    quedó sin fecha de fin (en curso); si ninguna queda abierta, la
+    última registrada; null si la campaña aún no tiene etapas. El Meta
+    de SeguimientoEtapa ordena por fecha descendente y CampaniaViewSet
+    además prefetchea obj.etapas, así el listado no paga una consulta
+    por fila."""
+    etapas = list(obj.etapas.all())
+    if not etapas:
+        return None
+    etapa = next((e for e in etapas if e.fecha_fin is None), etapas[0])
+    return {
+        "id": etapa.id,
+        "nombre": etapa.etapa.nombre,
+        "fecha_inicio": etapa.fecha_inicio.isoformat(),
+        "fecha_fin": etapa.fecha_fin.isoformat() if etapa.fecha_fin else None,
+        "en_curso": etapa.fecha_fin is None,
+    }
+
+
 class CampaniaListaSerializer(serializers.ModelSerializer):
-    """Fila del listado: productor, parcela, cultivo, variedad, período y
-    estado (HU-42). El orden por defecto es período descendente."""
+    """Fila del listado: productor, parcela, cultivo, variedad, período,
+    estado (HU-42) y etapa_actual (Semana 12: en curso o última
+    registrada, para el chip de la tabla). El orden por defecto es
+    período descendente."""
 
     parcela = serializers.SerializerMethodField()
     cultivo = serializers.SerializerMethodField()
     variedad = serializers.SerializerMethodField()
+    etapa_actual = serializers.SerializerMethodField()
 
     class Meta:
         model = Campania
-        fields = ("id", "periodo", "parcela", "cultivo", "variedad", "estado")
+        fields = (
+            "id",
+            "periodo",
+            "parcela",
+            "cultivo",
+            "variedad",
+            "estado",
+            "etapa_actual",
+        )
 
     def get_parcela(self, obj):
         return _mini_parcela(obj)
@@ -92,6 +124,9 @@ class CampaniaListaSerializer(serializers.ModelSerializer):
 
     def get_variedad(self, obj):
         return _mini_variedad(obj)
+
+    def get_etapa_actual(self, obj):
+        return _etapa_actual(obj)
 
 
 class CampaniaDetalleSerializer(serializers.ModelSerializer):
@@ -108,7 +143,10 @@ class CampaniaDetalleSerializer(serializers.ModelSerializer):
     las columnas clima_c de vw_dataset_entrenamiento. La Semana 11 añade
     resumen_incidencias: total activas, cantidad por severidad, la
     severidad máxima, la última fecha y la mayor superficie afectada
-    (las anuladas no cuentan, coherente con inc_c del dataset)."""
+    (las anuladas no cuentan, coherente con inc_c del dataset). La Semana
+    12 añade etapa_actual: la etapa en curso (fecha_fin vacía) o la última
+    registrada, con la que la tabla y la ficha enseñan dónde va la
+    campaña (HU-99)."""
 
     parcela = serializers.SerializerMethodField()
     cultivo = serializers.SerializerMethodField()
@@ -120,6 +158,7 @@ class CampaniaDetalleSerializer(serializers.ModelSerializer):
     resumen_recursos = serializers.SerializerMethodField()
     resumen_clima = serializers.SerializerMethodField()
     resumen_incidencias = serializers.SerializerMethodField()
+    etapa_actual = serializers.SerializerMethodField()
 
     class Meta:
         model = Campania
@@ -141,6 +180,7 @@ class CampaniaDetalleSerializer(serializers.ModelSerializer):
             "resumen_recursos",
             "resumen_clima",
             "resumen_incidencias",
+            "etapa_actual",
             "creado_por",
             "creado_en",
             "actualizado_en",
@@ -154,6 +194,7 @@ class CampaniaDetalleSerializer(serializers.ModelSerializer):
             "resumen_recursos",
             "resumen_clima",
             "resumen_incidencias",
+            "etapa_actual",
             "creado_por",
             "creado_en",
             "actualizado_en",
@@ -324,6 +365,9 @@ class CampaniaDetalleSerializer(serializers.ModelSerializer):
             "ultima_fecha": resumen["ultima"],
             "mayor_superficie_ha": resumen["mayor_superficie"],
         }
+
+    def get_etapa_actual(self, obj):
+        return _etapa_actual(obj)
 
 
 class CampaniaEscrituraSerializer(serializers.ModelSerializer):

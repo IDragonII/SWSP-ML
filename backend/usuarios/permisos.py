@@ -49,3 +49,38 @@ class TienePermiso(BasePermission):
         if not codigo:
             return False
         return codigo in permisos_de_peticion(request)
+
+
+# Rutas que siguen funcionando con debe_cambiar_clave en TRUE (Semana 13,
+# HU-112): entrar, renovar/cerrar la propia sesión, leer /me (para saber
+# que hay que cambiar la clave) y cambiarla. El resto de la API queda
+# cerrada con 403 hasta que se cambie.
+RUTAS_LIBRES_CAMBIO_CLAVE = (
+    '/api/auth/login/',
+    '/api/auth/refresh/',
+    '/api/auth/logout/',
+    '/api/auth/me/',
+    '/api/auth/cambiar-clave/',
+)
+
+
+class DebeCambiarClave(BasePermission):
+    """Puerta del cambio obligatorio de contraseña (HU-112, RF-73).
+
+    Si el usuario tiene debe_cambiar_clave en TRUE, solo pasan las rutas
+    de sesión/cambio; el resto responde 403 «Debes cambiar tu
+    contraseña…». Va ANTES de IsAuthenticated en
+    DEFAULT_PERMISSION_CLASSES: los anónimos y las rutas libres siguen
+    el resto de la cadena normal.
+    """
+
+    message = 'Debes cambiar tu contraseña antes de continuar.'
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not user or not user.is_authenticated:
+            return True  # IsAuthenticated (la siguiente) se ocupa
+        if not getattr(user, 'debe_cambiar_clave', False):
+            return True
+        ruta = request.path.rstrip('/')
+        return any(ruta == ruta_libre.rstrip('/') for ruta_libre in RUTAS_LIBRES_CAMBIO_CLAVE)

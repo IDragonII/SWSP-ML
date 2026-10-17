@@ -1,6 +1,8 @@
-# Tablero SIGPA-GA — Semana 10: clima
+# Tablero SIGPA-GA — Semana 13: auditoría y cambio de contraseña
 
-> Tablero de la semana del **7 al 13 de diciembre** (calendario referencial).
+> Tablero de la semana del **28 de diciembre al 3 de enero** (calendario
+> referencial; feriados 30 dic — Ley N.° 31096 — y 1 de enero: ~3 días
+> laborables).
 > Sustituye mientras tanto a Trello/GitHub Projects (decisión de metodología:
 > se confirmará con el responsable qué herramienta usa él).
 > Los textos originales de las historias de usuario **no están en este
@@ -8,10 +10,151 @@
 > (igual que en semanas anteriores), anclado a los RF/RN del documento de
 > requerimientos.
 
+## Semana 13 — 7/7 fases terminadas
+
+El tema «auditoría de acciones sensibles y cambio de contraseña propio»
+(apertura del **Sprint 7**) corresponde al **mapeo HU-105 a HU-113** de la
+semana; se ejecutó **por fases F1–F7** acordadas con el responsable
+(**7/7 cerradas**: la suite está en **220/220**, la documentación de la
+semana está escrita, el frontend en `lint`/`build` en 0 y la colección de
+Postman validada **430/430** —793/793 aserciones—; la Semana 13 se entrega
+**íntegra sin commitear**, decisión del responsable: el commit único lo
+hace él al cierre).
+
+| HU | Descripción (propuesta) | Estado | Evidencia |
+|---|---|---|---|
+| **HU-105** | Registro de eventos de auditoría en todas las escrituras de la API: altas, ediciones, estados, anulaciones con motivo, asignaciones, reordenar etapas, sesión (LOGIN/LOGOUT/BLOQUEAR) y mantenimiento de cuentas; punto único `registrar_evento` y auditoría transaccional (sin eventos huérfanos) | ✅ Hecha | `auditoria/registrar.py`, `mixins.py` · pruebas 198–204, 209 |
+| **HU-106** | API de consulta de la auditoría: listado paginado con filtros (`usuario`, `modulo`, `accion`, `tabla`, `registro`, rango de fechas y búsqueda) y detalle; **solo lectura** (POST/PATCH/PUT/DELETE → 405) | ✅ Hecha | `GET /api/auditoria/` · pruebas 204–206, 208 |
+| **HU-107** | Permisos de consulta: `auditoria.ver` (en el catálogo actual solo el Administrador); sin permiso → 403 «No tienes permiso…», sin sesión → 401; la propia lectura no deja eventos | ✅ Hecha | `AuditoriaViewSet` + `PermisosAuditoria` · pruebas 205, 209 |
+| **HU-108** | Inmutabilidad de la traza: trigger 25 (`fn_auditoria_inmutable`) que rechaza UPDATE y DELETE con «Los registros de auditoría no se pueden modificar ni eliminar.» | ✅ Hecha | `auditoria/0002_fn_trg_auditoria.py` · prueba 207 |
+| **HU-109** | Pantalla `/auditoria` responsive: `Tabla` + `Paginacion`, filtros en URL (búsqueda, módulo, acción con las 15 etiquetas, fechas), chip de acción, detalle en `<code>` y estado vacío con nota; permiso en el menú y en la ruta | ✅ Hecha | `frontend/src/pages/Auditoria.jsx`, `api/auditoria.js` · checklist `verificacion_ui_semana13.md` |
+| **HU-110** | Historial por ficha: botón **«Ver historial»** en las fichas de productor, parcela y usuario (solo con `auditoria.ver`) que llega a `/auditoria?tabla=…&registro=…` con el chip «Quitar historial de X #id» | ✅ Hecha | `ProductorFicha.jsx`, `ParcelaFicha.jsx`, `UsuarioFicha.jsx` · checklist |
+| **HU-111** | Accesibilidad de la UI de auditoría: rueda en «Actualizar», botones ≥ 44 px en móvil, tablas en tarjetas ≤ 860 px y respuestas de error/permiso legibles | ✅ Hecha | checklist móvil §3 · `lint`/`build` en 0 |
+| **HU-112** | Cambio de la propia contraseña: `POST /api/auth/cambiar-clave/` con contraseña actual y nueva (validadores de Django con el usuario, similitud incluida), límite de 5 intentos/hora (429 con `Retry-After`), puerta `DebeCambiarClave` (403 «Debes cambiar tu contraseña antes de continuar.» en toda la API salvo las rutas libres) y pantalla `/cambiar-clave` con redirección desde el login y `RutaProtegida` | ✅ Hecha | `usuarios/views.py`, `permisos.py`, `ratelimit.py`, `pages/CambiarClave.jsx` · pruebas 211–217, 219–220 |
+| **HU-113** | Al cambiar: cierre de las demás sesiones (marca de sesión), evento CAMBIAR_CLAVE, cookies/tokens nuevos en la misma respuesta (sin relogin) y espera del segundo siguiente a la marca para no invalidar los tokens recién emitidos | ✅ Hecha | `CambiarClaveView`, `esperar_tras_marca` · pruebas 211, 217, 218 |
+
+> **Nota:** el mapeo HU-105..HU-113 es el **mapeo propuesto** de la semana
+> (los textos originales no están en el repositorio; es el que fijó el
+> tablero de la Semana 12). Los docstrings del código usan los mismos
+> rangos (`usuarios/views.py`, `permisos.py`, `ratelimit.py`,
+> `usuarios/tests.py`).
+
+| Fase | Contenido | Estado | Evidencia |
+|---|---|---|---|
+| **F1** | Estructura: app **`auditoria/`** con el modelo `Auditoria` (15 acciones en CHECK, 4 índices, sin acciones de escritura) + **2 migraciones reversibles** (`0001_auditoria.py`, `0002_fn_trg_auditoria.py` con el trigger 25) y **`usuarios/0004_debe_cambiar_clave.py`** (hoja 0004); diseño SQL actualizado (**33 tablas, 25 triggers**); verificada con `check`, `makemigrations --check` y `sqlmigrate` | ✅ Hecha | `backend/auditoria/`, `backend/usuarios/migrations/0004` · `DB_sql/01_tablas.sql`, `02_reglas_y_vista.sql` |
+| **F2** | Registro en los módulos: `registrar_evento` + `AuditoriaMixin`/`_registrar_auditoria` en catalogos, productores (productores/parcelas/ubicación/asignaciones), campanias, seguimiento (actividades, incidencias, uso y reordenar etapas), produccion, sistema y usuarios (CRUD, estados, LOGIN/LOGOUT/BLOQUEAR/DESBLOQUEAR/RESTABLECER_CLAVE); IP = solo `REMOTE_ADDR` | ✅ Hecha | `auditoria/registrar.py`, `mixins.py` · 197/197 verdes en su momento |
+| **F3** | Consulta y cambio de clave: `AuditoriaViewSet` (solo lectura, filtros, `auditoria.ver`), `DebeCambiarClave` con rutas libres (primera en `DEFAULT_PERMISSION_CLASSES`, antepuesta en `PermisosPorAccion.get_permissions()` y `RolViewSet`), `POST /api/auth/cambiar-clave/` con validadores, límite 5/hora, evento y cookies nuevas; marca expuesta en `login` y `/me` | ✅ Hecha | `auditoria/views.py`, `usuarios/{permisos,views,serializers,ratelimit}.py`, `config/settings.py` |
+| **F4** | Pruebas **198–220** (13 de auditoría + 10 de cambio de clave): eventos por módulo, API de consulta, inmutabilidad, solo-lectura, ciclo restablecer→entrar→cambiar, puerta 403, 429 con `Retry-After`, validadores con usuario y limpieza del contador; **total 220/220 en verde**; hallazgos corregidos en el código (puerta en `get_permissions`, errores como cadena, `user` en `validate_password`, iat de segundo) | ✅ Hecha | `auditoria/tests.py`, `usuarios/tests.py` (`CambioClaveApiTests`) · `manage.py test` 220/220 (~492 s) |
+| **F5** | Frontend: pantallas **`/auditoria`** y **`/cambiar-clave`**, «Ver historial» en las tres fichas, `cambiarClave` en `api/auth.js`, redirecciones en `RutaProtegida`/`Login`, `actualizarUsuario` en `SesionProvider` | ✅ Hecha | `frontend/src/pages/…`, `api/{auditoria,auth}.js`, `routes/RutaProtegida.jsx` · `lint`/`build` en 0 |
+| **F6** | Documentación de la semana: `decisiones_semana13.md` (21 decisiones + preguntas Q, R, S), `api_auditoria.md`, `api_cambio_clave.md` y este checklist de navegador | ✅ Hecha | `docs/decisiones_semana13.md`, `api_auditoria.md`, `api_cambio_clave.md`, `verificacion_ui_semana13.md` |
+| **F7** | Cierre: colección de Postman (392 de la Semana 12 + **38 nuevas** = **430**: 429 obligatorias + 1 opcional), validada end-to-end en la BD temporal `sigpa_ga_coleccion13` (**430/430, 793/793 aserciones**; `LOGIN_RATE_IP=120/min` por el número de logins) y borrada al terminar | ✅ Hecha | `docs/coleccion_api_semana13.json` (393–430) |
+
+**Cierre (7/7 fases):** **220 pruebas verdes** (`manage.py test`; 23 nuevas:
+13 de auditoría — 198–210— y 10 de cambio de clave — 211–220—),
+`manage.py check` en 0 issues, `makemigrations --check` sin cambios,
+`npm run lint` y `npm run build` en 0 problemas, colección validada
+**430/430** (429 obligatorias + 1 opcional, **793/793 aserciones**) y
+documentación en `decisiones_semana13.md`, `api_auditoria.md`,
+`api_cambio_clave.md`, `verificacion_ui_semana13.md`,
+`CONTEXTO_PROYECTO.md` y `evidencias_capitulo4.md`. **Pendiente:** solo el
+commit único del responsable.
+
+
+## Semana 12 — 7/7 fases terminadas
+
+El tema «línea de tiempo de la campaña y gestión de usuarios» (cierre del
+**Sprint 6**) corresponde al **mapeo HU-93 a HU-104** de la semana; se ejecutó
+**por fases F1–F7** acordadas con el responsable (**F7 cerrada**: colección de
+Postman validada **392/392** —726/726 aserciones—; la Semana 12 se entrega
+**íntegra sin commitear**, decisión del responsable: el commit único lo hace
+él al cierre).
+
+| HU | Descripción (propuesta) | Estado | Evidencia |
+|---|---|---|---|
+| **HU-93** | CRUD de etapas fenológicas por campaña: alta y edición en modal, **una etapa por campaña**, sin `DELETE` (→ 405) y sin anulación; registrar (o dejar en curso) una etapa **cierra la anterior** con su fecha de inicio, en la misma transacción con la campaña bloqueada | ✅ Hecha | `POST/PATCH /api/etapas-campania/` · pruebas 173, 175, 178, 181 · checklist `cierre_semana12.md` §3 |
+| **HU-94** | Línea de tiempo de la campaña: etapas (registradas y pendientes), actividades, incidencias y cosecha en una sola cronología, con desempate etapa → actividad → incidencia → cosecha, tope de 500 y aviso `truncado` | ✅ Hecha | `GET /api/campanias/{id}/linea-tiempo/` · pruebas 182–183 · componente `LineaTiempo.jsx` |
+| **HU-95** | Validaciones de etapas: etapa del cultivo de la campaña (con la lista de válidas en el mensaje), fechas dentro del período y no futuras (hora de Lima), fin ≥ inicio y coherencia cronológica por orden del catálogo (saltos permitidos) | ✅ Hecha | `EtapaCampaniaEscrituraSerializer` + `fn_validar_etapa`/triggers · pruebas 174–177, 185 |
+| **HU-96** | Permisos y ámbito: `campanias.ver` para consultar y `campanias.editar` para registrar; Técnico solo en sus productores (campaña ajena → 400 «no existe», línea de tiempo ajena → 404, `registrado_por` oculto); Coordinador solo consulta | ✅ Hecha | `PermisosEtapaCampania` + `SoloSusProductores` · pruebas 180–181, 183, 197 |
+| **HU-97** | Filtros del listado de etapas: campaña, etapa, cultivo, parcela, productor, `en_curso`, búsqueda y rango de fechas, con paginación y el ámbito del Técnico aplicado **antes** que los filtros | ✅ Hecha | `GET /api/etapas-campania/` · prueba **197** (añadida en F6: el listado no tenía prueba) |
+| **HU-98** | Pantallas de etapas: alta/edición en modal (`EtapaFormulario`) y bloque de etapas en la ficha de campaña | ✅ Hecha | `frontend/src/pages/EtapaFormulario.jsx`, `CampaniaFicha.jsx` · checklist §3 |
+| **HU-99** | `etapa_actual` en la tabla y la ficha de campaña (la última registrada; `en_curso` si no tiene fecha de fin) | ✅ Hecha | `campanias/serializers.py` (`_etapa_actual`) · prueba 184 |
+| **HU-100** | Alta y edición de usuarios: username obligatorio e inmutable, nombres obligatorios, contraseña con validadores de Django, rol activo obligatorio; duplicado enlaza el registro (`usuario_existente`) | ✅ Hecha | `POST/PATCH /api/usuarios/` · pruebas 187–189 |
+| **HU-101** | Desactivar y reactivar sin borrado: nunca la cuenta propia, nunca perder al último gestor de roles; desactivar cierra las sesiones abiertas | ✅ Hecha | `…/desactivar/` y `…/reactivar/` · pruebas 190–192 |
+| **HU-102** | Pantalla `/usuarios` responsive: listado con búsqueda, ficha y alta/edición en modales, permisos en los botones y desplegable de roles activos | ✅ Hecha | `pages/Usuarios.jsx`, `UsuarioFicha.jsx`, `UsuarioFormulario.jsx` · checklist §3 |
+| **HU-103** | Bloqueo y desbloqueo de cuenta: 5 fallos → 429 con minutos a esperar, desbloqueo manual que aclara si había bloqueo, y el «último gestor de roles» protegido en rol y estado | ✅ Hecha | `usuarios/ratelimit.py`, `…/desbloquear/` · pruebas 191, 194 |
+| **HU-104** | Restablecer contraseña: acción administrativa que cierra las sesiones del usuario (marca de sesión que invalida los tokens), limpia el bloqueo y nunca actúa sobre la cuenta propia (apunta al cambio propio del Sprint 7) | ✅ Hecha | `…/restablecer-clave/` · prueba 193 |
+
+> **Nota:** el mapeo HU-93..HU-104 es el **mapeo propuesto** de la semana (los
+> textos originales no están en el repositorio). Los docstrings del código
+> usan los mismos rangos (`seguimiento/views.py`, `campanias/serializers.py`,
+> `usuarios/views.py`).
+
+| Fase | Contenido | Estado | Evidencia |
+|---|---|---|---|
+| **F1** | Estructura: tabla **`seguimiento_etapas`** en `seguimiento/` (campania + etapa + fechas + observaciones + registrado_por, `uq_seguimiento_etapa`, `ck_seguimiento_fechas`, sin `DELETE`) + **2 migraciones reversibles** (`0009_seguimiento_etapas.py`, `0010_fn_trg_seguimiento.py` con `fn_validar_etapa` literal y **2 triggers** → **24**); diseño SQL actualizado; verificada con `sqlmigrate` | ✅ Hecha | `backend/seguimiento/models.py`, `migrations/0009`, `0010` · `DB_sql/01_tablas.sql`, `02_reglas_y_vista.sql` |
+| **F2** | API de etapas: alta y edición con **cierre atómico** de la etapa en curso (`select_for_update`), validaciones en español (cultivo con lista de válidas, unicidad con enlace `etapa_existente`, período, futuro, cronología), línea de tiempo con desempate, permisos `campanias.*` y ámbito del Técnico | ✅ Hecha | `seguimiento/views.py`, `serializers.py`, `campanias/views.py` |
+| **F3** | API de usuarios: `UsuarioViewSet` completo (lista con `?busqueda=`, alta 201 + ficha, edición, desactivar/reactivar, restablecer-clave, desbloquear; sin `DELETE` → 405), «último gestor de roles», `RolViewSet` para el desplegable y **marca de sesión** que invalida todos los tokens al cambiar credenciales | ✅ Hecha | `usuarios/views.py`, `serializers.py`, `autenticacion.py` |
+| **F4** | Frontend: modal **`EtapaFormulario`**, componente **`LineaTiempo`** en `CampaniaFicha`, columna `etapa_actual` en tabla y ficha de campañas, pantalla **`/usuarios`** completa (ficha, formulario, permisos) y entrada en el menú | ✅ Hecha | `frontend/src/pages/…`, `components/LineaTiempo.jsx`, `api/etapasCampania.js`, `api/usuarios.js` · `lint`/`build` en 0 |
+| **F5** | Verificación UI en navegador (Chrome/Edge/móvil 360 px, tres roles, estados de carga/vacío/error) — §3 del cierre | ✅ Hecha | `docs/cierre_semana12.md` §3 |
+| **F6** | Documentación de la semana + **prueba 197** (listado de etapas con filtros: al revisar F5 se detectó sin cobertura; mueve el total de 196 a **197**) | ✅ Hecha | `decisiones` en `cierre_semana12.md` (18 decisiones), `verificacion_ui` en §3 |
+| **F7** | Cierre: colección de Postman (311 de la Semana 11 + **81 nuevas** = **392**), validada end-to-end en la BD temporal `sigpa_ga_coleccion12` (**392/392, 726/726 aserciones**; `LOGIN_RATE_IP=120/min` por el número de logins) y borrada al terminar | ✅ Hecha | `docs/coleccion_api_semana12.json` (312–392) |
+
+**Cierre (7/7 fases):** **197 pruebas verdes** (`manage.py test`; 25 nuevas:
+14 de etapas — 173–185 y 197— y 11 de usuarios — 186–196—), `manage.py check`
+en 0 issues, `makemigrations --check` sin cambios, `npm run lint` y
+`npm run build` en 0 problemas, colección S12 **validada 392/392** (391
+obligatorias + 1 opcional, **726/726 aserciones**) y documentación en
+`cierre_semana12.md`, `api_autenticacion.md`, `CONTEXTO_PROYECTO.md` y
+`evidencias_capitulo4.md`. **Pendiente:** el commit único del responsable.
+
+## Semana 11 — 7/7 fases terminadas
+
+El tema «incidencias» (apertura del **Sprint 6**) corresponde al **mapeo
+HU-85 a HU-92** de la semana; se ejecutó **por fases F1–F7** acordadas con
+el responsable (**F7 cerrada**: colección de Postman validada 311/311
+—574/574 aserciones—; el commit semanal único lo cierra **el responsable
+al final de la semana**; decisión 16: no commitea el agente; los commits
+de F1–F3 —`2125af9`, `74ed665`, `dc81057`— quedaron de antes de esa
+indicación y el responsable puede reorganizarlos).
+
+| HU | Descripción (propuesta) | Estado | Evidencia |
+|---|---|---|---|
+| **HU-85** | Listar, ver, registrar y editar incidencias: listado con filtros y búsqueda, ficha completa con trazabilidad y alta/edición en modal; campaña inmutable al editar y sin `DELETE` → 405 | ✅ Hecha | `GET/POST/PATCH /api/incidencias/` · pruebas 156, 161, 163, 167 · checklist `verificacion_ui_semana11.md` |
+| **HU-86** | Validaciones del registro: campaña que admite registros, fecha dentro del período y no futura (hora de Lima), severidad de las tres, descripción obligatoria, superficie ≥ 0 y ≤ sembrada, agente activo y solo en tipos biológicos, producto ≤ 100; duplicadas en serializador (400) y triggers | ✅ Hecha | `IncidenciaEscrituraSerializer` + `fn_validar_incidencia`/`trg_incidencias_fecha` · pruebas 157–160, 172 |
+| **HU-87** | Permisos por acción y ámbito: Administrador los 4 `incidencias.*`; Técnico `ver/crear/editar` solo en sus productores (objeto ajeno → 404; `registrado_por` oculto); Coordinador solo `ver` | ✅ Hecha | `PermisosIncidencia` + `SoloSusProductores` · pruebas 164–166, 171 |
+| **HU-88** | Anular con motivo obligatorio y reactivar (solo si la campaña sigue abierta y la fecha en su período); anuladas fuera de resúmenes, dataset e historial | ✅ Hecha | `POST …/anular/` y `…/reactivar/` · pruebas 162, 165 · checklist (ficha con panel de anulación) |
+| **HU-89** | Resumen de incidencias en la ficha de campaña (`resumen_incidencias`: total, por severidad, severidad máxima, última fecha y mayor superficie; vacío = ceros), historial agrupado por campaña en la parcela (`?incluir_anuladas=1`) e `incidencias_activas`/`ultima_incidencia` en el productor | ✅ Hecha | `campanias/serializers.py`, `productores/serializers.py` · pruebas 168, 169 |
+| **HU-90** | Pantalla `/incidencias` responsive: 10 filtros en la URL (incluido el de campaña que enlaza «Ver todas»), `Tabla`+`Paginacion`, modales de alta/ficha y permisos en los botones; entrada «Incidencias» en el menú | ✅ Hecha | `pages/Incidencias.jsx`, `IncidenciaFormulario.jsx`, `IncidenciaFicha.jsx`, `opcionesMenu.js`, `App.jsx` · checklist `verificacion_ui_semana11.md` |
+| **HU-91** | Que las incidencias anuladas **no cuenten** en el dataset: CTE `inc_c` con `WHERE NOT i.anulada` y `n_incidencias`/`severidad_max` idénticos a `resumen_incidencias` | ✅ Hecha | `DB_sql/02_reglas_y_vista.sql` (`inc_c`) · prueba 170 |
+| **HU-92** | Verificación de la semana: checklist de UI en navegador y colección de Postman | ✅ Hecha | checklist `verificacion_ui_semana11.md` (F5) · `coleccion_api_semana11.json` (F7) — **validada 311/311 (574/574 aserciones)** |
+
+> **Nota:** el mapeo HU-85..HU-92 es el **mapeo propuesto** de la semana (los
+> textos originales no están en el repositorio). Los docstrings del código
+> usan HU-85 (CRUD), HU-88 (anular/reactivar) y HU-89 (resumen/historial).
+
+| Fase | Contenido | Estado | Evidencia |
+|---|---|---|---|
+| **F1** | Estructura: tabla **`incidencias`** en `seguimiento/` (14 columnas, `anulada`+`motivo_anulacion` con CHECK «anulada ⇒ motivo», 2 índices) + **2 migraciones reversibles** (`seguimiento/0007_incidencias.py`, `0008_fn_trg_incidencias.py` con `fn_validar_incidencia` literal y **3 triggers**); diseño SQL actualizado (función, triggers y CTE `inc_c` con `WHERE NOT i.anulada`); **22 triggers** en total; verificada con `sqlmigrate` | ✅ Hecha | `backend/seguimiento/models.py`, `migrations/0007`, `0008` · `DB_sql/01_tablas.sql`, `02_reglas_y_vista.sql` · commit `2125af9` (ver decisión 16) |
+| **F2** | API completa: listado con **12 filtros + búsqueda**, detalle, alta, edición, `anular/` y `reactivar/` (sin `DELETE` → 405); `resumen_incidencias` en el detalle de campaña, `incidencias` agrupado por campaña en parcela e `incidencias_activas`/`ultima_incidencia` en el productor; permisos `incidencias.*` por acción, ámbito del Técnico (404; anular sin permiso → 403), `registrado_por` oculto | ✅ Hecha | `views.py`, `serializers.py`, `urls.py` + `campanias/`, `productores/` · commit `74ed665` |
+| **F3** | Pruebas de la semana: **17 nuevas (156–172)** — validaciones, edición, anular/reactivar, 405, permisos/ámbitos, filtros, resumen/historial/dataset, `registrado_por` oculto y triggers/reversibilidad; hallazgos ajustados (403 ≠ 404 en anular, decimales crudos con `float()`, fecha SQL entrecomillada) | ✅ Hecha | `seguimiento/tests.py` · **172 en verde** · commit `dc81057` |
+| **F4** | Pantallas: **`/incidencias`** (10 filtros en URL, `Tabla`+`Paginacion`), alta/edición en modal (`IncidenciaFormulario`, agente solo biológicos, campaña inmutable), ficha en modal (`IncidenciaFicha` con anular/reactivar), secciones **«Incidencias»** en `CampaniaFicha`, historial en `ParcelaFicha` y contadores en `ProductorFicha`; entrada en el menú; **corrección:** la pantalla ahora lee y filtra por `?campania=` (el enlace «Ver todas») | ✅ Hecha | `pages/Incidencias.jsx`, `IncidenciaFormulario.jsx`, `IncidenciaFicha.jsx`, `CampaniaFicha.jsx`, `ParcelaFicha.jsx`, `ProductorFicha.jsx`, `api/incidencias.js` · `lint`/`build` en 0 |
+| **F5** | Verificación integral: **172 pruebas** + `check` en 0 issues + `makemigrations --check` sin cambios + checklist de UI (Chrome/Edge/móvil, permisos por rol, estados) | ✅ Hecha | `seguimiento/tests.py` · `docs/verificacion_ui_semana11.md` |
+| **F6** | Documentación de la semana | ✅ Hecha | `decisiones_semana11.md` (20 decisiones + pregunta N), `api_incidencias.md`, `comparacion_semana11.md` (14 columnas, 8 restricciones, 0 índices extra, 22 triggers) |
+| **F7** | Cierre: colección de Postman (270 de la Semana 10 + 41 nuevas = **311**), verificación final y entrega para el commit único del responsable | ✅ Hecha | `docs/coleccion_api_semana11.json` (271–311) — **validada 311/311 (574/574 aserciones)** en la BD temporal `sigpa_ga_coleccion11`, borrada al terminar · `evidencias_capitulo4.md` + `CONTEXTO_PROYECTO.md` §3/§6 |
+
+**Cierre (7/7 fases):** 172 pruebas verdes (`manage.py test`;
+17 nuevas), `manage.py check` en 0 issues, `makemigrations --check` sin
+cambios, `npm run lint` y `npm run build` en 0 problemas, colección S11
+**validada 311/311** (310 obligatorias + 1 opcional, **574/574
+aserciones**) y documentación en `decisiones_semana11.md` (20
+decisiones), `api_incidencias.md`, `comparacion_semana11.md` y
+`verificacion_ui_semana11.md`. **Pendiente:** el commit único del
+responsable.
+
 ## Semana 10 — 7/7 fases terminadas
 
 El tema «clima» (cierre del **Sprint 5**) corresponde al **mapeo HU-76 a
-HU-84** de la semana; se ejecuta **por fases F1–F7** acordadas con el
+HU-84** de la semana; se ejecutó **por fases F1–F7** acordadas con el
 responsable (**F7 cerrada**: colección de Postman validada 270/270; el
 commit semanal único se ejecuta tras el visto bueno).
 
@@ -229,14 +372,17 @@ de **48 peticiones validada 48/48** contra el servidor (estados y aserciones),
 | 2 (12–18 oct) — autenticación y permisos | HU-07..HU-14 (login, refresh, logout, `/me`, permisos, rate limit, sesión y menú en React) | ✅ 20 pruebas · `api_autenticacion.md` |
 | 3 (19–25 oct) — ubicación y productores | HU-15..HU-22 (ubicación con `cargar_ubicacion`, productor con código PROD-000N, filtros, enmascarado, ficha parcial) | ✅ 37 pruebas · `api_ubicacion_productores.md` |
 
-## Siguiente (Semana 11, 14–20 dic)
+## Siguiente (Semana 14, 4–10 ene)
+
+Cierre del **Sprint 7** y arranque de lo que falte (la semana es larga:
+sin feriados). Reparto provisional a confirmar con el responsable tras el
+control del domingo 3 (velocidad real y vídeo de 5 minutos):
 
 | Tema | Nota |
 |---|---|
-| Incidencias y línea de tiempo | **Sprint 6** del roadmap (`CONTEXTO_PROYECTO.md` §13); empieza el siguiente ciclo (el «Clima» queda cerrado salvo hallazgos de la verificación en navegador) |
-| Preguntas abiertas A, B, D, F, G, H, I, J, K, L y M | Lista de ubicaciones real, enmascarado, botón «usar mi ubicación», fechas vs período, bloqueo de desactivación, fechas futuras en actividades, unidad de densidad, producción bruta/neta, umbrales del sistema, costo de recursos y fuente meteorológica |
-| Checklists de UI de las Semanas 4 a 10 | Ejecutar en navegador (Chrome/Edge/móvil) y anotar los resultados en cada documento |
-| Demo 1 (cierre del Sprint 4) | Primera fila del dataset con producción y recursos; las predicciones quedan para los Sprints 13–14 (`fn_produccion_post` completa) |
+| **Commit único de la Semana 13** | El responsable ejecuta el commit al visto bueno (F1–F7 ya entregadas sin commitear; la colección se cerró en F7: 430/430) |
+| Roles y permisos + reglas de calidad (tema sugerido) | Pantalla de gestión de roles/permisos (el CRUD de roles ya existe desde la Semana 1) y reglas de calidad de datos; depende de lo que decida el responsable en el control |
+| Preguntas pendientes del responsable | F, G, H, densidad, I, umbrales y quintal, J, K, L, M, etapas fenológicas, N (conservación y acceso a la auditoría) y las nuevas Q/R/S de `decisiones_semana13.md` (lecturas, purga, XFF): enviar en un solo mensaje con fecha límite |
 
 ## Preguntas abiertas que bloquean decisiones
 
@@ -282,3 +428,8 @@ de **48 peticiones validada 48/48** contra el servidor (estados y aserciones),
      decisión 19 de `decisiones_semana10.md`); el adaptador es un solo archivo
      (`servicio_meteorologico.py`) por si se prefiere otra fuente (p. ej. NASA
      POWER) — **CONFIRMAR**.
+13. **¿Criterio para asignar la severidad de la incidencia?** (Semana 11,
+     pregunta N): implementado que **quien registra elige** (BAJA, MEDIA o
+     ALTA, solo exige uno de los tres); si el responsable fija un criterio
+     (p. ej. % de la superficie afectada) se añade como ayuda en el
+     formulario o como cálculo — **CONFIRMAR**.

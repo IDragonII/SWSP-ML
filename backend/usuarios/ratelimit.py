@@ -71,3 +71,40 @@ def limpiar_acceso(username, motivo='login'):
     if habia_bloqueo:
         logger.info('login_desbloqueado username=%s motivo=%s', clave, motivo)
     return habia_bloqueo
+
+
+# --- Cambio de contraseña propio (Semana 13, HU-112) --------------------
+# Máximo CAMBIO_CLAVE_INTENTOS intentos (éxito o fallo) por usuario y hora:
+# un atacante con la sesión robada no puede probar contraseñas nuevas.
+PREFIJO_CAMBIO_CLAVE = 'sigpa:cambio_clave:'
+CAMBIO_CLAVE_INTENTOS = 5
+CAMBIO_CLAVE_VENTANA_SEGUNDOS = 3600
+
+
+def registrar_cambio_clave(username):
+    """Suma un intento de cambio de contraseña propio.
+
+    Devuelve (True, 0) si cabe en el límite; (False, segundos_restantes)
+    si se superó el máximo de la hora en curso.
+    """
+    clave = PREFIJO_CAMBIO_CLAVE + _clave(username)
+    ahora = time.time()
+    registro = cache.get(clave)
+    if not isinstance(registro, dict) or ahora >= registro.get('expira', 0):
+        cache.set(
+            clave,
+            {'intentos': 1, 'expira': ahora + CAMBIO_CLAVE_VENTANA_SEGUNDOS},
+            timeout=CAMBIO_CLAVE_VENTANA_SEGUNDOS,
+        )
+        return True, 0
+    registro['intentos'] += 1
+    cache.set(clave, registro, timeout=CAMBIO_CLAVE_VENTANA_SEGUNDOS)
+    if registro['intentos'] > CAMBIO_CLAVE_INTENTOS:
+        return False, max(1, math.ceil(registro['expira'] - ahora))
+    return True, 0
+
+
+def limpiar_cambio_clave(username):
+    """Borra el contador tras un cambio exitoso (la ventana no castiga
+    al usuario que sí cambió su contraseña)."""
+    cache.delete(PREFIJO_CAMBIO_CLAVE + _clave(username))

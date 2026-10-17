@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { cliente } from '../api/cliente.js'
 import { tecnicosDisponibles } from '../api/catalogos.js'
 import { mensajeDeError } from '../api/errores.js'
@@ -41,6 +42,7 @@ function Dato({ rotulo, valor }) {
 export default function ProductorFicha({ id, abierto, onCerrar }) {
   const { tienePermiso } = useSesion()
   const { avisar } = useToast()
+  const navegar = useNavigate()
   const [ficha, setFicha] = useState(null)
   const [comunidad, setComunidad] = useState(null)
   const [asignaciones, setAsignaciones] = useState([])
@@ -193,6 +195,17 @@ export default function ProductorFicha({ id, abierto, onCerrar }) {
           <Chip>{ficha.estado}</Chip>
         </p>
         <div className="ficha-acciones">
+          {tienePermiso('auditoria.ver') && (
+            <button
+              type="button"
+              className="boton-secundario"
+              onClick={() =>
+                navegar(`/auditoria?tabla=productores&registro=${ficha.id}`)
+              }
+            >
+              Ver historial
+            </button>
+          )}
           {puedeEditar && (
             <button
               type="button"
@@ -262,6 +275,14 @@ export default function ProductorFicha({ id, abierto, onCerrar }) {
           </li>
           <li>
             <strong>{resumen?.superficie_total_ha ?? 0}</strong> ha en total
+          </li>
+          <li>
+            <strong>{resumen?.incidencias_activas ?? 0}</strong> incidencia(s)
+            activa(s)
+          </li>
+          <li>
+            Última incidencia:{' '}
+            {resumen?.ultima_incidencia ? resumen.ultima_incidencia : '—'}
           </li>
         </ul>
         {parcelas && parcelas.length > 0 ? (

@@ -1,4 +1,4 @@
-"""API de campañas (Semana 6): el recurso central del sistema.
+"""API de campañas (Semanas 6, 8 y 12): el recurso central del sistema.
 
 Listar, ver detalle, crear, editar, iniciar, cancelar y cerrar. SIN
 borrado: DELETE responde 405 (las campañas se cancelan, nunca se borran).
@@ -6,7 +6,9 @@ El estado es de solo lectura: solo cambia con las acciones propias iniciar
 (campanias.editar), cancelar (campanias.desactivar, hoy solo del
 Administrador; el motivo queda en observaciones) y cerrar
 (campanias.desactivar; Semana 8: exige producción registrada y sin revisión
-pendiente; irreversible).
+pendiente; irreversible). La Semana 12 añade línea-tiempo (GET,
+campanias.ver): etapas del cultivo (registradas y pendientes),
+actividades, incidencias y cosecha en una sola cronología.
 
 El Técnico solo ve y edita campañas de sus productores asignados
 (reutiliza el filtro de la Semana 4): una campaña ajena responde 404,
@@ -17,11 +19,13 @@ período descendente y paginación global (20 por página).
 """
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import IntegrityError, transaction
+from django.db.models import Prefetch
 from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
+from catalogos.models import EtapaFenologica
 from productores.views import (
     BusquedaPorNombre,
     PermisosPorAccion,
@@ -29,6 +33,9 @@ from productores.views import (
     _BOOLEANOS_SI,
     _id_numerico,
 )
+from seguimiento.models import SeguimientoEtapa
+
+from auditoria.mixins import AuditoriaMixin
 
 from .models import Campania
 from .serializers import (
@@ -36,15 +43,24 @@ from .serializers import (
     CampaniaDetalleSerializer,
     CampaniaEscrituraSerializer,
     CampaniaListaSerializer,
+    _etapa_actual,
+    _mini_cultivo,
+    _mini_parcela,
 )
 
 _ESTADOS = ("PLANIFICADA", "EN_PRODUCCION", "COSECHADA", "CERRADA", "CANCELADA")
+
+# Desempate de la línea de tiempo cuando dos hechos comparten fecha
+# (Semana 12): primero lo que define la campaña (la etapa), luego lo que
+# ocurrió dentro de ella.
+_ORDEN_TIPO = {"ETAPA": 0, "ACTIVIDAD": 1, "INCIDENCIA": 2, "PRODUCCION": 3}
 
 
 class PermisosCampania(PermisosPorAccion):
     """Permisos de campañas: campanias.ver/crear/editar/desactivar.
     Iniciar comparte campanias.editar; cancelar exige campanias.desactivar
-    (hoy solo lo tiene el Administrador)."""
+    (hoy solo lo tiene el Administrador); línea-tiempo es de solo lectura
+    (campanias.ver)."""
 
     permiso_requerido = "campanias.ver"
     PERMISOS = {
@@ -56,10 +72,12 @@ class PermisosCampania(PermisosPorAccion):
         "iniciar": "campanias.editar",
         "cancelar": "campanias.desactivar",
         "cerrar": "campanias.desactivar",
+        "linea_tiempo": "campanias.ver",
     }
 
 
 class CampaniaViewSet(
+    AuditoriaMixin,
     PermisosCampania,
     SoloSusProductores,
     mixins.ListModelMixin,
@@ -70,13 +88,26 @@ class CampaniaViewSet(
 ):
     """CRUD de campañas sin DELETE (405) y con las acciones de estado."""
 
-    queryset = Campania.objects.select_related(
-        "parcela",
-        "parcela__productor",
-        "parcela__comunidad",
-        "cultivo",
-        "variedad",
-        "creado_por",
+    auditoria_modulo = "campanias"
+    queryset = (
+        Campania.objects.select_related(
+            "parcela",
+            "parcela__productor",
+            "parcela__comunidad",
+            "cultivo",
+            "variedad",
+            "creado_por",
+        )
+        # Semana 12: etapas prefetcheadas (fecha descendente) para que
+        # etapa_actual en la tabla no cueste una consulta por fila
+        .prefetch_related(
+            Prefetch(
+                "etapas",
+                queryset=SeguimientoEtapa.objects.select_related("etapa").order_by(
+                    "-fecha_inicio", "-id"
+                ),
+            )
+        )
     )
     serializer_class = CampaniaDetalleSerializer
     escritura_serializer = CampaniaEscrituraSerializer
@@ -175,7 +206,9 @@ class CampaniaViewSet(
         return queryset
 
     def perform_create(self, serializer):
-        serializer.save(creado_por=self.request.user)
+        with transaction.atomic():
+            campania = serializer.save(creado_por=self.request.user)
+            self._registrar_auditoria("CREAR", campania)
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -286,7 +319,11 @@ class CampaniaViewSet(
                 {"estado": "Solo se puede iniciar una campaña planificada."}
             )
         campania.estado = Campania.ESTADO_EN_PRODUCCION
-        campania.save(update_fields=("estado",))
+        with transaction.atomic():
+            campania.save(update_fields=("estado",))
+            self._registrar_auditoria(
+                "MODIFICAR", campania, detalle={"estado": "EN_PRODUCCION"}
+            )
         campania.refresh_from_db()
         return Response(self._lectura(campania).data)
 
@@ -323,7 +360,11 @@ class CampaniaViewSet(
         else:
             campania.observaciones = motivo
         campania.estado = Campania.ESTADO_CANCELADA
-        campania.save(update_fields=("estado", "observaciones"))
+        with transaction.atomic():
+            campania.save(update_fields=("estado", "observaciones"))
+            self._registrar_auditoria(
+                "MODIFICAR", campania, detalle={"estado": "CANCELADA", "motivo": motivo}
+            )
         campania.refresh_from_db()
         return Response(self._lectura(campania).data)
 
@@ -361,6 +402,157 @@ class CampaniaViewSet(
                 }
             )
         campania.estado = Campania.ESTADO_CERRADA
-        campania.save(update_fields=("estado",))
+        with transaction.atomic():
+            campania.save(update_fields=("estado",))
+            self._registrar_auditoria(
+                "MODIFICAR", campania, detalle={"estado": "CERRADA"}
+            )
         campania.refresh_from_db()
         return Response(self._lectura(campania).data)
+
+    @action(detail=True, methods=("get",), url_path="linea-tiempo")
+    def linea_tiempo(self, request, pk=None):
+        """Línea de tiempo de la campaña (HU-94, Semana 12): etapas del
+        catálogo (registradas y pendientes), actividades, incidencias y
+        cosecha en una sola cronología. Fechas ascendente y, entre dos
+        hechos del mismo día, etapa → actividad → incidencia → cosecha;
+        las etapas pendientes cierran la lista por orden del catálogo.
+        Tope de 500 elementos con aviso truncado. Lectura: campanias.ver
+        y campaña ajena → 404 (get_object con el ámbito del Técnico)."""
+        campania = self.get_object()
+        registros = list(
+            campania.etapas.select_related("etapa").order_by("fecha_inicio", "id")
+        )
+        registradas = {registro.etapa_id: registro for registro in registros}
+
+        definidas = []
+        elementos = []
+        for etapa in EtapaFenologica.objects.filter(
+            cultivo=campania.cultivo_id
+        ).order_by("orden"):
+            registro = registradas.get(etapa.pk)
+            definidas.append(
+                {
+                    "id": etapa.pk,
+                    "nombre": etapa.nombre,
+                    "orden": etapa.orden,
+                    "registrada": registro is not None,
+                    "fecha_inicio": (
+                        registro.fecha_inicio.isoformat() if registro else None
+                    ),
+                    "fecha_fin": (
+                        registro.fecha_fin.isoformat()
+                        if registro and registro.fecha_fin
+                        else None
+                    ),
+                }
+            )
+            if registro is None:
+                # Pendiente: se pinta al final de la cronología
+                elementos.append(
+                    {
+                        "tipo": "ETAPA",
+                        "fecha": None,
+                        "fecha_fin": None,
+                        "titulo": etapa.nombre,
+                        "detalle": None,
+                        "estado": "PENDIENTE",
+                        "_orden_catalogo": etapa.orden,
+                    }
+                )
+        for registro in registros:
+            elementos.append(
+                {
+                    "tipo": "ETAPA",
+                    "fecha": registro.fecha_inicio.isoformat(),
+                    "fecha_fin": (
+                        registro.fecha_fin.isoformat()
+                        if registro.fecha_fin
+                        else None
+                    ),
+                    "titulo": registro.etapa.nombre,
+                    "detalle": registro.observaciones or None,
+                    "estado": (
+                        "EN_CURSO" if registro.fecha_fin is None else "REGISTRADA"
+                    ),
+                    "_orden_catalogo": registro.etapa.orden,
+                }
+            )
+        for actividad in (
+            campania.actividades.filter(anulada=False)
+            .select_related("tipo_actividad")
+            .order_by("fecha", "id")
+        ):
+            elementos.append(
+                {
+                    "tipo": "ACTIVIDAD",
+                    "fecha": actividad.fecha.isoformat(),
+                    "fecha_fin": None,
+                    "titulo": actividad.tipo_actividad.nombre,
+                    "detalle": actividad.observaciones or None,
+                    "estado": "REGISTRADA",
+                }
+            )
+        for incidencia in (
+            campania.incidencias.filter(anulada=False)
+            .select_related("tipo_incidencia")
+            .order_by("fecha", "id")
+        ):
+            elementos.append(
+                {
+                    "tipo": "INCIDENCIA",
+                    "fecha": incidencia.fecha.isoformat(),
+                    "fecha_fin": None,
+                    "titulo": incidencia.tipo_incidencia.nombre,
+                    "detalle": incidencia.descripcion,
+                    "estado": "REGISTRADA",
+                    "severidad": incidencia.severidad,
+                }
+            )
+        try:
+            produccion = campania.produccion
+        except ObjectDoesNotExist:
+            produccion = None
+        if produccion is not None:
+            elementos.append(
+                {
+                    "tipo": "PRODUCCION",
+                    "fecha": produccion.fecha_cosecha.isoformat(),
+                    "fecha_fin": None,
+                    "titulo": "Cosecha",
+                    "detalle": f"{produccion.produccion_kg} kg",
+                    "estado": "REGISTRADA",
+                }
+            )
+
+        elementos.sort(
+            key=lambda e: (
+                # Sin fecha (pendientes) van al final; entre pendientes,
+                # por el orden del catálogo
+                e["fecha"] or "9999-12-31",
+                _ORDEN_TIPO[e["tipo"]],
+                e.get("_orden_catalogo") or 0,
+            )
+        )
+        total = len(elementos)
+        elementos = elementos[:500]
+        for elemento in elementos:
+            elemento.pop("_orden_catalogo", None)
+        return Response(
+            {
+                "campania": {
+                    "id": campania.id,
+                    "periodo": campania.periodo,
+                    "estado": campania.estado,
+                    "cultivo": _mini_cultivo(campania),
+                    "parcela": _mini_parcela(campania),
+                    "fecha_inicio": campania.fecha_inicio.isoformat(),
+                    "fecha_fin_prevista": campania.fecha_fin_prevista.isoformat(),
+                },
+                "etapa_actual": _etapa_actual(campania),
+                "etapas_definidas": definidas,
+                "elementos": elementos,
+                "total_elementos": total,
+                "truncado": total > len(elementos),
+            }
+        )

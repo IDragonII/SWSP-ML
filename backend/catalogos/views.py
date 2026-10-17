@@ -28,6 +28,8 @@ from productores.views import (
     PermisosCatalogo,
 )
 
+from auditoria.mixins import AuditoriaMixin
+
 from .models import (
     Agente,
     Cultivo,
@@ -67,6 +69,7 @@ from .serializers import (
 
 
 class VistaCatalogo(
+    AuditoriaMixin,
     PermisosCatalogo,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
@@ -76,6 +79,8 @@ class VistaCatalogo(
 ):
     """CRUD de catálogo sin DELETE (405), con ?activo=, ?busqueda= y
     ?desplegable=1 (lista corta sin paginar y solo activos)."""
+
+    auditoria_modulo = "catalogos"
 
     escritura_serializer = None
     desplegable_serializer = None
@@ -151,8 +156,12 @@ class VistaCatalogoConEstado(VistaCatalogo):
         objeto = self.get_object()
         self._validar_estado(objeto, activo)
         if objeto.activo != activo:
-            objeto.activo = activo
-            objeto.save(update_fields=("activo",))
+            with transaction.atomic():
+                objeto.activo = activo
+                objeto.save(update_fields=("activo",))
+                self._registrar_auditoria(
+                    "ACTIVAR" if activo else "DESACTIVAR", objeto
+                )
         return Response(self.get_serializer(objeto).data)
 
     def _validar_estado(self, objeto, activo):
@@ -251,6 +260,12 @@ class EtapaViewSet(VistaCatalogo):
                 EtapaFenologica.objects.filter(pk=etapa_id).update(
                     orden=posicion
                 )
+            self._registrar_auditoria(
+                "MODIFICAR",
+                registro_id=cultivo.pk,
+                detalle={"cultivo": cultivo_id, "orden": ids},
+                tabla="cultivos",
+            )
         etapas = EtapaFenologica.objects.filter(cultivo=cultivo)
         return Response(
             EtapaSerializer(

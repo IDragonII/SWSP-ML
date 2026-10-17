@@ -2,9 +2,12 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import Layout from './components/Layout.jsx'
 import AccesoDenegado from './pages/AccesoDenegado.jsx'
 import Actividades from './pages/Actividades.jsx'
+import Auditoria from './pages/Auditoria.jsx'
 import Campanias from './pages/Campanias.jsx'
+import CambiarClave from './pages/CambiarClave.jsx'
 import Catalogos from './pages/Catalogos.jsx'
 import Climas from './pages/Climas.jsx'
+import Incidencias from './pages/Incidencias.jsx'
 import Inicio from './pages/Inicio.jsx'
 import Login from './pages/Login.jsx'
 import Modulo from './pages/Modulo.jsx'
@@ -13,6 +16,7 @@ import Parametros from './pages/Parametros.jsx'
 import Parcelas from './pages/Parcelas.jsx'
 import Productores from './pages/Productores.jsx'
 import Recursos from './pages/Recursos.jsx'
+import Usuarios from './pages/Usuarios.jsx'
 import RutaProtegida from './routes/RutaProtegida.jsx'
 import RutaSoloInvitado from './routes/RutaSoloInvitado.jsx'
 import { opcionesMenu } from './routes/opcionesMenu.js'
@@ -28,6 +32,9 @@ const rutasConPantalla = new Set([
   '/actividades',
   '/recursos',
   '/clima',
+  '/incidencias',
+  '/usuarios',
+  '/auditoria',
 ])
 const modulos = opcionesMenu.filter(
   (opcion) => !rutasConPantalla.has(opcion.ruta),
@@ -43,6 +50,17 @@ export default function App() {
             <RutaSoloInvitado>
               <Login />
             </RutaSoloInvitado>
+          }
+        />
+
+        {/* Sin Layout a propósito (HU-105): mientras dure la marca de
+            cambio obligatorio no debe verse el menú de la app */}
+        <Route
+          path="/cambiar-clave"
+          element={
+            <RutaProtegida>
+              <CambiarClave />
+            </RutaProtegida>
           }
         />
 
@@ -123,6 +141,33 @@ export default function App() {
             element={
               <RutaProtegida permiso="clima.ver">
                 <Climas />
+              </RutaProtegida>
+            }
+          />
+
+          <Route
+            path="/incidencias"
+            element={
+              <RutaProtegida permiso="incidencias.ver">
+                <Incidencias />
+              </RutaProtegida>
+            }
+          />
+
+          <Route
+            path="/usuarios"
+            element={
+              <RutaProtegida permiso="usuarios.ver">
+                <Usuarios />
+              </RutaProtegida>
+            }
+          />
+
+          <Route
+            path="/auditoria"
+            element={
+              <RutaProtegida permiso="auditoria.ver">
+                <Auditoria />
               </RutaProtegida>
             }
           />

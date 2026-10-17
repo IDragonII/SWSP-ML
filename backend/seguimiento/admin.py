@@ -2,7 +2,7 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from django.contrib import admin
 
-from .models import Actividad, Clima, Incidencia, UsoRecurso
+from .models import Actividad, Clima, Incidencia, SeguimientoEtapa, UsoRecurso
 from .serializers import _umbral_helada
 
 
@@ -165,6 +165,36 @@ class IncidenciaAdmin(admin.ModelAdmin):
         "actualizado_en",
     )
     raw_id_fields = ("campania", "tipo_incidencia", "agente")
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.registrado_por = request.user
+        super().save_model(request, obj, form, change)
+
+
+@admin.register(SeguimientoEtapa)
+class SeguimientoEtapaAdmin(admin.ModelAdmin):
+    """Semana 12: etapas de la línea de tiempo. Alta y corrección desde
+    la API y desde la pantalla; el panel es de consulta (filtros por
+    cultivo y etapa, búsqueda por parcela y productor). La tabla no
+    tiene fechas de creación/cambio en el diseño: solo registrado_por."""
+
+    list_display = (
+        "fecha_inicio",
+        "fecha_fin",
+        "etapa",
+        "campania",
+    )
+    list_filter = ("etapa__cultivo", "etapa")
+    search_fields = (
+        "observaciones",
+        "campania__parcela__codigo",
+        "campania__parcela__productor__apellidos",
+        "campania__parcela__productor__nombres",
+    )
+    date_hierarchy = "fecha_inicio"
+    readonly_fields = ("registrado_por",)
+    raw_id_fields = ("campania", "etapa")
 
     def save_model(self, request, obj, form, change):
         if not change:

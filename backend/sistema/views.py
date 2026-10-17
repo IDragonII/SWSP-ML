@@ -7,10 +7,13 @@ fn_validar_produccion lee los umbrales en cada INSERT/UPDATE, por lo que
 cambiar un valor NO reevalúa las producciones ya marcadas (solo afectan a
 las siguientes).
 """
+from django.db import transaction
 from rest_framework import mixins, viewsets
 from rest_framework.response import Response
 
 from productores.views import PermisosPorAccion
+
+from auditoria.mixins import AuditoriaMixin
 
 from .models import ParametroSistema
 from .serializers import ParametroEscrituraSerializer, ParametroSerializer
@@ -28,6 +31,7 @@ class PermisosParametro(PermisosPorAccion):
 
 
 class ParametroViewSet(
+    AuditoriaMixin,
     PermisosParametro,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
@@ -37,6 +41,7 @@ class ParametroViewSet(
     """Sin CREATE ni DELETE (405): las claves son fijas; por la API solo
     cambia el valor, con PATCH /api/parametros/{clave}/."""
 
+    auditoria_modulo = "sistema"
     queryset = ParametroSistema.objects.all()
     serializer_class = ParametroSerializer
     escritura_serializer = ParametroEscrituraSerializer
@@ -53,7 +58,11 @@ class ParametroViewSet(
         instance = self.get_object()
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        with transaction.atomic():
+            parametro = serializer.save()
+            self._registrar_auditoria(
+                "MODIFICAR", parametro, detalle={"clave": parametro.clave}
+            )
         # trg_parametros_sistema_actualizado fija actualizado_en
         instance.refresh_from_db(fields=("valor", "actualizado_en"))
         return Response(ParametroSerializer(instance).data)

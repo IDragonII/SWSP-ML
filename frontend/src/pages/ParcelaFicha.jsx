@@ -12,6 +12,7 @@ import { useSesion } from '../context/useSesion.js'
 import { useToast } from '../context/useToast.js'
 import CampaniaFormulario from './CampaniaFormulario.jsx'
 import ClimaFormulario from './ClimaFormulario.jsx'
+import IncidenciaFicha from './IncidenciaFicha.jsx'
 import ParcelaFormulario from './ParcelaFormulario.jsx'
 import ProductorFicha from './ProductorFicha.jsx'
 
@@ -38,6 +39,7 @@ export default function ParcelaFicha({ id, abierto, onCerrar }) {
   const [campaniaEditando, setCampaniaEditando] = useState(null)
   const [productorFicha, setProductorFicha] = useState(false)
   const [nuevoClima, setNuevoClima] = useState(false)
+  const [incidenciaFichaId, setIncidenciaFichaId] = useState(null)
   const [confirmacion, setConfirmacion] = useState(null)
 
   const puedeEditar = tienePermiso('parcelas.editar')
@@ -123,6 +125,17 @@ export default function ParcelaFicha({ id, abierto, onCerrar }) {
               <Chip>{ficha.estado}</Chip>
             </p>
             <div className="ficha-acciones">
+              {tienePermiso('auditoria.ver') && (
+                <button
+                  type="button"
+                  className="boton-secundario"
+                  onClick={() =>
+                    navegar(`/auditoria?tabla=parcelas&registro=${ficha.id}`)
+                  }
+                >
+                  Ver historial
+                </button>
+              )}
               <button
                 type="button"
                 className="boton-secundario"
@@ -239,6 +252,108 @@ export default function ParcelaFicha({ id, abierto, onCerrar }) {
           </section>
 
           <section className="panel">
+            <h2>Incidencias</h2>
+            {ficha.incidencias && ficha.incidencias.length > 0 ? (
+              <>
+                {ficha.incidencias.map((grupo) => (
+                  <div key={grupo.campania.id}>
+                    <p className="nota">
+                      {grupo.campania.periodo} · {grupo.campania.cultivo.nombre}{' '}
+                      <Chip>{grupo.campania.estado}</Chip>
+                    </p>
+                    <Tabla
+                      filas={grupo.incidencias}
+                      columnas={[
+                        {
+                          clave: 'fecha',
+                          etiqueta: 'Fecha',
+                          celda: (incidencia) => incidencia.fecha,
+                        },
+                        {
+                          clave: 'tipo',
+                          etiqueta: 'Tipo',
+                          celda: (incidencia) => (
+                            <>
+                              {incidencia.tipo.nombre}{' '}
+                              <Chip>{incidencia.tipo.categoria}</Chip>
+                            </>
+                          ),
+                        },
+                        {
+                          clave: 'severidad',
+                          etiqueta: 'Severidad',
+                          celda: (incidencia) => (
+                            <Chip>{incidencia.severidad}</Chip>
+                          ),
+                        },
+                        {
+                          clave: 'superficie',
+                          etiqueta: 'Superficie (ha)',
+                          celda: (incidencia) =>
+                            incidencia.superficie_afectada_ha ?? '—',
+                        },
+                        {
+                          clave: 'estado',
+                          etiqueta: 'Estado',
+                          celda: (incidencia) => (
+                            <Chip>
+                              {incidencia.anulada ? 'ANULADA' : 'ACTIVA'}
+                            </Chip>
+                          ),
+                        },
+                        {
+                          clave: 'acciones',
+                          etiqueta: 'Acciones',
+                          acciones: true,
+                          celda: (incidencia) => (
+                            <button
+                              type="button"
+                              className="boton-texto"
+                              onClick={() => setIncidenciaFichaId(incidencia.id)}
+                            >
+                              Ver ficha
+                            </button>
+                          ),
+                        },
+                      ]}
+                    />
+                  </div>
+                ))}
+                <div className="ficha-acciones">
+                  <button
+                    type="button"
+                    className="boton-texto"
+                    onClick={() => {
+                      navegar(`/incidencias?parcela=${ficha.id}`)
+                      onCerrar?.()
+                    }}
+                  >
+                    Ver todas
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="nota">
+                  Esta parcela todavía no tiene incidencias registradas.
+                </p>
+                <div className="ficha-acciones">
+                  <button
+                    type="button"
+                    className="boton-texto"
+                    onClick={() => {
+                      navegar(`/incidencias?parcela=${ficha.id}`)
+                      onCerrar?.()
+                    }}
+                  >
+                    Ver todas
+                  </button>
+                </div>
+              </>
+            )}
+          </section>
+
+          <section className="panel">
             <h2>Campañas</h2>
             {ficha.campanias.length > 0 ? (
               <Tabla
@@ -348,6 +463,17 @@ export default function ParcelaFicha({ id, abierto, onCerrar }) {
             recargar()
           }}
           onCancelar={() => setNuevoClima(false)}
+        />
+      )}
+
+      {incidenciaFichaId !== null && (
+        <IncidenciaFicha
+          id={incidenciaFichaId}
+          abierto
+          onCerrar={() => {
+            setIncidenciaFichaId(null)
+            recargar()
+          }}
         />
       )}
 

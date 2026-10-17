@@ -12,7 +12,7 @@ decisiones de seguridad está en [`decisiones_seguridad.md`](decisiones_segurida
 | POST | `/api/auth/refresh/` | Renueva access (+ rotación de refresh) | Cookie `sigpa_refresh` |
 | POST | `/api/auth/logout/` | Blacklista el refresh y borra cookies | Cualquiera de las dos |
 | GET | `/api/auth/me/` | Devuelve usuario, rol y permisos | Access |
-| POST | `/api/usuarios/` | Crea un usuario (prueba de permisos) | Access + `usuarios.crear` |
+| POST | `/api/usuarios/` | Crea un usuario (alta: nombres, apellidos, rol y clave) | Access + `usuarios.crear` |
 
 ## Cookies de sesión
 
@@ -82,13 +82,24 @@ un cambio de rol/permisos se refleja en la siguiente llamada (verificado por la 
 ### POST `/api/usuarios/`
 
 ```json
-{ "username": "nuevo", "password": "Productor2026!", "rol": 2 }
+{ "username": "nuevo", "password": "Productor2026!", "first_name": "Ana",
+  "last_name": "Pérez", "rol": 2 }
 ```
 
-- **200** → `{"detail": "Usuario creado.", "usuario": {…}}` — solo con permiso `usuarios.crear`.
+- **201** → ficha completa del usuario creado (`id`, `username`,
+  `nombre_completo`, `rol` anidado, `is_active`, `bloqueado`, `permisos`…) —
+  solo con permiso `usuarios.crear`. **Nombres y apellidos son obligatorios.**
+  (Antes de la Semana 12 respondía `200 {"detail": …, "usuario": {…}}`; las
+  pruebas 15–16 se ajustaron al 201.)
 - **401** sin sesión · **403** `{"detail": "No tienes permiso para realizar esta acción."}`
   con sesión pero sin permiso (clase `TienePermiso`, `permiso_requerido` en la vista).
-- **400** validaciones: contraseña débil, usuario repetido, rol inexistente o vacío.
+- **400** validaciones: contraseña débil, usuario repetido (con
+  `usuario_existente` enlazable), rol inexistente/inactivo o vacío, nombres o
+  apellidos vacíos.
+
+La **gestión completa de usuarios** (listado, edición, desactivar/reactivar,
+restablecer contraseña, desbloquear, roles) entró en la **Semana 12** y está
+documentada en [`cierre_semana12.md`](cierre_semana12.md) §2.3.
 
 **Nota:** el superusuario **no tiene atajos**: se rige por los permisos de su rol
 (comprobado con un superusuario cuyo rol es Coordinador → 403).
@@ -139,5 +150,8 @@ curl.exe -s -b cookies.txt -c cookies.txt -X POST http://localhost:8000/api/auth
 | HU-13 | Sesión persistente en React | Cookies httpOnly + interceptor que renueva y reintenta al cargar | Verificación manual con Edge headless |
 | HU-14 | Menú/rutas por permisos | `opcionesMenu.js` (permiso por opción) + `RutaProtegida` + `tienePermiso()` | `npm run lint`/`build`; rutas generadas desde la misma configuración |
 
-Las pantallas de administración de usuarios/roles, cambio de contraseña y recuperación
-quedan fuera de esta semana (ver `CONTEXTO_PROYECTO.md` §14).
+Las pantallas de administración de usuarios/roles entraron en la **Semana 12**
+(`/usuarios` con alta, edición, ficha, desactivar/reactivar, restablecer
+contraseña y desbloquear — ver [`cierre_semana12.md`](cierre_semana12.md)); la
+**recuperación de contraseña por el usuario** queda fuera (Sprint 7, ver
+`CONTEXTO_PROYECTO.md` §14).

@@ -4,7 +4,14 @@ from django.db.models.functions import Now
 from django.utils import timezone
 
 from campanias.models import Campania
-from catalogos.models import Agente, Recurso, TipoActividad, TipoIncidencia, Unidad
+from catalogos.models import (
+    Agente,
+    EtapaFenologica,
+    Recurso,
+    TipoActividad,
+    TipoIncidencia,
+    Unidad,
+)
 from productores.models import Parcela
 
 
@@ -493,3 +500,78 @@ class Incidencia(models.Model):
 
     def __str__(self):
         return f"{self.fecha} · {self.tipo_incidencia} · {self.campania}"
+
+
+class SeguimientoEtapa(models.Model):
+    """Etapa fenológica alcanzada por una campaña (01_tablas.sql:258-268).
+
+    Primera pieza de la línea de tiempo (Semana 12): una fila por etapa
+    del cultivo que la campaña alcanzó, con fecha de inicio y fin (vacía
+    mientras está en curso) y quién la registró. La misma etapa no se
+    repite dentro de una campaña (uq_seguimiento_etapa) y el fin no puede
+    ser anterior al inicio (ck_seguimiento_fechas).
+
+    A diferencia de las demás tablas de seguimiento, el diseño **no le
+    da fechas de creación/cambio** (solo registrado_por): «etapa» no
+    altera el dataset ni las alertas, así que corregirla en su momento
+    basta — la auditoría del Sprint 7 cubre quién y cuándo, cuando
+    exista (decisión de la Semana 12).
+
+    Sin anulación ni borrado: corregir es editar (mismas validaciones),
+    la API no ofrece DELETE. Los 2 triggers (trg_seguimiento_fecha con
+    fn_validar_fecha_campania y trg_seguimiento_etapa con
+    fn_validar_etapa) los crea la migración 0010; con ellos el diseño
+    queda completo: 24 de 24.
+    """
+
+    campania = models.ForeignKey(
+        Campania,
+        on_delete=models.CASCADE,
+        related_name="etapas",
+        verbose_name="campaña",
+        db_index=False,
+    )
+    etapa = models.ForeignKey(
+        EtapaFenologica,
+        on_delete=models.PROTECT,
+        related_name="registros",
+        verbose_name="etapa",
+        db_index=False,
+    )
+    fecha_inicio = models.DateField("fecha de inicio")
+    fecha_fin = models.DateField("fecha de fin", null=True, blank=True)
+    observaciones = models.TextField("observaciones", null=True, blank=True)
+    registrado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="etapas_registradas",
+        verbose_name="registrado por",
+        db_index=False,
+    )
+
+    class Meta:
+        db_table = "seguimiento_etapas"
+        verbose_name = "etapa de seguimiento"
+        verbose_name_plural = "etapas de seguimiento"
+        ordering = ("-fecha_inicio", "id")
+        constraints = [
+            # Una etapa por campaña (el diseño: uq_seguimiento_etapa)
+            models.UniqueConstraint(
+                fields=["campania", "etapa"], name="uq_seguimiento_etapa"
+            ),
+            # fecha_fin ≥ fecha_inicio (NULL = en curso)
+            models.CheckConstraint(
+                condition=models.Q(fecha_fin__isnull=True)
+                | models.Q(fecha_fin__gte=models.F("fecha_inicio")),
+                name="ck_seguimiento_fechas",
+            ),
+        ]
+        indexes = [
+            # Índice del diseño: ix_seguimiento_campania
+            models.Index(fields=["campania"], name="ix_seguimiento_campania"),
+        ]
+
+    def __str__(self):
+        return f"{self.etapa} · {self.fecha_inicio} · {self.campania}"

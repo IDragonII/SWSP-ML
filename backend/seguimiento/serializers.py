@@ -1,4 +1,4 @@
-"""Serializadores de la API de seguimiento (Semanas 7, 9, 10 y 11).
+"""Serializadores de la API de seguimiento (Semanas 7, 9, 10, 11 y 12).
 
 Semana 7 — actividades: la lista muestra fecha, tipo, campaña (período,
 cultivo, parcela y productor), método, horas, costo y estado de anulación;
@@ -47,19 +47,39 @@ activo, severidad de las tres, fecha dentro del período y no futura,
 superficie ≥ 0 y ≤ sembrada, agente activo y solo en tipos biológicos,
 producto ≤ 100 caracteres) y bloquea campaña al editar (anula y registra
 otra).
+
+Semana 12 — etapas de la campaña: la lista muestra campaña (período y
+cultivo), parcela, productor, etapa y fechas; la ficha añade
+observaciones y registrado_por (OCULTO a limita_a_asignados). Sin
+anulación ni borrado: registrado_por no está en fields y la campaña es
+inmutable al editar. El de escritura valida ANTES que la base: campaña
+que admite registros y del ámbito del Técnico, etapa del cultivo (con
+las válidas en el mensaje), una etapa por campaña (nombrando el registro
+existente), fechas dentro del período, fin ≥ inicio, sin fechas
+futuras (hora de Lima) y coherencia cronológica por orden del catálogo
+(con saltos permitidos). El cierre de la etapa anterior en curso lo hace
+la vista en su transacción.
 """
 from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from zoneinfo import ZoneInfo
 
 from rest_framework import serializers
+from rest_framework.validators import UniqueTogetherValidator, UniqueValidator
 
-from catalogos.models import Agente, Recurso, TipoActividad, TipoIncidencia, Unidad
+from catalogos.models import (
+    Agente,
+    EtapaFenologica,
+    Recurso,
+    TipoActividad,
+    TipoIncidencia,
+    Unidad,
+)
 from campanias.models import Campania
 from productores.models import AsignacionTecnico, Parcela
 from sistema.models import ParametroSistema
 
-from .models import Actividad, Clima, Incidencia, UsoRecurso
+from .models import Actividad, Clima, Incidencia, SeguimientoEtapa, UsoRecurso
 
 _UNIDADES_DENSIDAD = ("KG_HA", "PLANTAS_M2")
 
@@ -1467,7 +1487,7 @@ class IncidenciaDetalleSerializer(serializers.ModelSerializer):
     tipo_incidencia = serializers.SerializerMethodField()
     agente = serializers.SerializerMethodField()
     campania = serializers.SerializerMethodField()
-    creado_por = serializers.StringRelatedField(source="registrado_por")
+    registrado_por = serializers.StringRelatedField(read_only=True)
 
     class Meta:
         model = Incidencia
@@ -1483,7 +1503,7 @@ class IncidenciaDetalleSerializer(serializers.ModelSerializer):
             "campania",
             "anulada",
             "motivo_anulacion",
-            "creado_por",
+            "registrado_por",
             "creado_en",
             "actualizado_en",
         )
@@ -1508,7 +1528,7 @@ class IncidenciaDetalleSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         rol = getattr(getattr(request, "user", None), "rol", None)
         if rol is not None and rol.limita_a_asignados:
-            datos.pop("creado_por", None)
+            datos.pop("registrado_por", None)
         return datos
 
 
@@ -1581,7 +1601,14 @@ class IncidenciaEscrituraSerializer(serializers.ModelSerializer):
         },
     )
     producto_aplicado = serializers.CharField(
-        required=False, allow_null=True, allow_blank=True, default=""
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        default="",
+        max_length=100,
+        error_messages={
+            "max_length": "El producto aplicado admite como máximo 100 caracteres.",
+        },
     )
 
     class Meta:
@@ -1724,5 +1751,361 @@ class IncidenciaEscrituraSerializer(serializers.ModelSerializer):
                         )
                     }
                 )
+
+        return attrs
+
+
+# ---------------------------------------------------------------------- #
+# Etapas de la campaña (Semana 12)
+# ---------------------------------------------------------------------- #
+def _etapas_validas(campania):
+    """Nombres de las etapas que admite el cultivo de la campaña, en
+    orden de catálogo (para los mensajes de error)."""
+    return list(
+        EtapaFenologica.objects.filter(cultivo=campania.cultivo)
+        .order_by("orden")
+        .values_list("nombre", flat=True)
+    )
+
+
+class EtapaCampaniaListaSerializer(serializers.ModelSerializer):
+    """Fila del listado (HU-93): campaña (período y cultivo), parcela,
+    productor, etapa y fechas. Sin DNI ni teléfono (privacidad)."""
+
+    campania = serializers.SerializerMethodField()
+    etapa = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SeguimientoEtapa
+        fields = (
+            "id",
+            "campania",
+            "etapa",
+            "fecha_inicio",
+            "fecha_fin",
+        )
+
+    def get_campania(self, obj):
+        return _mini_campania(obj)
+
+    def get_etapa(self, obj):
+        return {
+            "id": obj.etapa_id,
+            "nombre": obj.etapa.nombre,
+            "orden": obj.etapa.orden,
+        }
+
+
+class EtapaCampaniaDetalleSerializer(serializers.ModelSerializer):
+    """Ficha completa (HU-93/HU-95): observaciones y registrado_por.
+    registrado_por se OCULTA a los roles con limita_a_asignados (misma
+    regla que actividades, incidencias y clima). La tabla no tiene fechas
+    de creación/cambio en el diseño."""
+
+    campania = serializers.SerializerMethodField()
+    etapa = serializers.SerializerMethodField()
+    registrado_por = serializers.StringRelatedField(read_only=True)
+
+    class Meta:
+        model = SeguimientoEtapa
+        fields = (
+            "id",
+            "campania",
+            "etapa",
+            "fecha_inicio",
+            "fecha_fin",
+            "observaciones",
+            "registrado_por",
+        )
+
+    def get_campania(self, obj):
+        return _mini_campania(obj)
+
+    def get_etapa(self, obj):
+        return {
+            "id": obj.etapa_id,
+            "nombre": obj.etapa.nombre,
+            "orden": obj.etapa.orden,
+        }
+
+    def to_representation(self, instance):
+        datos = super().to_representation(instance)
+        request = self.context.get("request")
+        rol = getattr(getattr(request, "user", None), "rol", None)
+        if rol is not None and rol.limita_a_asignados:
+            datos.pop("registrado_por", None)
+        return datos
+
+
+class EtapaCampaniaEscrituraSerializer(serializers.ModelSerializer):
+    """Alta y edición (HU-93/HU-95). registrado_por no está en fields: lo
+    pone la vista. Sin anulación ni borrado: un error se corrige
+    editando. Valida ANTES que la base: campaña que admite registros y
+    del ámbito del Técnico, etapa del cultivo de la campaña (con la
+    lista de válidas en el mensaje), una etapa por campaña (nombrando el
+    registro existente), fechas dentro del período, fin ≥ inicio y sin
+    fechas futuras (hora de Lima, pregunta H) y coherencia cronológica
+    por orden del catálogo (se permiten saltos). El cierre automático
+    de la etapa anterior en curso lo hace la vista, en la misma
+    transacción (una sola operación)."""
+
+    campania = serializers.PrimaryKeyRelatedField(
+        queryset=Campania.objects.select_related(
+            "parcela", "parcela__productor", "cultivo"
+        ),
+        error_messages={
+            "required": "La campaña es obligatoria.",
+            "does_not_exist": "La campaña indicada no existe.",
+        },
+    )
+    etapa = serializers.PrimaryKeyRelatedField(
+        queryset=EtapaFenologica.objects.all(),
+        error_messages={
+            "required": "La etapa es obligatoria.",
+            "does_not_exist": "La etapa indicada no existe.",
+        },
+    )
+    fecha_inicio = serializers.DateField(
+        error_messages={
+            "required": "La fecha de inicio es obligatoria.",
+            "invalid": (
+                "La fecha de inicio no es válida: usa el formato AAAA-MM-DD."
+            ),
+        }
+    )
+    fecha_fin = serializers.DateField(
+        required=False,
+        allow_null=True,
+        error_messages={
+            "invalid": "La fecha de fin no es válida: usa el formato AAAA-MM-DD.",
+        }
+    )
+    observaciones = serializers.CharField(
+        required=False, allow_null=True, allow_blank=True, default=""
+    )
+
+    class Meta:
+        model = SeguimientoEtapa
+        fields = ("campania", "etapa", "fecha_inicio", "fecha_fin", "observaciones")
+
+    def __init__(self, *args, **kwargs):
+        # DRF monta un validador de unicidad desde uq_seguimiento_etapa;
+        # se sustituye por la validación de validate() de abajo, que
+        # nombra el registro existente y devuelve etapa_existente
+        # (enlazable, igual que campañas e incidencias)
+        super().__init__(*args, **kwargs)
+        self.validators = [
+            v
+            for v in self.validators
+            if not (
+                isinstance(v, (UniqueValidator, UniqueTogetherValidator))
+                and set(v.fields) == {"campania", "etapa"}
+            )
+        ]
+
+    # ------------------------------------------------------------------ #
+    # validaciones por campo
+    # ------------------------------------------------------------------ #
+    def validate_campania(self, valor):
+        if valor.estado not in Campania.ESTADOS_ACTIVOS:
+            raise serializers.ValidationError(
+                f"La campaña está {valor.estado} y no admite nuevos registros."
+            )
+        # El técnico solo registra etapas de SUS productores asignados
+        # (mismo mensaje que si no existiera, igual que incidencias)
+        request = self.context.get("request")
+        rol = getattr(getattr(request, "user", None), "rol", None)
+        if rol is not None and rol.limita_a_asignados:
+            asignado = AsignacionTecnico.objects.filter(
+                tecnico=request.user,
+                productor=valor.parcela.productor,
+                activo=True,
+            ).exists()
+            if not asignado:
+                raise serializers.ValidationError("La campaña indicada no existe.")
+        return valor
+
+    def validate_fecha_inicio(self, valor):
+        hoy = datetime.now(ZoneInfo("America/Lima")).date()
+        if valor > hoy:
+            raise serializers.ValidationError(
+                "La fecha de inicio no puede ser futura."
+            )
+        return valor
+
+    def validate_fecha_fin(self, valor):
+        if valor is None:
+            return valor
+        hoy = datetime.now(ZoneInfo("America/Lima")).date()
+        if valor > hoy:
+            raise serializers.ValidationError("La fecha de fin no puede ser futura.")
+        return valor
+
+    # ------------------------------------------------------------------ #
+    # validaciones cruzadas (campaña inmutable, etapa del cultivo,
+    # unicidad, fechas de campaña y coherencia cronológica)
+    # ------------------------------------------------------------------ #
+    def validate(self, attrs):
+        instancia = self.instance
+        campania = attrs.get(
+            "campania", getattr(instancia, "campania", None) if instancia else None
+        )
+        etapa = attrs.get(
+            "etapa", getattr(instancia, "etapa", None) if instancia else None
+        )
+        fecha_inicio = attrs.get(
+            "fecha_inicio",
+            getattr(instancia, "fecha_inicio", None) if instancia else None,
+        )
+        fecha_fin = attrs.get(
+            "fecha_fin",
+            getattr(instancia, "fecha_fin", None) if instancia else None,
+        )
+
+        # La campaña no cambia al editar
+        if instancia is not None:
+            campania_nueva = attrs.get("campania")
+            if campania_nueva is not None and campania_nueva != instancia.campania:
+                raise serializers.ValidationError(
+                    {
+                        "campania": (
+                            "La campaña de una etapa no se puede cambiar: "
+                            "corrige la etapa dentro de su campaña."
+                        )
+                    }
+                )
+            # La campaña también debe seguir admitiendo registros al
+            # editar (aunque el cliente no envíe el campo)
+            if instancia.campania.estado not in Campania.ESTADOS_ACTIVOS:
+                raise serializers.ValidationError(
+                    {
+                        "campania": (
+                            f"La campaña está {instancia.campania.estado} y no "
+                            "admite nuevos registros."
+                        )
+                    }
+                )
+
+        if campania is None or etapa is None or fecha_inicio is None:
+            return attrs
+
+        # La etapa debe pertenecer al cultivo de la campaña (el trigger
+        # trg_seguimiento_etapa también lo verifica: aquí 400 en español)
+        if etapa.cultivo_id != campania.cultivo_id:
+            validas = " · ".join(_etapas_validas(campania)) or "(ninguna)"
+            raise serializers.ValidationError(
+                {
+                    "etapa": (
+                        f"La etapa «{etapa.nombre}» no corresponde al cultivo "
+                        f"de la campaña ({campania.cultivo.nombre}). "
+                        f"Etapas válidas: {validas}."
+                    )
+                }
+            )
+
+        # Una etapa por campaña: nombrar el registro existente y
+        # enlazarlo (nunca un 500 por la restricción de la base)
+        repetida = SeguimientoEtapa.objects.filter(
+            campania=campania, etapa=etapa
+        ).exclude(pk=instancia.pk if instancia else None)
+        if repetida.exists():
+            existente = repetida.first()
+            raise serializers.ValidationError(
+                {
+                    "etapa": (
+                        f"Ya se registró la etapa «{etapa.nombre}» en esta "
+                        f"campaña (id {existente.id}): edítala en su lugar."
+                    ),
+                    "etapa_existente": str(existente.id),
+                }
+            )
+
+        # Fechas dentro del período de la campaña (los triggers de
+        # fecha también: aquí 400 en español con el rango)
+        if not campania.fecha_inicio <= fecha_inicio <= campania.fecha_fin_prevista:
+            raise serializers.ValidationError(
+                {
+                    "fecha_inicio": (
+                        f"La fecha de inicio {fecha_inicio} está fuera del "
+                        f"período de la campaña ({campania.fecha_inicio} a "
+                        f"{campania.fecha_fin_prevista})."
+                    )
+                }
+            )
+        if fecha_fin is not None:
+            if fecha_fin < fecha_inicio:
+                raise serializers.ValidationError(
+                    {
+                        "fecha_fin": (
+                            "La fecha de fin no puede ser anterior a la de "
+                            f"inicio ({fecha_inicio})."
+                        )
+                    }
+                )
+            if not campania.fecha_inicio <= fecha_fin <= campania.fecha_fin_prevista:
+                raise serializers.ValidationError(
+                    {
+                        "fecha_fin": (
+                            f"La fecha de fin {fecha_fin} está fuera del "
+                            f"período de la campaña ({campania.fecha_inicio} a "
+                            f"{campania.fecha_fin_prevista})."
+                        )
+                    }
+                )
+
+        # Coherencia cronológica por orden del catálogo (decisión de la
+        # Semana 12, validada solo en la API para poder relajarla sin
+        # migraciones): la etapa nueva no empieza antes que una de menor
+        # orden ya registrada ni después que una de mayor orden. Los
+        # saltos de etapa sí se permiten.
+        otras = SeguimientoEtapa.objects.filter(
+            campania=campania, etapa__orden__lt=etapa.orden
+        ).exclude(pk=instancia.pk if instancia else None)
+        for registro in otras:
+            if fecha_inicio < registro.fecha_inicio:
+                raise serializers.ValidationError(
+                    {
+                        "fecha_inicio": (
+                            f"La etapa «{etapa.nombre}» no puede empezar antes "
+                            f"que «{registro.etapa.nombre}» "
+                            f"({registro.fecha_inicio})."
+                        )
+                    }
+                )
+        posteriores = SeguimientoEtapa.objects.filter(
+            campania=campania, etapa__orden__gt=etapa.orden
+        ).exclude(pk=instancia.pk if instancia else None)
+        for registro in posteriores:
+            if fecha_inicio > registro.fecha_inicio:
+                raise serializers.ValidationError(
+                    {
+                        "fecha_inicio": (
+                            f"La etapa «{etapa.nombre}» no puede empezar después "
+                            f"que «{registro.etapa.nombre}» "
+                            f"({registro.fecha_inicio})."
+                        )
+                    }
+                )
+
+        # Si la nueva queda en curso, la que estaba en curso se cerrará
+        # con esta fecha de inicio: no puede quedar anterior a su propio
+        # inicio (ck_seguimiento_fechas sería el que lo rechazara, en la
+        # base, con un mensaje menos claro)
+        if fecha_fin is None:
+            abiertas = SeguimientoEtapa.objects.filter(
+                campania=campania, fecha_fin__isnull=True
+            ).exclude(pk=instancia.pk if instancia else None)
+            for registro in abiertas:
+                if fecha_inicio < registro.fecha_inicio:
+                    raise serializers.ValidationError(
+                        {
+                            "fecha_inicio": (
+                                f"La etapa «{etapa.nombre}» no puede quedar en "
+                                f"curso antes que «{registro.etapa.nombre}» "
+                                f"({registro.fecha_inicio}): cierra primero esa "
+                                "etapa o corrige sus fechas."
+                            )
+                        }
+                    )
 
         return attrs

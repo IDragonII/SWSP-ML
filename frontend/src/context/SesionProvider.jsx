@@ -42,16 +42,21 @@ export function SesionProvider({ children }) {
     }
   }, [])
 
+  // Semana 13 (HU-113): el cambio de contraseña devuelve el usuario con
+  // la marca debe_cambiar_clave ya baja; se aplica sin recargar
+  const actualizar = useCallback((datos) => setUsuario(datos), [])
+
   const valor = useMemo(
     () => ({
       usuario,
       cargando,
       iniciarSesion: entrar,
       cerrarSesion: salir,
+      actualizarUsuario: actualizar,
       permisos: usuario?.permisos ?? [],
       tienePermiso: (codigo) => (usuario?.permisos ?? []).includes(codigo),
     }),
-    [usuario, cargando, entrar, salir],
+    [usuario, cargando, entrar, salir, actualizar],
   )
 
   return <SesionContext.Provider value={valor}>{children}</SesionContext.Provider>

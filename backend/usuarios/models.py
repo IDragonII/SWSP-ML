@@ -70,6 +70,9 @@ class Usuario(AbstractUser):
     telefono = models.CharField(
         "teléfono", max_length=15, blank=True, default="", db_default=""
     )
+    debe_cambiar_clave = models.BooleanField(
+        "debe cambiar contraseña", default=False, db_default=False
+    )
     rol = models.ForeignKey(
         Rol, on_delete=models.PROTECT, related_name="usuarios", verbose_name="rol"
     )

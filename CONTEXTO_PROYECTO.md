@@ -1,6 +1,6 @@
 # SIGPA-GA · Contexto completo del proyecto
 
-> **Para qué sirve este archivo.** Reúne todo lo decidido y construido hasta ahora: qué es el proyecto, la arquitectura, las 32 tablas (y por qué existe cada una), los triggers, las reglas de negocio y lo que falta. Está pensado para que un agente de IA (o una persona nueva) entienda el proyecto sin tener que leer toda la conversación previa.
+> **Para qué sirve este archivo.** Reúne todo lo decidido y construido hasta ahora: qué es el proyecto, la arquitectura, las 33 tablas (y por qué existe cada una), los triggers, las reglas de negocio y lo que falta. Está pensado para que un agente de IA (o una persona nueva) entienda el proyecto sin tener que leer toda la conversación previa.
 >
 > **Regla de oro:** si algo no está aquí o está marcado como *por confirmar*, no se inventa: se pregunta.
 
@@ -10,7 +10,7 @@
 2. [Decisiones técnicas tomadas](#2-decisiones-técnicas-tomadas)
 3. [Estado actual](#3-estado-actual)
 4. [Cómo funciona el sistema (flujo de datos)](#4-cómo-funciona-el-sistema-flujo-de-datos)
-5. [Base de datos: las 32 tablas](#5-base-de-datos-las-32-tablas)
+5. [Base de datos: las 33 tablas](#5-base-de-datos-las-33-tablas)
 6. [Triggers, funciones y restricciones](#6-triggers-funciones-y-restricciones)
 7. [La vista del dataset de Machine Learning](#7-la-vista-del-dataset-de-machine-learning)
 8. [Roles y permisos](#8-roles-y-permisos)
@@ -178,12 +178,35 @@
 - **Frontend:** pantalla **`/clima`** (filtros en URL), `ClimaFormulario` (con la casilla de reemplazo para registros `API`), `ClimaFicha`, `ClimaConsulta` (HU-84 con informe), sección **«Clima»** en `ParcelaFicha` y **«Resumen de clima»** en `CampaniaFicha`, entrada «Clima» en el menú; checklist `docs/verificacion_ui_semana10.md`.
 - **Cierre:** **155 pruebas** (18 nuevas, 138–155), `check` en 0 issues, `lint`/`build` en 0 y **smoke E2E 15/15** con Open-Meteo real (hallazgo corregido en F5: el adaptador **cuantiza a 1 decimal** con `ROUND_HALF_UP`); en F7 la colección `coleccion_api_semana10.json` se **validó 270/270** (269 obligatorias + 1 opcional, 496/496 aserciones) en la BD temporal `sigpa_ga_coleccion10` (borrada al terminar) y el commit semanal único queda por ejecutar tras el visto bueno.
 
+### Semana 11 (14–20 dic): incidencias - COMPLETADA (F7 cerrada: colección validada 311/311; commit único por ejecutar tras el visto bueno)
+- **Decisiones documentadas** en `docs/decisiones_semana11.md` (20 decisiones, mapeo HU-85..HU-92): **anulación lógica con motivo obligatorio** y sin `DELETE` (→ 405), campañas solo **PLANIFICADA/EN_PRODUCCION/COSECHADA** con fecha dentro del período y no futura, **superficie afectada ≤ sembrada** y **agente solo en tipos biológicos** (por categoría), `resumen_incidencias`/historial/contadores con las mismas cifras que la CTE `inc_c` del dataset (anuladas no cuentan) y permisos `incidencias.*` por acción (**anular/reactivar solo Administrador**); nueva **pregunta N** (criterio de severidad BAJA/MEDIA/ALTA).
+- **Tabla `incidencias`** en `seguimiento/` con **2 migraciones reversibles** (`seguimiento/0007_incidencias.py` y `seguimiento/0008_fn_trg_incidencias.py` con `fn_validar_incidencia` y 3 triggers); **22 triggers** en total; diseño SQL actualizado (`anulada`/`motivo_anulacion` + CHECK, función y triggers, CTE `inc_c` con `WHERE NOT i.anulada`); verificado con `sqlmigrate` e introspección en vivo sobre `sigpa_ga` (base puesta al día con `migrate`).
+- **API:** `/api/incidencias/` (listado con **12 filtros + búsqueda**, detalle, alta, edición, `anular/`, `reactivar/`, sin `DELETE` → 405), `resumen_incidencias` en el detalle de campaña, `incidencias` agrupado por campaña en el detalle de parcela (`?incluir_anuladas=1` para verlas) e `incidencias_activas`/`ultima_incidencia` en el resumen del productor; permisos `incidencias.*` por acción con ámbito del Técnico (objeto ajeno → 404, anular sin permiso → 403) y `registrado_por` oculto al ámbito limitado; contrato completo en `docs/api_incidencias.md`.
+- **Frontend:** pantalla **`/incidencias`** (10 filtros en URL, incluido el de campaña que enlaza «Ver todas» de `CampaniaFicha`), `IncidenciaFormulario` (agente solo para tipos biológicos, campaña inmutable al editar) e `IncidenciaFicha` (anular/reactivar con motivo), sección **«Incidencias»** en `CampaniaFicha`, **historial por campaña** en `ParcelaFicha` y contadores en `ProductorFicha`, entrada «Incidencias» en el menú; checklist `docs/verificacion_ui_semana11.md`.
+- **Cierre:** **172 pruebas** (17 nuevas, 156–172), `check` en 0 issues, `makemigrations --check` sin cambios, `lint`/`build` en 0; documentación `decisiones_semana11.md`, `api_incidencias.md` y `comparacion_semana11.md` (14 columnas, 8 restricciones, 0 índices extra, 22 triggers); en F7 la colección `coleccion_api_semana11.json` se **validó 311/311** (310 obligatorias + 1 opcional, **574/574 aserciones**) en la BD temporal `sigpa_ga_coleccion11` (borrada al terminar) y el commit semanal único queda por ejecutar tras el visto bueno.
+
+### Semana 12 (21–27 dic): línea de tiempo de la campaña y usuarios — 7/7 fases (sin commitear)
+- **Documentación** en el documento único **`docs/cierre_semana12.md`** (Opción A: decisiones + API + checklist de UI en un solo archivo; mapeo HU-93..HU-104): **una etapa por campaña** con cierre automático de la anterior en curso (nunca dos en curso), validaciones por orden del catálogo con saltos permitidos (solo en API, pregunta O), línea de tiempo única (etapas + actividades + incidencias + cosecha, tope 500) con `etapa_actual` en el listado de campañas, y en usuarios: **sin `DELETE`** (desactivar), username inmutable, nombres/apellidos obligatorios, **cuenta propia protegida** (no autodesactivarse, no cambiar rol, no restablecer clave — Sprint 7), **último gestor de roles** nunca perdido, restablecer/desactivar con **marca de sesión** (cierra acceses y refreshes abiertos) y desbloqueo por caché; preguntas nuevas **O** (relajar coherencia de etapas) y **P** (restablecer la propia clave).
+- **Tabla `seguimiento_etapas`** en `seguimiento/` con **2 migraciones reversibles** (`0009_seguimiento_etapas.py` con `uq_seguimiento_etapa`/`ck_seguimiento_fechas`/índice, y `0010_fn_trg_seguimiento.py` con `fn_validar_etapa` literal + 2 triggers); diseño SQL actualizado → **24/24 triggers** del diseño; verificado con `check`, `makemigrations --check` y las pruebas 120/137/172 (pasaron a contar 24).
+- **API:** `/api/etapas-campania/` (lista con 8 filtros + búsqueda, detalle, alta, edición, sin `DELETE` → 405; atomicidad con la campaña bloqueada y cierre de la etapa en curso) y `GET /api/campanias/{id}/linea-tiempo/` (+ `etapa_actual` en el detalle y el listado de campañas); `/api/usuarios/` (lista con búsqueda, ficha, alta **201**, edición, desactivar/reactivar/restablecer-clave/desbloquear, sin `DELETE` → 405) y `GET /api/roles/` (activos, sin paginación); contratos en `cierre_semana12.md` §2.
+- **Frontend:** componente **`LineaTiempo.jsx`**, sección **«Línea de tiempo»** en `CampaniaFicha` (tabla de etapas con edición) + `EtapaFormulario`, columna **«Etapa»** en `/campanias`, pantalla **`/usuarios`** con `UsuarioFormulario` y `UsuarioFicha` (restablecer, desbloquear, desactivar/reactivar) y ruta `/usuarios` en `App.jsx`; checklist en `cierre_semana12.md` §3.
+- **Cierre:** **197 pruebas** (25 nuevas: 173–185 y 197 de etapas + 186–196 de usuarios), `check` en 0 issues, `makemigrations --check` sin cambios, `lint`/`build` en 0; **sin commitear** (indicación del responsable); la colección `coleccion_api_semana12.json` (~355) se cierra en **F7**.
+
+### Semana 13 (28 dic–3 ene): auditoría y cambio de contraseña - COMPLETADA (F7 cerrada: colección validada 430/430; sin commitear, el commit único lo hace el responsable)
+- **Documentación** en `decisiones_semana13.md` (21 decisiones, mapeo HU-105..HU-113), `api_auditoria.md`, `api_cambio_clave.md` y `verificacion_ui_semana13.md`. **RF-71/RF-72** (auditoría) y **RF-73** (cambio propio, propuesto); pregunta **P** de la Semana 12 **cerrada**. Preguntas nuevas **Q** (auditar lecturas: no), **R** (purgado de la auditoría: sin implementar) y **S** (XFF tras proxy).
+- **Tabla `auditoria`** (33.ª) en la app nueva **`auditoria/`** con **2 migraciones reversibles** (`0001_auditoria.py` con CHECK de 15 acciones + 4 índices, `0002_fn_trg_auditoria.py` con `fn_auditoria_inmutable` literal + `trg_auditoria_inmutable` = **trigger 25**); **`usuarios/0004_debe_cambiar_clave.py`** (hoja 0004); diseño SQL actualizado (**33 tablas, 25/25 triggers**); verificado con `check`, `makemigrations --check` y `sqlmigrate`.
+- **Registro:** punto único `registrar_evento` (IP = solo `REMOTE_ADDR`, sin XFF) + `AuditoriaMixin`/`_registrar_auditoria` transaccional en todos los módulos que escriben (catalogos, productores, campanias, seguimiento —incluye reordenar etapas y anular con motivo—, produccion, sistema y usuarios —LOGIN/LOGOUT/BLOQUEAR/DESBLOQUEAR/RESTABLECER_CLAVE—); las lecturas no dejan eventos.
+- **API de consulta:** `GET /api/auditoria/` y `/{id}/` con filtros (`usuario`, `modulo`, `accion`, `tabla`, `registro`, rango de fechas, búsqueda), permiso `auditoria.ver` (solo Administrador), sin escritura (405).
+- **Cambio propio:** `POST /api/auth/cambiar-clave/` (password_actual + password_nueva con validadores de Django **con el usuario**, límite **5 intentos/hora** → 429 con `Retry-After`, éxito limpia el contador); marca `debe_cambiar_clave` la pone el restablecimiento admin y la baja el cambio; **puerta `DebeCambiarClave`** (403 «Debes cambiar tu contraseña antes de continuar.» salvo rutas libres login/refresh/logout/me/cambiar-clave) primera en `DEFAULT_PERMISSION_CLASSES` y antepuesta en `PermisosPorAccion.get_permissions()` y `RolViewSet`; el éxito cierra las otras sesiones (marca), emite cookies nuevas y espera al segundo siguiente a la marca (`esperar_tras_marca`) para no invalidar los tokens recién emitidos (hallazgo del `iat` de segundo).
+- **Frontend:** pantalla **`/auditoria`** (filtros en URL, «Ver historial» en fichas de productor/parcela/usuario), pantalla **`/cambiar-clave`** fuera del Layout con redirección desde `RutaProtegida` y `Login`, `actualizarUsuario` en `SesionProvider`.
+- **Cierre (7/7 fases):** **220 pruebas** (23 nuevas: 198–210 de auditoría + 211–220 de cambio de clave), `check` 0, `makemigrations --check` sin cambios, `lint`/`build` en 0; **sin commitear**; en **F7** la colección `coleccion_api_semana13.json` se **validó 430/430** (429 obligatorias + 1 opcional, **793/793 aserciones**: 392 de la Semana 12 + 38 nuevas numeradas 393–430) en la BD temporal `sigpa_ga_coleccion13` (borrada al terminar, servidor en 8001 con `LOGIN_RATE_IP=120/min`).
+
 ### No hecho todavía
-- **Recursos e insumos (Semana 9) y clima (Semana 10) ya implementados**; faltan incidencias, reportes, alertas y el resto de tablas (con sus triggers: `fn_validar_etapa`, `fn_validar_incidencia`) y la vista del dataset. `fn_produccion_post` está **parcial**: solo pasa la campaña a `COSECHADA`; la parte de `predicciones` (rendimiento real y error) entra en los **Sprints 13–14**.
-- Pantallas React de los módulos que faltan (listado de **Producción** — la entrada del menú es placeholder —, Predicción, Reportes, Usuarios, Auditoría; hoy: login, 403, 404, productores, parcelas, catálogos, campañas, actividades, **parámetros**, **recursos** y **clima** con producción, recursos y clima dentro de las fichas).
-- Administración de usuarios/roles desde React, cambio de contraseña y recuperación de acceso.
+- **Recursos e insumos (Semana 9), clima (Semana 10), incidencias (Semana 11), etapas/línea de tiempo + usuarios (Semana 12) y auditoría + cambio de contraseña (Semana 13) ya implementados**; faltan reportes, alertas y el resto de tablas y la vista del dataset. `fn_produccion_post` está **parcial**: solo pasa la campaña a `COSECHADA`; la parte de `predicciones` (rendimiento real y error) entra en los **Sprints 13-14**.
+- Pantallas React de los módulos que faltan (listado de **Producción** — la entrada del menú es placeholder —, Predicción y Reportes; hoy: login, 403, 404, productores, parcelas, catálogos, campañas, actividades, **parámetros**, **recursos**, **clima**, **incidencias**, **usuarios** y **auditoría** con producción, recursos, clima, incidencias y etapas dentro de las fichas).
+- **Recuperación de acceso**: el **cambio de contraseña por el propio usuario ya está** (Semana 13, HU-112/113); queda el **olvido de clave** (flujo de recuperación sin sesión).
 - Diagrama entidad-relación y modelo lógico para el Capítulo IV.
-- Ejecutar los checklists de UI de las Semanas 4 a 10 en navegador.
+- Ejecutar los checklists de UI de las Semanas 4 a 13 en navegador.
 
 ### Ojo: cosas que quedaron superadas
 - Antes se propuso un modelo `Usuario` con un campo de texto `rol` (ADMIN/TECNICO/COORDINADOR). **Está descartado.** El diseño vigente usa `rol_id` → tabla `roles` con permisos (secciones 5.C y 8).
@@ -229,7 +252,7 @@ Predecir ←── Modelo reentrenado ←── Entrenar ←──────�
 
 ---
 
-## 5. Base de datos: las 32 tablas
+## 5. Base de datos: las 33 tablas
 
 Archivos: `DB_sql/01_tablas.sql` (solo estructura), `DB_sql/02_reglas_y_vista.sql` (triggers y vista), `DB_sql/03_insert.sql` (datos iniciales). Se ejecutan **en ese orden**, solo en bases de prueba vacías.
 
@@ -286,7 +309,7 @@ Existen para que nadie escriba «Quinua», «quinoa» y «QUINUA» como si fuera
 | `seguimiento_etapas` | Línea de tiempo: etapas que alcanzó la campaña | Es lo que convierte el sistema en uno de **seguimiento** | `campania_id`, `etapa_id` (UQ juntos), `fecha_inicio`, `fecha_fin` |
 | `actividades` | Labores realizadas (siembra, fertilización, riego…) | Responde al primer objetivo específico | `tipo_actividad_id`, `fecha`, `metodo`, `densidad_siembra` + `densidad_unidad` (KG_HA o PLANTAS_M2), `horas`, `costo`, `anulada` + `motivo_anulacion` (borrado lógico, Semana 7) |
 | `uso_recursos` | Cantidad de cada recurso consumido, por campaña o por una actividad concreta | Origen de las variables semilla, fertilizante y jornales por hectárea (Semana 9) | `recurso_id`, `campania_id` + `actividad_id`, `fecha`, `cantidad` + `unidad_id` (la categoría del recurso fija el tipo de unidad), `cantidad_base` (calculada por `fn_uso_recurso`), `costo`, `anulada` + `motivo_anulacion` (borrado lógico) |
-| `incidencias` | Eventos que afectan la producción | Variable del ML y base de las alertas | `tipo_incidencia_id`, `severidad` (BAJA, MEDIA, ALTA), `superficie_afectada_ha`, `agente_id`, `producto_aplicado` |
+| `incidencias` | Eventos que afectan la producción | Variable del ML y base de las alertas | `campania_id`, `fecha`, `tipo_incidencia_id`, `severidad` (BAJA, MEDIA, ALTA), `superficie_afectada_ha`, `agente_id`, `producto_aplicado`, `anulada` + `motivo_anulacion` (borrado lógico, Semana 11) |
 | `clima` | Datos climáticos diarios por parcela | Variable central del ML (precipitación, temperatura, heladas) | `parcela_id`, `fecha` (UQ juntos), temperaturas, `precipitacion_mm`, `humedad_pct`, `helada`, `fuente` (MANUAL o API) |
 
 ### F. Producción (1 tabla)
@@ -311,6 +334,12 @@ Existen para que nadie escriba «Quinua», «quinoa» y «QUINUA» como si fuera
 | `parametros_sistema` | Umbrales configurables | El administrador ajusta reglas sin tocar código | `clave` UQ, `valor` |
 | `importaciones` | Bitácora de cargas desde Excel o CSV | Los datos históricos son imprescindibles para el ML y hay que registrar errores por fila | `tipo`, `filas_totales`, `filas_ok`, `filas_error`, `detalle_errores` (JSONB), `estado` |
 
+### I. Auditoría (1 tabla, Semana 13)
+
+| Tabla | Para qué sirve | Por qué existe | Campos clave |
+|---|---|---|---|
+| `auditoria` | Registro **inmutable** de cada acción sensible del sistema (RF-71/RF-72) | Trazabilidad quién hizo qué y cuándo, incluso ante SQL directo (trigger 25) | `usuario` (FK `SET_NULL`, **null = sin cuenta**, p. ej. login fallido), `accion` (15 valores en CHECK: CREAR…CAMBIAR_CLAVE), `modulo`, `tabla` + `registro_id` (índice compuesto), `detalle` (JSON), `ip` (solo `REMOTE_ADDR`), `fecha` |
+
 ### Restricciones destacadas (además de PK/FK/NN)
 
 - **Índices únicos parciales:**
@@ -324,7 +353,7 @@ Existen para que nadie escriba «Quinua», «quinoa» y «QUINUA» como si fuera
 
 ## 6. Triggers, funciones y restricciones
 
-Están en `DB_sql/02_reglas_y_vista.sql`: **13 funciones y 24 triggers**. Existen porque ciertas reglas cruzan varias tablas y un CHECK simple no las puede expresar. Así la calidad de datos queda protegida **incluso si alguien inserta datos sin pasar por la aplicación** (importaciones, scripts, panel de administración).
+Están en `DB_sql/02_reglas_y_vista.sql`: **13 funciones y 25 triggers**. Existen porque ciertas reglas cruzan varias tablas y un CHECK simple no las puede expresar. Así la calidad de datos queda protegida **incluso si alguien inserta datos sin pasar por la aplicación** (importaciones, scripts, panel de administración).
 
 | Función / trigger | Tablas | Qué hace | Por qué |
 |---|---|---|---|
@@ -334,16 +363,17 @@ Están en `DB_sql/02_reglas_y_vista.sql`: **13 funciones y 24 triggers**. Existe
 | `fn_proteger_rol_sistema` | roles | Impide borrar los roles del sistema | Que nadie deje el sistema sin roles base. **Implementada** en la migración `usuarios.0003_trigger_rol_sistema` |
 | `fn_validar_asignacion` | asignaciones_tecnico | Solo permite asignar productores a usuarios cuyo rol tenga `limita_a_asignados` | Coherencia: no se asigna a un administrador |
 | `fn_validar_campania` | campanias | Superficie sembrada ≤ superficie de la parcela; estado inicial solo `PLANIFICADA` o `EN_PRODUCCION`; **transiciones de estado válidas**; no cerrar sin producción | Regla central del modelo de datos. **Implementada completa (v3)** en `campanias.0003_fn_validar_campania_completa` (Semana 8): añade las transiciones `COSECHADA`/`CERRADA` a la versión parcial de la Semana 6, con `trg_campanias_validar` y `trg_campanias_actualizado` |
-| `fn_validar_fecha_campania` (2 triggers) | actividades, uso_recursos | La fecha debe estar dentro del período de la campaña (`fecha_inicio` a `fecha_fin_prevista`) y la campaña no puede estar cerrada ni cancelada | Todo dato debe ubicarse dentro del ciclo del cultivo. **Implementada** en `seguimiento.0002_funciones_y_triggers` (Semana 7) con `trg_actividades_fecha` y reutilizada en `seguimiento.0004` (Semana 9) con `trg_uso_recursos_fecha` para `uso_recursos`; los sprints siguientes la reutilizarán en `incidencias` y `seguimiento_etapas` |
-| `fn_validar_etapa` | seguimiento_etapas | La etapa debe ser del cultivo de la campaña | Evita registrar «floración de tarwi» en una campaña de quinua |
-| `fn_validar_incidencia` | incidencias | Superficie afectada ≤ superficie sembrada; solo incidencias biológicas pueden llevar `agente_id` | Datos coherentes |
+| `fn_validar_fecha_campania` (3 triggers) | actividades, uso_recursos, incidencias | La fecha debe estar dentro del período de la campaña (`fecha_inicio` a `fecha_fin_prevista`) y la campaña no puede estar cerrada ni cancelada | Todo dato debe ubicarse dentro del ciclo del cultivo. **Implementada** en `seguimiento.0002_funciones_y_triggers` (Semana 7) con `trg_actividades_fecha`, reutilizada en `seguimiento.0004` (Semana 9) con `trg_uso_recursos_fecha` y en `seguimiento.0008` (Semana 11) con `trg_incidencias_fecha`; en la Semana 12 se usará en `seguimiento_etapas` |
+| `fn_validar_etapa` | seguimiento_etapas | La etapa debe ser del cultivo de la campaña | Evita registrar «floración de tarwi» en una campaña de quinua. **Implementada** en `seguimiento.0010_fn_trg_seguimiento` (Semana 12), con `trg_seguimiento_etapa` y `trg_seguimiento_fecha` (el orden lo valida la API) |
+| `fn_validar_incidencia` | incidencias | Superficie afectada ≤ superficie sembrada; solo incidencias biológicas pueden llevar `agente_id` | Datos coherentes. **Implementada** en `seguimiento.0008_fn_trg_incidencias` (Semana 11), con `trg_incidencias_superficie`; la API duplica ambas reglas para responder 400 en español |
 | `fn_uso_recurso` | uso_recursos | La unidad debe ser compatible con el tipo del recurso (masa, volumen, labor o tiempo); la actividad debe ser de la misma campaña; **calcula `cantidad_base`** (cantidad × factor) | Normalizar unidades para el ML. **Implementada** en `seguimiento.0004_funciones_y_triggers_uso_recursos` (Semana 9), con `trg_uso_recursos_base` |
 | `fn_actividad_siembra` | actividades (AFTER) | Al registrar una siembra: fija `fecha_siembra` (la más temprana) y pasa la campaña de `PLANIFICADA` a `EN_PRODUCCION` | Automatiza el flujo. **Implementada en versión v2** en `seguimiento.0002` (Semana 7): solo cuenta siembras activas, se dispara también al anular/reactivar y deja `fecha_siembra` vacía sin revertir el estado de la campaña |
 | `fn_validar_produccion` | producciones | Campaña activa; superficie cosechada ≤ sembrada; fecha de cosecha ≥ fecha de siembra; unidad de **masa**; **calcula `produccion_kg` y `rendimiento_kg_ha`**; marca `requiere_revision` si el rendimiento es atípico (según `parametros_sistema`) | Corazón del control de calidad. **Implementada** en `produccion.0002_funciones_y_triggers` (Semana 8), con `trg_producciones_validar` y `trg_producciones_actualizado` |
 | `fn_produccion_post` | producciones (AFTER) | Pasa la campaña a `COSECHADA`; **rellena `rendimiento_real`, `error_abs` y `error_pct`** de las predicciones previas | Comparación predicho vs. real sin trabajo manual. **Implementada parcial** en `produccion.0002` (Semana 8): solo el `UPDATE` de la campaña, porque `predicciones` no existe hasta los **Sprints 13–14** (reemplazar con `CREATE OR REPLACE`) |
+| `fn_auditoria_inmutable` | auditoria (BEFORE UPDATE OR DELETE) | Rechaza toda modificación o borrado: «Los registros de auditoría no se pueden modificar ni eliminar.» | La traza queda protegida incluso ante SQL directo o el panel de Django. **Implementada** en `auditoria.0002_fn_trg_auditoria` (Semana 13), con `trg_auditoria_inmutable` (trigger 25) |
 
 **Detalles que conviene recordar.**
-- Desde la Semana 10, los triggers **implementados** en las migraciones propias son 19 de 24 (`trg_roles_proteger`, `trg_productores_actualizado`, `trg_productores_codigo`, `trg_parcelas_actualizado`, `trg_parcelas_codigo`, `trg_asignaciones_validar`, `trg_campanias_validar`, `trg_campanias_actualizado`, `trg_actividades_actualizado`, `trg_actividades_fecha`, `trg_actividades_siembra`, `trg_producciones_validar`, `trg_producciones_post`, `trg_producciones_actualizado`, `trg_parametros_sistema_actualizado`, `trg_uso_recursos_base`, `trg_uso_recursos_fecha`, `trg_uso_recursos_actualizado` y `trg_clima_actualizado`); el detalle está en `docs/evidencias_capitulo4.md`.
+- Desde la Semana 13, los triggers **implementados** en las migraciones propias son **25 de 25** (`trg_roles_proteger`, `trg_productores_actualizado`, `trg_productores_codigo`, `trg_parcelas_actualizado`, `trg_parcelas_codigo`, `trg_asignaciones_validar`, `trg_campanias_validar`, `trg_campanias_actualizado`, `trg_actividades_actualizado`, `trg_actividades_fecha`, `trg_actividades_siembra`, `trg_producciones_validar`, `trg_producciones_post`, `trg_producciones_actualizado`, `trg_parametros_sistema_actualizado`, `trg_uso_recursos_base`, `trg_uso_recursos_fecha`, `trg_uso_recursos_actualizado`, `trg_clima_actualizado`, `trg_incidencias_superficie`, `trg_incidencias_fecha`, `trg_incidencias_actualizado`, `trg_seguimiento_etapa`, `trg_seguimiento_fecha` y `trg_auditoria_inmutable`); el detalle está en `docs/evidencias_capitulo4.md`.
 - Las fechas de actividades se validan de forma estricta contra `fecha_fin_prevista`. Si una cosecha se retrasa, hay que ampliar esa fecha (se puede relajar la regla más adelante).
 - Si el rendimiento cae fuera de `rendimiento_min_plausible` o `rendimiento_max_plausible`, la producción queda marcada para revisión y **el administrador decide** si se incluye en el entrenamiento (`incluir_en_entrenamiento`).
 - La densidad de siembra tiene un CHECK (número y unidad van juntos), pero **no** se obliga a que solo la actividad de siembra la use.
@@ -389,9 +419,9 @@ Están en `DB_sql/02_reglas_y_vista.sql`: **13 funciones y 24 triggers**. Existe
 
 **Precauciones (a implementar en la aplicación).**
 - El administrador no debe poder quitarse a sí mismo `roles.gestionar` (bloquearía la administración).
-- Los cambios en roles y permisos se registran en `auditoria`.
+- Los cambios en roles y permisos se registran en `auditoria` (**Semana 13**: hecho, punto único `registrar_evento`).
 
-**Estado:** **Semana 1** — modelos, migración `0002` con la configuración inicial de los tres roles y trigger `trg_roles_proteger` (migración `0003`). **Semana 2** — verificación de permisos en **cada petición** con la clase `TienePermiso` (1 consulta cacheada) y tasa de login. **Semana 3** — los endpoints nuevos exigen `catalogos.*` y `productores.*` según la acción, con las mismas respuestas 401/403. **Semana 10** — el módulo **clima** entra en uso: `clima.ver/crear/editar` por acción con ámbito del Técnico (Coordinador solo `ver`); `clima.desactivar` queda **sembrado sin uso** porque la tabla no tiene anulación ni borrado. Todas estas reglas están cubiertas por pruebas (155 en total).
+**Estado:** **Semana 1** — modelos, migración `0002` con la configuración inicial de los tres roles y trigger `trg_roles_proteger` (migración `0003`). **Semana 2** — verificación de permisos en **cada petición** con la clase `TienePermiso` (1 consulta cacheada) y tasa de login. **Semana 3** — los endpoints nuevos exigen `catalogos.*` y `productores.*` según la acción, con las mismas respuestas 401/403. **Semana 10** — el módulo **clima** entra en uso: `clima.ver/crear/editar` por acción con ámbito del Técnico (Coordinador solo `ver`); `clima.desactivar` queda **sembrado sin uso** porque la tabla no tiene anulación ni borrado. **Semana 11** — el módulo **incidencias** entra en uso: `incidencias.ver/crear/editar/desactivar` por acción (anular y reactivar comparten `incidencias.desactivar`, **solo Administrador**; Coordinador solo `ver`), ámbito del Técnico en creación/lectura y `registrado_por` oculto a los roles limitados. **Semana 12** — los módulos **etapas de campaña** (`campanias.ver/editar`) y **usuarios** entran en uso: `usuarios.ver/crear/editar/desactivar` por acción (restablecer clave y desbloquear usan `usuarios.editar`), `GET /api/roles/` exige `usuarios.ver`, la cuenta propia y el último gestor de roles quedan protegidos y restablecer/desactivar cierran las sesiones abiertas con la marca de sesión. **Semana 13** — el módulo **auditoría** entra en uso (`auditoria.ver`, sembrado desde la Semana 2, **solo Administrador**) y la puerta **`DebeCambiarClave`** (marca `debe_cambiar_clave`) se antepone a `IsAuthenticated` y a `TienePermiso` en toda la API salvo las rutas libres de sesión. Todas estas reglas están cubiertas por pruebas (220 en total).
 
 ---
 
@@ -413,7 +443,7 @@ En `DB_sql/03_insert.sql`. Lo marcado **CONFIRMAR** es un supuesto a validar con
 
 **No hay datos precargados** de provincias, distritos, comunidades, variedades ni recursos: los aporta el proyecto. La Semana 3 añadió el comando `cargar_ubicacion` (CSV/Excel, idempotente) y un CSV de **ejemplo inventado** (`datos/ejemplo_ubicaciones.csv`) para probar; se retira cuando el responsable entregue la lista real.
 
-**Estado:** los 3 roles, los 55 permisos y las 101 asignaciones **ya están cargados** en la base real por la migración `backend/usuarios/migrations/0002_datos_iniciales.py` (idempotente y reversible). Los **5 parámetros del sistema** también (los 4 primeros en `sistema.0001`, Semana 8; `umbral_helada_c` en `sistema.0002`, Semana 10). Los catálogos (cultivos, tipos, unidades, etapas, agentes…) los carga el comando `cargar_catalogos` (Semana 5) y la ubicación `cargar_ubicacion` (Semana 3); solo faltan seeds ligados a tablas de sprints posteriores (incidencias y ML).
+**Estado:** los 3 roles, los 55 permisos y las 101 asignaciones **ya están cargados** en la base real por la migración `backend/usuarios/migrations/0002_datos_iniciales.py` (idempotente y reversible). Los **5 parámetros del sistema** también (los 4 primeros en `sistema.0001`, Semana 8; `umbral_helada_c` en `sistema.0002`, Semana 10). Los catálogos (cultivos, tipos, unidades, etapas, agentes…) los carga el comando `cargar_catalogos` (Semana 5) y la ubicación `cargar_ubicacion` (Semana 3); solo quedan los seeds ligados a ML (la tabla `incidencias` **no tiene datos precargados**: nace vacía por la API, como el diseño).
 
 ---
 
@@ -520,9 +550,9 @@ No son fallas del diseño: son tareas del backend y del frontend.
 2. ~~Modelo de usuario con rol (FK) y primera migración~~ (hecho: `usuarios.0001`–`0003`).
 3. ~~Endpoints de login y refresh, y vista con los permisos del usuario~~ (hecho en la Semana 2; ver `docs/api_autenticacion.md`).
 4. ~~Rate limit del login~~ (hecho en la Semana 2: throttle por IP + bloqueo por cuenta).
-5. Modelos de Django del resto de tablas, con triggers y vista como migraciones. ~~Los de ubicación, productores, parcelas, campañas, catálogos, actividades, recursos, clima, producción y sistema (parámetros) ya están;~~ quedan `seguimiento_etapas`, `incidencias`, `alertas`, `importaciones` y las 3 de ML.
+5. Modelos de Django del resto de tablas, con triggers y vista como migraciones. ~~Los de ubicación, productores, parcelas, campañas, catálogos, actividades, recursos, clima, producción, sistema (parámetros), incidencias, `seguimiento_etapas` y `auditoria` ya están (25/25 triggers);~~ quedan `alertas`, `importaciones` y las 3 de ML.
 6. ~~Pantalla de login en React y rutas protegidas por permiso~~ (hecho en la Semana 2; el menú ya filtra por permiso).
-7. Pantallas de cada módulo y administración de usuarios/roles desde React (cambio de contraseña y recuperación pendientes).
+7. Pantallas de cada módulo desde React (quedan Producción, Predicción y Reportes; **usuarios/roles ya está desde la Semana 12** y **auditoría + cambio de contraseña desde la Semana 13** — queda el olvido de clave).
 8. Diagrama entidad-relación y modelo lógico (Capítulo IV, 4.3.2 y 4.3.3).
 
 ### Actualizar en el documento de requerimientos (`.tex`)
@@ -543,6 +573,7 @@ No son fallas del diseño: son tareas del backend y del frontend.
 - ¿Cuál es la fecha límite para sustentar, y cuándo necesita el sistema funcionando?
 - Valores a validar: el quintal (46 kg), los umbrales de rendimiento, los 30 días sin actividad, las etapas fenológicas, los agentes de ejemplo y el **umbral de helada** (`umbral_helada_c = 0 °C`, rango −10 a 5; pregunta K, Semana 10).
 - **¿Open-Meteo como fuente del clima?** (Semana 10, pregunta M): implementado con `archive-api` (sin clave de API); el adaptador es un solo archivo (`seguimiento/servicio_meteorologico.py`) por si el responsable prefiere otra fuente (p. ej. NASA POWER).
+- **¿Criterio para asignar la severidad de la incidencia (BAJA/MEDIA/ALTA)?** (Semana 11, pregunta N): implementado que **quien registra elige** (la API solo exige uno de los tres valores); si el responsable fija un criterio (p. ej. % de la superficie afectada), se añade como ayuda en el formulario o como cálculo.
 - ¿La densidad de siembra se mide en kg/ha, plantas/m² o ambas? (Semana 7, pregunta I: se implementaron **las dos** del diseño; la API exige valor+unidad juntos y `UNIDADES_DENSIDAD` del frontend fija la medida en un solo sitio).
 - **¿Rechazar fechas futuras en actividades?** (Semana 7, pregunta H): implementado (`fecha ≤ hoy` en hora de **America/Lima**); pendiente de confirmar — si se admite planificar a futuro, se retira la comprobación.
 - ¿Cuántos técnicos usarán el sistema a la vez? (supuesto: 20 usuarios simultáneos)
@@ -577,21 +608,22 @@ No son fallas del diseño: son tareas del backend y del frontend.
 |---|---|
 | `README.md` | Descripción, tecnologías, estructura y cómo ejecutar en local (Docker, migrate, superusuario, admin, pruebas) |
 | `requerimientos.tex` | Documento de requerimientos (LaTeX, XeLaTeX): RF, RNF, reglas de negocio, casos de uso, alcance, supuestos y criterios de aceptación. **Está fuera del repositorio**, en `D:\ProyectoJoseLuis\Documentos\Requerimeintos\requerimientos.tex` |
-| `DB_sql/01_tablas.sql` | 32 tablas, restricciones, índices y comentarios (solo estructura). Carpeta **ignorada en Git** |
-| `DB_sql/02_reglas_y_vista.sql` | 13 funciones, 24 triggers y la vista `vw_dataset_entrenamiento` |
+| `DB_sql/01_tablas.sql` | 33 tablas, restricciones, índices y comentarios (solo estructura). Carpeta **ignorada en Git** |
+| `DB_sql/02_reglas_y_vista.sql` | 13 funciones, 25 triggers y la vista `vw_dataset_entrenamiento` |
 | `DB_sql/03_insert.sql` | Roles, permisos, catálogos, unidades, agentes y parámetros iniciales |
 | `backend/` | Proyecto Django `config` + app `usuarios`, `manage.py`, `requirements.txt`, `venv/` (ignorado en Git) |
-| `backend/usuarios/models.py` | `Permiso`, `Rol`, `RolPermiso`, `Usuario` (Semana 1) |
-| `backend/usuarios/migrations/` | `0001_initial` (4 tablas), `0002_datos_iniciales` (3 roles, 55 permisos, 101 asignaciones), `0003_trigger_rol_sistema` |
-| `backend/usuarios/views.py` | Login, renovación, cierre de sesión, `/me` y alta de usuarios (Semana 2) |
-| `backend/usuarios/permisos.py` | `TienePermiso` (clase reutilizable) y `permisos_de_peticion` (1 consulta) |
-| `backend/usuarios/ratelimit.py` | Contador de fallos y bloqueo temporal del login (caché) |
+| `backend/usuarios/models.py` | `Permiso`, `Rol`, `RolPermiso`, `Usuario` (Semana 1) + `debe_cambiar_clave` (Semana 13) |
+| `backend/usuarios/migrations/` | `0001_initial` (4 tablas), `0002_datos_iniciales` (3 roles, 55 permisos, 101 asignaciones), `0003_trigger_rol_sistema`, `0004_debe_cambiar_clave` (Semana 13) |
+| `backend/usuarios/views.py` | Login, renovación, cierre de sesión, `/me` (Semana 2), gestión completa de usuarios/roles: CRUD, `restablecer-clave/`, `desactivar/`, `reactivar/`, `desbloquear/` (Semana 12) y `cambiar-clave/` (Semana 13, HU-112/113) |
+| `backend/usuarios/permisos.py` | `TienePermiso` (clase reutilizable), `permisos_de_peticion` (1 consulta), `PermisosUsuario`/`PermisosRol` (Semana 12) y `DebeCambiarClave` con `RUTAS_LIBRES_CAMBIO_CLAVE` (Semana 13) |
+| `backend/usuarios/ratelimit.py` | Contador de fallos y bloqueo temporal del login (caché) + límite de 5 intentos/hora del cambio de clave (Semana 13) |
 | `backend/usuarios/excepciones.py` | `manejar_excepciones`: 429 en español con cabecera `Retry-After` |
-| `backend/usuarios/autenticacion.py` | Lee el access desde la cookie `sigpa_access` (o Bearer) |
-| `backend/usuarios/serializers.py` | Datos de sesión (`DatosUsuarioSerializer`) y alta (`CrearUsuarioSerializer`) |
-| `backend/usuarios/urls.py` | `/api/auth/*` y `/api/usuarios/` |
+| `backend/usuarios/autenticacion.py` | Lee el access desde la cookie `sigpa_access` (o Bearer), la **marca de sesión** que invalida tokens antiguos al restablecer clave o desactivar (Semana 12) y `esperar_tras_marca` (Semana 13: espera al segundo siguiente a la marca antes de emitir tokens) |
+| `backend/usuarios/serializers.py` | Datos de sesión (`DatosUsuarioSerializer`, con `debe_cambiar_clave`), escritura de usuarios (`UsuarioEscrituraSerializer`: nombres obligatorios, username único, clave débil) + roles (Semana 12) y `CambiarClaveSerializer` (Semana 13) |
+| `backend/usuarios/urls.py` | `/api/auth/*` (incluye `cambiar-clave/`, Semana 13), `/api/usuarios/` (con acciones) y `/api/roles/` |
 | `backend/usuarios/admin.py` | Panel con los 4 modelos + acción «Desbloquear acceso» |
-| `backend/usuarios/tests.py` | **20 pruebas** (`manage.py test usuarios`): Semana 1 y Semana 2 |
+| `backend/usuarios/tests.py` | **41 pruebas** (`manage.py test usuarios`): Semana 1, Semana 2, 11 de usuarios (186–196, Semana 12) y 10 de cambio de clave (211–220, Semana 13) |
+| `backend/auditoria/` | App de la **Semana 13**: `models.py` (`Auditoria`, 15 acciones en CHECK, 4 índices), `registrar.py` (`registrar_evento`, `ip_de_request`), `mixins.py` (`AuditoriaMixin`), `serializers.py` (solo lectura), `views.py` (`AuditoriaViewSet`), `urls.py` (`/api/auditoria/`), 2 migraciones y `tests.py` (pruebas 198–210) |
 | `backend/usuarios/management/commands/crear_superusuario.py` | Crea el admin inicial desde `ADMIN_USERNAME`/`ADMIN_PASSWORD` del `.env` (idempotente) |
 | `backend/productores/models.py` | `Provincia`, `Distrito`, `Comunidad`, `Productor` (Semana 3, `db_table` del diseño) |
 | `backend/productores/migrations/` | `0001_initial` (4 tablas), `0002_funciones_y_triggers` (fechas, código `PROD-…`, reversible) |
@@ -602,10 +634,10 @@ No son fallas del diseño: son tareas del backend y del frontend.
 | `backend/productores/tests.py` | **17 pruebas** (numeradas 21–37); con las de `usuarios` suma 37 |
 | `backend/productores/management/commands/cargar_ubicacion.py` | Carga idempotente de ubicación desde CSV/Excel (`openpyxl`), con informe de fallidas |
 | `frontend/` | React con Vite (JavaScript), Axios y React Router (`node_modules/` ignorado en Git) |
-| `frontend/src/api/` | Cliente Axios con cookies y renove *single-flight* + `mensajeDeError` |
-| `frontend/src/context/` | `SesionProvider` (hidratación con `/me`) y `useSesion` |
-| `frontend/src/routes/` | `RutaProtegida`, `RutaSoloInvitado` y `opcionesMenu.js` (menú = rutas, con permisos) |
-| `frontend/src/pages/` | Login, Inicio, módulo en preparación, 403 y 404 |
+| `frontend/src/api/` | Cliente Axios con cookies y renove *single-flight* + `mensajeDeError`; `errores.js` (`erroresDeCampo`), módulos por recurso (`auth.js` con `cambiarClave`, `auditoria.js`, …) |
+| `frontend/src/context/` | `SesionProvider` (hidratación con `/me`, `actualizarUsuario`) y `useSesion` |
+| `frontend/src/routes/` | `RutaProtegida` (permiso + redirección con la marca `debe_cambiar_clave`, Semana 13), `RutaSoloInvitado` y `opcionesMenu.js` (menú = rutas, con permisos) |
+| `frontend/src/pages/` | Login, Inicio, productores, parcelas, catálogos, campañas (ficha + línea de tiempo), actividades, parámetros, recursos, clima, incidencias, usuarios, **auditoría** y **cambiar-clave** (Semana 13), más 403 y 404 |
 | `docs/api_autenticacion.md` | Contrato de la API de sesión, ejemplos curl y mapeo HU-07..HU-14 |
 | `docs/decisiones_seguridad.md` | Decisiones de la Semana 2 (tokens, cookies, rate limit, despliegue) |
 | `docs/comparacion_sprint1.md` | Comparación columna por columna: `01_tablas.sql` vs migraciones Django, con las diferencias justificadas |
@@ -614,6 +646,10 @@ No son fallas del diseño: son tareas del backend y del frontend.
 | `docs/api_ubicacion_productores.md` | Contrato de los 4 recursos nuevos, errores verificados y ejemplos curl |
 | `docs/coleccion_api_semana3.json` | Colección de Postman: 36 peticiones con `pm.test`, validadas 36/36 (sin secretos) |
 | `docs/tablero.md` | Tablero de la Semana 3: HU-15..HU-22 con evidencias y próximos pasos |
+| `docs/decisiones_semana13.md` | 21 decisiones de la Semana 13 (auditoría y cambio de clave, HU-105..HU-113) + preguntas Q, R, S |
+| `docs/api_auditoria.md` | Contrato de `GET /api/auditoria/` (filtros, fila, acciones auditadas, inmutabilidad) |
+| `docs/api_cambio_clave.md` | Contrato de `POST /api/auth/cambiar-clave/`, la puerta de la marca y el límite de 5 intentos/hora |
+| `docs/verificacion_ui_semana13.md` | Checklist de navegador (Chrome/Edge/móvil) de `/auditoria`, «Ver historial» y `/cambiar-clave` |
 | `datos/ejemplo_ubicaciones.csv` | Datos de ubicación **inventados** (pruebas); se retira con la lista real |
 | `docker-compose.yml` | PostgreSQL 17 en Docker (en la raíz del proyecto) |
 | `.env` | Variables de entorno: `DB_*`, `SECRET_KEY`, `DEBUG`, `ALLOWED_HOSTS`, `CORS_*` y `ADMIN_*` (**no** se sube a Git) |

@@ -19,7 +19,13 @@ export default function Login() {
     setEnviando(true)
     setError(null)
     try {
-      await iniciarSesion(usuario, clave)
+      const datos = await iniciarSesion(usuario, clave)
+      // Semana 13 (HU-105): con contraseña provisional obligatoria, el
+      // primer destino es la pantalla de cambio (el resto corta el backend)
+      if (datos?.debe_cambiar_clave) {
+        navegar('/cambiar-clave', { replace: true })
+        return
+      }
       navegar(ubicacion.state?.desde?.pathname || '/', { replace: true })
     } catch (err) {
       setError(mensajeDeError(err))

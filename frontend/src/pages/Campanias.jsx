@@ -260,6 +260,21 @@ export default function Campanias() {
                 celda: (fila) => <Chip>{fila.estado}</Chip>,
               },
               {
+                clave: 'etapa_actual',
+                etiqueta: 'Etapa',
+                celda: (fila) =>
+                  fila.etapa_actual ? (
+                    <>
+                      {fila.etapa_actual.nombre}{' '}
+                      <Chip>
+                        {fila.etapa_actual.en_curso ? 'EN CURSO' : 'CERRADA'}
+                      </Chip>
+                    </>
+                  ) : (
+                    <span className="nota">Sin etapas</span>
+                  ),
+              },
+              {
                 clave: 'acciones',
                 etiqueta: 'Acciones',
                 acciones: true,

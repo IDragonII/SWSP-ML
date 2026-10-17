@@ -888,9 +888,9 @@ class ProduccionApiTests(Semana8Base):
         self.assertIn("campania", campania_mala)
 
     # ------------------------------------------------------------------ #
-    # 120: los 22 triggers del proyecto (15 de la S8 + 3 de uso_recursos
-    #     de la S9 + 1 de clima de la S10 + 3 de incidencias de la S11)
-    #     y la reversibilidad del SQL
+    # 120: los 24 triggers del proyecto (15 de la S8 + 3 de uso_recursos
+    #     de la S9 + 1 de clima de la S10 + 3 de incidencias de la S11
+    #     + 2 de seguimiento de la S12) y la reversibilidad del SQL
     # ------------------------------------------------------------------ #
     def test_120_triggers_y_reversibilidad_de_las_migraciones(self):
         triggers = {
@@ -902,9 +902,10 @@ class ProduccionApiTests(Semana8Base):
             )
         }
         # 15 al cerrar la Semana 8; la Semana 9 añade los 3 de
-        # uso_recursos, la Semana 10 el de actualizado de clima y la
-        # Semana 11 los 3 de incidencias
-        self.assertEqual(len(triggers), 22)
+        # uso_recursos, la Semana 10 el de actualizado de clima, la
+        # Semana 11 los 3 de incidencias, la Semana 12 los 2 de etapas
+        # y la Semana 13 el de inmutabilidad de auditoría (25 en total)
+        self.assertEqual(len(triggers), 25)
         self.assertLessEqual(
             {
                 "trg_producciones_validar",
