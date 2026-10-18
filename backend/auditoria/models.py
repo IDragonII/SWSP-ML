@@ -19,6 +19,7 @@ ACCIONES = [
     ("DESBLOQUEAR", "Desbloquear acceso"),
     ("RESTABLECER_CLAVE", "Restablecer contraseña"),
     ("CAMBIAR_CLAVE", "Cambiar contraseña"),
+    ("EXPORTAR", "Exportar"),
 ]
 
 

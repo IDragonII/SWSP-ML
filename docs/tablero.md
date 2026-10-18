@@ -1,6 +1,6 @@
-# Tablero SIGPA-GA — Semana 16: panel de indicadores (dashboard)
+# Tablero SIGPA-GA — Semana 17: reportes descargables en Excel y PDF
 
-> Tablero de la semana del **18 al 24 de enero** (calendario
+> Tablero de la semana del **25 al 31 de enero** (calendario
 > referencial; sin feriados).
 > Sustituye mientras tanto a Trello/GitHub Projects (decisión de metodología:
 > se confirmará con el responsable qué herramienta usa él).
@@ -8,6 +8,56 @@
 > repositorio**: las descripciones siguientes son el **mapeo propuesto**
 > (igual que en semanas anteriores), anclado a los RF/RN del documento de
 > requerimientos.
+
+## Semana 17 — F1..F7 terminadas (7/7)
+
+El tema «reportes descargables en Excel y PDF» (tercera semana del
+**Sprint 8**) corresponde al **mapeo HU-141 a HU-149** de la semana
+(RF-62, resto del dashboard; el panel se cerró en la Semana 16); se
+ejecutó **por fases F1–F7** acordadas con el responsable: **F1–F7
+cerradas** (suite **299/299**, documentación de la semana escrita,
+frontend en `lint`/`build` en 0, colección **540/540 con 1005/1005
+aserciones validadas** y `datos_demostracion` ampliado V1+V2). La
+Semana 17 se entrega **íntegra sin commitear**, decisión del responsable:
+el commit único (con las semanas 13–16) lo hace él al cierre.
+
+| HU | Descripción (propuesta) | Estado | Evidencia |
+|---|---|---|---|
+| **HU-141** | Reporte de productores: ubicación, parcelas, superficies, cultivo y campaña (13 columnas, defecto «solo activos») | ✅ Hecha | `reportes/consultas.py` · pruebas 280, 284, 285 |
+| **HU-142** | Reporte productivo: producción y rendimiento por cultivo con detalle por campaña y el mismo resumen del panel | ✅ Hecha | `reportes/consultas.py` · pruebas 286, 287 |
+| **HU-143** | Descarga en **Excel** (openpyxl en memoria, hoja Resumen + Detalle, sin fórmulas) | ✅ Hecha | `reportes/excel.py` · pruebas 288, 289, 296 |
+| **HU-144** | Descarga en **PDF** (ReportLab en memoria, encabezado, resumen y tabla) | ✅ Hecha | `reportes/pdf.py` · pruebas 290, 296 |
+| **HU-145** | Vista previa: total de filas, primeras 20, resumen, advertencias y filtros (sin auditar) | ✅ Hecha | `GET /reportes/{tipo}/vista-previa/` · pruebas 293, 299 |
+| **HU-146** | Límite de 20 exportaciones/hora y evento **EXPORTAR** antes de entregar (503 sin rastro) | ✅ Hecha | `usuarios/ratelimit.py`, `auditoria/0003_accion_exportar.py` · pruebas 293, 294 |
+| **HU-147** | Filtros combinables del reporte con la misma validación del panel (400 exactos) | ✅ Hecha | `reportes/consultas.py` · prueba 283 (HU propuesto, sin texto en repo) |
+| **HU-148** | Alcance por rol en catálogo, previa y descarga (el Técnico solo lo suyo) | ✅ Hecha | `filtrar_asignados` · pruebas 281, 282 (HU propuesto, sin texto en repo) |
+| **HU-149** | Catálogo de reportes disponibles según el usuario, con límites y aviso de privacidad | ✅ Hecha | `GET /reportes/` · pruebas 280, 281 |
+
+> **Nota:** el mapeo HU-141..HU-149 es el **mapeo propuesto** de la
+> semana (los textos originales no están en el repositorio; el RF-62 se
+> verificó leyendo `requerimientos.tex` **sin modificarlo** — solo
+> lectura, decisión del responsable). Los docstrings del código usan los
+> mismos rangos (`backend/reportes/`, `usuarios/ratelimit.py`).
+
+| Fase | Contenido | Estado | Evidencia |
+|---|---|---|---|
+| **F1** | Estructura: app **`reportes/`** (sin modelos; `reportes.ver`/`reportes.exportar` ya sembrados) + catálogo declarativo (2 reportes, columnas y límites fijos) + migración **`auditoria/0003_accion_exportar.py`** (CHECK con `EXPORTAR`) | ✅ Hecha | `backend/reportes/`, `backend/auditoria/migrations/` |
+| **F2** | Consultas (productores y productivo reutilizando `dashboard/consultas.py`), los 3 endpoints con doble capa de permisos, 405/404/401, límites 20000/1000, 429 con `retry_after` y auditoría antes de entregar (503 sin archivo) | ✅ Hecha | `backend/reportes/{consultas,views,catalogo}.py`, `usuarios/ratelimit.py` |
+| **F3** | Generadores: **Excel** (openpyxl en `BytesIO`, anti-fórmulas, dos hojas) y **PDF** (ReportLab, `pageCompression=0`) + pruebas **280–299** (20) → **total 299/299** | ✅ Hecha | `backend/reportes/{excel,pdf,formato}.py`, `tests.py` · `manage.py test` 299/299 |
+| **F4** | Frontend: **`/reportes`** con `api/reportes.js` (blob + errores blob legibles), reporte y filtros en la URL, vista previa con `refrescando` derivado, `Tabla` en resumen y detalle, rueda dentro de los botones de descarga y cascada de ubicación | ✅ Hecha | `frontend/src/{api/reportes.js,pages/Reportes.jsx}` · `lint`/`build` en 0 |
+| **F5** | Documentación: `decisiones_semana17.md` (14 decisiones + pregunta **V** con nota de letras), `api_reportes.md`, `verificacion_ui_semana17.md` y la actualización de este tablero y `CONTEXTO_PROYECTO.md` | ✅ Hecha | `docs/decisiones_semana17.md`, `api_reportes.md`, `verificacion_ui_semana17.md` |
+| **F6** | Colección de Postman: **506** de la Semana 16 + **34 nuevas** = **540** (numeradas 507–540, todas obligatorias) | ✅ Hecha | `docs/coleccion_api_semana17.json` |
+| **F7** | Cierre: colección validada end-to-end con el pipeline habitual (BD temporal `sigpa_ga_coleccion17`, servidor 8001 con `LOGIN_RATE_IP=120/min`, `validador/validar.js`): **540/540 peticiones (538 obligatorias + 2 opcionales) y 1005/1005 aserciones**; BD borrada y servidor detenido; **`datos_demostracion` ampliado** (V2: 20 campañas en 2 períodos, ñ/tildes/«=1+1», idempotencia por bloques, índices de campaña activa respetados) | ✅ Hecha | `backend/sistema/management/commands/datos_demostracion.py` · `docs/evidencias_semana17.md` |
+
+**Estado (7/7 fases):** **299 pruebas verdes** (`manage.py test`; las 20
+de la semana son la 280–299), `manage.py check` en 0 issues,
+`makemigrations --check` sin cambios, `npm run lint` y `npm run build`
+en 0 problemas, colección **540/540 (1005/1005 aserciones)**, comando
+`datos_demostracion` V1+V2 probado e idempotente y documentación
+escrita en `decisiones_semana17.md`, `api_reportes.md`,
+`verificacion_ui_semana17.md`, `evidencias_semana17.md` y
+`CONTEXTO_PROYECTO.md`. Único pendiente: el commit único del
+responsable (semanas 13–17).
 
 ## Semana 16 — F1..F7 terminadas (7/7)
 
@@ -478,17 +528,17 @@ de **48 peticiones validada 48/48** contra el servidor (estados y aserciones),
 | 2 (12–18 oct) — autenticación y permisos | HU-07..HU-14 (login, refresh, logout, `/me`, permisos, rate limit, sesión y menú en React) | ✅ 20 pruebas · `api_autenticacion.md` |
 | 3 (19–25 oct) — ubicación y productores | HU-15..HU-22 (ubicación con `cargar_ubicacion`, productor con código PROD-000N, filtros, enmascarado, ficha parcial) | ✅ 37 pruebas · `api_ubicacion_productores.md` |
 
-## Siguiente (Semana 17, 25–31 ene)
+## Siguiente (Semana 18, 1–7 feb)
 
-Continúa el **Sprint 8 en curso** (lo abrieron las semanas 15 y 16).
+Continúa el **Sprint 8 en curso** (lo abrieron las semanas 15, 16 y 17).
 Reparto provisional a confirmar con el responsable:
 
 | Tema | Nota |
 |---|---|
-| **Commit único de las Semanas 13, 14, 15 y 16** | El responsable ejecuta el commit al visto bueno (las cuatro semanas entregadas sin commitear; sus colecciones ya están validadas: 430/430, 458/458, 488/488 y 506/506) |
-| Reportes descargables (RF-62, resto del dashboard) + ML (modelo de regresión: rendimiento predicho, `RENDIMIENTO_BAJO` y predicciones) | Temas grandes del backlog; el ML libera además la fila 1 y la decisión 2 de `decisiones_semana15.md` §1.1; el panel de indicadores ya está (Semana 16) |
+| **Commit único de las Semanas 13, 14, 15, 16 y 17** | El responsable ejecuta el commit al visto bueno (las cinco semanas entregadas sin commitear; sus colecciones ya están validadas: 430/430, 458/458, 488/488, 506/506 y 540/540) |
+| ML (modelo de regresión: rendimiento predicho, `RENDIMIENTO_BAJO` y predicciones) | Tema grande del backlog; el ML libera además la fila 1 y la decisión 2 de `decisiones_semana15.md` §1.1; el panel (Semana 16) y los reportes descargables (Semana 17) ya están |
 | Olvido de contraseña / recuperación de cuenta | Pendiente desde semanas anteriores |
-| Preguntas pendientes del responsable | F, G, H, densidad, I, umbrales y quintal, J, K, L, M, etapas fenológicas, N (conservación y acceso a la auditoría), Q/R/S de `decisiones_semana13.md` (lecturas, purga, XFF) y la **T** de `decisiones_semana15.md` (`limita_a_asignados`): enviar en un solo mensaje con fecha límite |
+| Preguntas pendientes del responsable | F, G, H, densidad, I, umbrales y quintal, J, K, L, M, etapas fenológicas, N (conservación y acceso a la auditoría), Q/R/S de `decisiones_semana13.md` (lecturas, purga, XFF), la **T** de `decisiones_semana15.md` (`limita_a_asignados`) y la **V** de `decisiones_semana17.md` (privacidad de los reportes): enviar en un solo mensaje con fecha límite |
 
 ## Preguntas abiertas que bloquean decisiones
 

@@ -22,10 +22,7 @@ cero falso—; los decimales salen como texto con las unidades en las
 etiquetas (convención global de la API). La fecha de respuesta
 (generado_en) es la hora de Lima.
 """
-from decimal import Decimal, ROUND_HALF_UP
-
-from django.db.models import Avg, Count, F, Q, Sum
-from django.utils import timezone
+from django.db.models import Count, Sum
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -35,26 +32,12 @@ from alertas.models import Alerta
 from campanias.models import Campania
 from catalogos.models import Cultivo
 from productores.models import Comunidad, Distrito, Productor, Provincia
-from productores.views import PermisosPorAccion, _id_numerico, filtrar_asignados
+from productores.views import PermisosPorAccion, filtrar_asignados
 from produccion.models import Produccion
 
-# Decimales de las cifras agregadas del panel (ha y kg)
-_PRECISION = Decimal("0.01")
-
-# Mínimo de campañas de una fila para considerar su promedio representativo
-_MINIMO_CAMPANIAS_FILA = 3
-
-
-def ahora_lima():
-    """Hora actual en la zona del proyecto (America/Lima) con huso."""
-    return timezone.localtime()
-
-
-def _texto(valor):
-    """Cifra decimal a texto con 2 decimales (None se queda en null)."""
-    if valor is None:
-        return None
-    return str(Decimal(valor).quantize(_PRECISION, rounding=ROUND_HALF_UP))
+from . import consultas
+from .consultas import ahora_lima, id_existente as _id_existente
+from .consultas import texto as _texto
 
 
 def _cuentas_por_estado(campanias):
@@ -63,16 +46,6 @@ def _cuentas_por_estado(campanias):
     for fila in campanias.values("estado").annotate(total=Count("id")):
         cuentas[fila["estado"]] = fila["total"]
     return cuentas
-
-
-def _id_existente(params, campo, modelo, mensaje):
-    """Id numérico que además existe en la tabla (si viene en la URL)."""
-    if not params.get(campo):
-        return None
-    ident = _id_numerico(params[campo], campo)
-    if not modelo.objects.filter(pk=ident).exists():
-        raise ValidationError({campo: mensaje})
-    return ident
 
 
 class PermisosDashboard(PermisosPorAccion):
@@ -199,113 +172,29 @@ class DashboardViewSet(PermisosDashboard, viewsets.GenericViewSet):
             request.user,
             "campania__parcela__productor_id",
         )
-        if params.get("periodo"):
-            base = base.filter(campania__periodo=params["periodo"])
-        if params.get("cultivo"):
-            base = base.filter(
-                campania__cultivo_id=_id_numerico(params["cultivo"], "cultivo")
-            )
-        if params.get("provincia"):
-            base = base.filter(
-                campania__parcela__comunidad__distrito__provincia_id=_id_numerico(
-                    params["provincia"], "provincia"
-                )
-            )
-        if params.get("distrito"):
-            base = base.filter(
-                campania__parcela__comunidad__distrito_id=_id_numerico(
-                    params["distrito"], "distrito"
-                )
-            )
-        if params.get("comunidad"):
-            base = base.filter(
-                campania__parcela__comunidad_id=_id_numerico(
-                    params["comunidad"], "comunidad"
-                )
-            )
-        if agrupar == "cultivo":
-            grupos = base.values(
-                clave=F("campania__cultivo_id"),
-                etiqueta=F("campania__cultivo__nombre"),
-            )
-        else:
-            grupos = base.values(
-                clave=F("campania__parcela__comunidad__distrito_id"),
-                etiqueta=F("campania__parcela__comunidad__distrito__nombre"),
-            )
-        filas = []
-        for fila in (
-            grupos.annotate(
-                campanias=Count("id"),
-                superficie_ha=Sum("superficie_cosechada_ha"),
-                produccion_kg=Sum("produccion_kg"),
-                rendimiento_promedio=Avg("rendimiento_kg_ha"),
-                sin_cerrar=Count(
-                    "id", filter=Q(campania__estado=Campania.ESTADO_COSECHADA)
+        base = consultas.aplicar_filtros_produccion(base, params)
+        filas = [
+            {
+                **fila,
+                "superficie_ha": _texto(fila["superficie_ha"]),
+                "produccion_kg": _texto(fila["produccion_kg"]),
+                "rendimiento_kg_ha": _texto(fila["rendimiento_kg_ha"]),
+                "rendimiento_promedio_kg_ha": _texto(
+                    fila["rendimiento_promedio_kg_ha"]
                 ),
-            )
-            .order_by("-produccion_kg", "clave")
-        ):
-            superficie = fila["superficie_ha"]
-            kilos = fila["produccion_kg"]
-            filas.append(
-                {
-                    "clave": fila["clave"],
-                    "etiqueta": fila["etiqueta"],
-                    "campanias": fila["campanias"],
-                    "superficie_ha": _texto(superficie),
-                    "produccion_kg": _texto(kilos),
-                    "rendimiento_kg_ha": _texto(
-                        None if not superficie else kilos / superficie
-                    ),
-                    "rendimiento_promedio_kg_ha": _texto(
-                        fila["rendimiento_promedio"]
-                    ),
-                    "provisional": fila["sin_cerrar"] > 0,
-                    "pocos_datos": fila["campanias"] < _MINIMO_CAMPANIAS_FILA,
-                }
-            )
-        totales = base.aggregate(
-            campanias=Count("id"),
-            superficie_ha=Sum("superficie_cosechada_ha"),
-            produccion_kg=Sum("produccion_kg"),
-        )
-        superficie_total = totales["superficie_ha"]
+            }
+            for fila in consultas.resumen_agrupado(base, agrupar)
+        ]
+        totales = consultas.totales_de(base)
         return Response(
             {
                 "agrupar": agrupar,
-                "filtros": {
-                    "periodo": params.get("periodo") or None,
-                    "cultivo": (
-                        _id_numerico(params["cultivo"], "cultivo")
-                        if params.get("cultivo")
-                        else None
-                    ),
-                    "provincia": (
-                        _id_numerico(params["provincia"], "provincia")
-                        if params.get("provincia")
-                        else None
-                    ),
-                    "distrito": (
-                        _id_numerico(params["distrito"], "distrito")
-                        if params.get("distrito")
-                        else None
-                    ),
-                    "comunidad": (
-                        _id_numerico(params["comunidad"], "comunidad")
-                        if params.get("comunidad")
-                        else None
-                    ),
-                },
+                "filtros": consultas.filtros_eco(params),
                 "totales": {
                     "campanias": totales["campanias"],
-                    "superficie_ha": _texto(superficie_total),
+                    "superficie_ha": _texto(totales["superficie_ha"]),
                     "produccion_kg": _texto(totales["produccion_kg"]),
-                    "rendimiento_kg_ha": _texto(
-                        None
-                        if not superficie_total
-                        else totales["produccion_kg"] / superficie_total
-                    ),
+                    "rendimiento_kg_ha": _texto(totales["rendimiento_kg_ha"]),
                 },
                 "filas": filas,
             }

@@ -108,3 +108,39 @@ def limpiar_cambio_clave(username):
     """Borra el contador tras un cambio exitoso (la ventana no castiga
     al usuario que sí cambió su contraseña)."""
     cache.delete(PREFIJO_CAMBIO_CLAVE + _clave(username))
+
+
+# --- Exportación de reportes (Semana 17, HU-146) -------------------------
+# Máximo EXPORTACIONES_POR_HORA archivos por usuario y hora: la vista
+# previa no cuenta (es solo lectura) y la ventana se renueva sola.
+PREFIJO_EXPORTACIONES = 'sigpa:exportaciones:'
+EXPORTACIONES_POR_HORA = 20
+EXPORTACION_VENTANA_SEGUNDOS = 3600
+
+
+def exportaciones_restantes(username):
+    """None si aún quedan exportaciones en la hora en curso; si se agotaron,
+    segundos hasta que la ventana se renueva (>= 1)."""
+    ahora = time.time()
+    registro = cache.get(PREFIJO_EXPORTACIONES + _clave(username))
+    if not isinstance(registro, dict) or ahora >= registro.get('expira', 0):
+        return None
+    if registro.get('intentos', 0) < EXPORTACIONES_POR_HORA:
+        return None
+    return max(1, math.ceil(registro['expira'] - ahora))
+
+
+def registrar_exportacion(username):
+    """Suma una exportación de reporte a la ventana de la hora en curso."""
+    clave = PREFIJO_EXPORTACIONES + _clave(username)
+    ahora = time.time()
+    registro = cache.get(clave)
+    if not isinstance(registro, dict) or ahora >= registro.get('expira', 0):
+        cache.set(
+            clave,
+            {'intentos': 1, 'expira': ahora + EXPORTACION_VENTANA_SEGUNDOS},
+            timeout=EXPORTACION_VENTANA_SEGUNDOS,
+        )
+        return
+    registro['intentos'] += 1
+    cache.set(clave, registro, timeout=EXPORTACION_VENTANA_SEGUNDOS)

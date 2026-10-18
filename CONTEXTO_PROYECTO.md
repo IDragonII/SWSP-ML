@@ -219,12 +219,19 @@
 - **Frontend:** Recharts **3.10.1** + `Inicio.jsx` reescrito (tarjetas, franja de alertas por tipo, filtros en URL con cascada de ubicación, gráficos de barras accesibles y `Tabla` con chips PROVISIONAL/POCOS DATOS); bloques con estado propio (un error no tumba el panel); `lint`/`build` en 0.
 - **Cierre (7/7 fases):** **279 pruebas** (17 nuevas: 263–279 en `backend/dashboard/tests.py`), `check` 0, `makemigrations --check` sin cambios; **F7 cerrada:** colección `coleccion_api_semana16.json` (**506**: 489–506 = 18 nuevas obligatorias; **504 obligatorias + 2 opcionales**) **validada 506/506 (939/939 aserciones)** con el pipeline habitual (BD temporal `sigpa_ga_coleccion16` con la siembra previa de F7, servidor 8001 con `LOGIN_RATE_IP=120/min`, `validador/validar.js`; BD borrada y servidor detenido al terminar); comando **`datos_demostracion`** mínimo e idempotente (datos inventados y marcados, probado en la BD real); el panel de calidad HU-123 (pruebas 280–284) **no se aplicó** por falta de holgura (corte acordado: 279/506). Hallazgo de cierre: la prueba 270 comparaba dos `resumen/` completos y `generado_en` podía cambiar de segundo entre llamadas → se excluye de la comparación (la hora de Lima la cubre la 274).
 
+### Semana 17 (25–31 ene): reportes descargables en Excel y PDF — F1..F7 entregadas (7/7; sin commitear)
+- **Documentación:** `decisiones_semana17.md` (14 filas de decisiones + pregunta **V** con nota de letras), `api_reportes.md`, `verificacion_ui_semana17.md` y `evidencias_semana17.md`; **RF-62** (reportes descargables) verificado leyendo `requerimientos.tex` **sin modificarlo** (solo lectura, decisión del responsable).
+- **App `backend/reportes/`** (HU-141..HU-149): **sin modelos**; 3 rutas — `GET /reportes/` (catálogo), `GET /reportes/{tipo}/vista-previa/` y `POST /reportes/{tipo}/exportar/` — bajo **doble permiso** (`reportes.ver`/`reportes.exportar` + el `ver` del módulo: `productores.ver`/`produccion.ver`); **405** en métodos no permitidos y **404 `{"detail": "No encontrado."}`** por el manejador global; límites **20 000 (Excel) / 1000 (PDF)** que nunca truncan (400 con sugerencia), **20 exportaciones/hora** (429 con `retry_after` y cabecera), evento **`EXPORTAR` antes de entregar** (si la auditoría falla → **503 sin archivo**) con la migración **`auditoria/0003_accion_exportar.py`** (CHECK con la 5.ª acción).
+- **Reglas:** cifras **idénticas al panel** (el productivo reutiliza `dashboard/consultas.py`: rendimiento ponderado, `provisional`/`pocos_datos`, exclusiones por revisión — prueba 287); columnas y **orden fijados por el servidor** (`reportes/catalogo.py`); filtros del panel con los mismos 400; **privacidad por diseño** sin DNI/teléfono/`registrado_por` (aviso fijo, **pregunta V**); alcance del Técnico con `filtrar_asignados`.
+- **Frontend:** pantalla **`/reportes`** (`api/reportes.js` + `pages/Reportes.jsx`): reporte y filtros en la URL, vista previa con `refrescando` derivado, archivo en blob con errores blob legibles, `Tabla` en resumen y detalle, rueda dentro de «Descargar Excel/PDF» y cascada de ubicación; `lint`/`build` en 0.
+- **Cierre (7/7 fases):** **299 pruebas** (20 nuevas: 280–299 en `backend/reportes/tests.py`), `check` 0, `makemigrations --check` sin cambios; **F7 cerrada:** colección `coleccion_api_semana17.json` (**540**: 507–540 = 34 nuevas obligatorias; **538 obligatorias + 2 opcionales**) **validada 540/540 (1005/1005 aserciones)** con el pipeline propio (BD temporal `sigpa_ga_coleccion17` con siembra previa, servidor 8001 con `LOGIN_RATE_IP=120/min`, `validador/validar.js`; BD borrada y servidor detenido); comando **`datos_demostracion` ampliado** con el bloque V2 (5 productores con ñ/tildes/«=1+1», 10 parcelas, **20 campañas en 2 períodos**, 10 producciones con 1 atípica, 4 actividades; dos bloques idempotentes por separado; índices `uq_campania_activa_por_parcela`/`uq_campania_parcela_periodo` respetados con cierre inmediato tras producir); con los 25 registros demo el resumen por cultivo queda **Quinua 9 / Cañihua 2 → POCOS DATOS** y 2 revisiones pendientes. Hallazgos de cierre: suite de ~595 s (salida a fichero + `--noinput` por la BD `test_sigpa_ga` huérfana), rediseño del bloque V2 por el índice de campaña activa y creación de «Quinua Amarilla» (la BD de desarrollo tenía un solo cultivo con variedad).
+
 ### No hecho todavía
-- **Recursos e insumos (Semana 9), clima (Semana 10), incidencias (Semana 11), etapas/línea de tiempo + usuarios (Semana 12), auditoría + cambio de contraseña (Semana 13) y alertas + productores en riesgo (Semana 15) ya implementados**; faltan reportes y el resto de tablas (`importaciones` y las 3 de ML) y la vista del dataset. `fn_produccion_post` está **parcial**: solo pasa la campaña a `COSECHADA`; la parte de `predicciones` (rendimiento real y error) entra en los **Sprints 13-14**.
-- Pantallas React de los módulos que faltan (listado de **Producción** — la entrada del menú es placeholder —, Predicción y Reportes; hoy: login, 403, 404, **Inicio con el panel de indicadores (Semana 16)**, productores, parcelas, catálogos, campañas, actividades, **parámetros**, **recursos**, **clima**, **incidencias**, **usuarios**, **auditoría** y **alertas + productores en riesgo** con producción, recursos, clima, incidencias, etapas y alertas dentro de las fichas).
+- **Recursos e insumos (Semana 9), clima (Semana 10), incidencias (Semana 11), etapas/línea de tiempo + usuarios (Semana 12), auditoría + cambio de contraseña (Semana 13), alertas + productores en riesgo (Semana 15), panel de indicadores (Semana 16) y reportes descargables (Semana 17) ya implementados**; faltan el resto de tablas (`importaciones` y las 3 de ML) y la vista del dataset. `fn_produccion_post` está **parcial**: solo pasa la campaña a `COSECHADA`; la parte de `predicciones` (rendimiento real y error) entra en los **Sprints 13-14**.
+- Pantallas React de los módulos que faltan (listado de **Producción** — la entrada del menú es placeholder — y Predicción; hoy: login, 403, 404, **Inicio con el panel de indicadores (Semana 16)**, **Reportes (Semana 17)**, productores, parcelas, catálogos, campañas, actividades, **parámetros**, **recursos**, **clima**, **incidencias**, **usuarios**, **auditoría** y **alertas + productores en riesgo** con producción, recursos, clima, incidencias, etapas y alertas dentro de las fichas).
 - **Recuperación de acceso**: el **cambio de contraseña por el propio usuario ya está** (Semana 13, HU-112/113); queda el **olvido de clave** (flujo de recuperación sin sesión).
 - Diagrama entidad-relación y modelo lógico para el Capítulo IV.
-- Ejecutar los checklists de UI de las Semanas 4 a 16 en navegador.
+- Ejecutar los checklists de UI de las Semanas 4 a 17 en navegador.
 
 ### Ojo: cosas que quedaron superadas
 - Antes se propuso un modelo `Usuario` con un campo de texto `rol` (ADMIN/TECNICO/COORDINADOR). **Está descartado.** El diseño vigente usa `rol_id` → tabla `roles` con permisos (secciones 5.C y 8).
@@ -570,7 +577,7 @@ No son fallas del diseño: son tareas del backend y del frontend.
 4. ~~Rate limit del login~~ (hecho en la Semana 2: throttle por IP + bloqueo por cuenta).
 5. Modelos de Django del resto de tablas, con triggers y vista como migraciones. ~~Los de ubicación, productores, parcelas, campañas, catálogos, actividades, recursos, clima, producción, sistema (parámetros), incidencias, `seguimiento_etapas`, `auditoria` y `alertas` ya están (25/25 triggers);~~ quedan `importaciones` y las 3 de ML.
 6. ~~Pantalla de login en React y rutas protegidas por permiso~~ (hecho en la Semana 2; el menú ya filtra por permiso).
-7. Pantallas de cada módulo desde React (quedan Producción, Predicción y Reportes; **usuarios/roles ya está desde la Semana 12**, **auditoría + cambio de contraseña desde la Semana 13** y **alertas + productores en riesgo desde la Semana 15** — queda el olvido de clave).
+7. Pantallas de cada módulo desde React (quedan Producción y Predicción; **usuarios/roles ya está desde la Semana 12**, **auditoría + cambio de contraseña desde la Semana 13**, **alertas + productores en riesgo desde la Semana 15**, **panel de indicadores desde la Semana 16** y **reportes descargables desde la Semana 17** — queda el olvido de clave).
 8. Diagrama entidad-relación y modelo lógico (Capítulo IV, 4.3.2 y 4.3.3).
 
 ### Actualizar en el documento de requerimientos (`.tex`)
@@ -597,6 +604,7 @@ No son fallas del diseño: son tareas del backend y del frontend.
 - ¿Cuántos técnicos usarán el sistema a la vez? (supuesto: 20 usuarios simultáneos)
 - ¿Qué plataforma y presupuesto habrá para el despliegue?
 - ¿La universidad exige una plantilla o formato específico para el documento?
+- **¿Los reportes descargables pueden incluir DNI?** (Semana 17, pregunta V): implementado **sin DNI, teléfono ni `registrado_por`** (privacidad por diseño, con aviso fijo en catálogo y vista previa); si el responsable lo pide, se añade como columna fija en `reportes/catalogo.py`.
 
 ---
 
@@ -675,6 +683,11 @@ No son fallas del diseño: son tareas del backend y del frontend.
 | `docs/verificacion_ui_semana16.md` | Checklist de navegador (Chrome/Edge/móvil) del panel en `/` |
 | `docs/evidencias_semana16.md` | Salidas de comandos de la Semana 16 (suite 279/279, lint/build, colección 506/506) |
 | `docs/coleccion_api_semana16.json` | Colección de Postman: 506 peticiones (489–506 del panel) validadas 506/506 |
+| `docs/decisiones_semana17.md` | 14 decisiones de la Semana 17 (reportes descargables, HU-141..HU-149) + pregunta V |
+| `docs/api_reportes.md` | Contrato de `/api/reportes/` (catálogo, vista previa, exportar xlsx/pdf, límites y frecuencia) |
+| `docs/verificacion_ui_semana17.md` | Checklist de navegador (Chrome/Edge/móvil) de la pantalla `/reportes` |
+| `docs/evidencias_semana17.md` | Salidas de comandos de la Semana 17 (suite 299/299, lint/build, colección 540/540, demo V1+V2) |
+| `docs/coleccion_api_semana17.json` | Colección de Postman: 540 peticiones (507–540 de reportes) validadas 540/540 |
 | `datos/ejemplo_ubicaciones.csv` | Datos de ubicación **inventados** (pruebas); se retira con la lista real |
 | `docker-compose.yml` | PostgreSQL 17 en Docker (en la raíz del proyecto) |
 | `.env` | Variables de entorno: `DB_*`, `SECRET_KEY`, `DEBUG`, `ALLOWED_HOSTS`, `CORS_*` y `ADMIN_*` (**no** se sube a Git) |

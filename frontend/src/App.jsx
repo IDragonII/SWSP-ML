@@ -18,6 +18,7 @@ import Parcelas from './pages/Parcelas.jsx'
 import Productores from './pages/Productores.jsx'
 import ProductoresRiesgo from './pages/ProductoresRiesgo.jsx'
 import Recursos from './pages/Recursos.jsx'
+import Reportes from './pages/Reportes.jsx'
 import Roles from './pages/Roles.jsx'
 import Usuarios from './pages/Usuarios.jsx'
 import RutaProtegida from './routes/RutaProtegida.jsx'
@@ -41,6 +42,7 @@ const rutasConPantalla = new Set([
   '/usuarios',
   '/roles',
   '/auditoria',
+  '/reportes',
 ])
 const modulos = opcionesMenu.filter(
   (opcion) => !rutasConPantalla.has(opcion.ruta),
@@ -192,6 +194,15 @@ export default function App() {
             element={
               <RutaProtegida permiso="auditoria.ver">
                 <Auditoria />
+              </RutaProtegida>
+            }
+          />
+
+          <Route
+            path="/reportes"
+            element={
+              <RutaProtegida permiso="reportes.ver">
+                <Reportes />
               </RutaProtegida>
             }
           />
