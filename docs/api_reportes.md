@@ -1,17 +1,19 @@
-# API de reportes — `/api/reportes/` (RF-62, HU-141..HU-149)
+# API de reportes — `/api/reportes/` (RF-62, RF-68, HU-141..HU-156)
 
-> Documentación de la Semana 17. Ver `decisiones_semana17.md` para las
-> decisiones de diseño y `verificacion_ui_semana17.md` para el checklist
-> de navegador. **Tres lecturas y una exportación** bajo **doble
-> permiso**: `reportes.ver` (catálogo y vista previa) o
+> Documentación de las Semanas 17 y 18. Ver `decisiones_semana17.md` y
+> `decisiones_semana18.md` para las decisiones de diseño y
+> `verificacion_ui_semana17.md` / `verificacion_ui_semana18.md` para los
+> checklists de navegador. **Tres lecturas y una exportación** bajo
+> **doble permiso**: `reportes.ver` (catálogo y vista previa) o
 > `reportes.exportar` (descarga) **más** el `ver` del módulo de donde
-> salen los datos (`productores.ver` para el reporte de productores y
-> `produccion.ver` para el productivo). Los permisos `reportes.*` están
-> sembrados desde la Semana 2 y los tres roles los tienen → **el
-> catálogo ofrece siempre los 2 reportes**. Todas las cifras respetan el
-> **alcance del usuario** (el Técnico solo lo suyo, con
-> `filtrar_asignados`) y el **cliente no puede elegir columnas ni
-> orden**: todo está fijado en el servidor (`reportes/catalogo.py`).
+> salen los datos (`productores.ver`, `produccion.ver`, `actividades.ver`
+> o `auditoria.ver`). Los permisos `reportes.*` están sembrados desde la
+> Semana 2 y los tres roles los tienen → **el catálogo ofrece 4 reportes
+> al Administrador, 3 al Coordinador y 3 al Técnico** (con alcance
+> propio). Todas las cifras respetan el **alcance del usuario** (el
+> Técnico solo lo suyo, con `filtrar_asignados`) y el **cliente no puede
+> elegir columnas ni orden**: todo está fijado en el servidor
+> (`reportes/catalogo.py`).
 
 ## 1. Endpoints
 
@@ -45,7 +47,9 @@ Solo aparece cada reporte si el usuario tiene **ambos** permisos
       "filtros": ["periodo", "cultivo", "provincia", "distrito", "comunidad", "estado", "estado_productor"],
       "formatos": ["xlsx", "pdf"],
       "limites": { "xlsx": 20000, "pdf": 1000 },
-      "aviso_privacidad": "Este reporte no incluye DNI ni teléfono"
+      "aviso_privacidad": "Este reporte no incluye DNI ni teléfono",
+      "sensible": false,
+      "aviso": null
     },
     {
       "tipo": "productivo",
@@ -54,14 +58,42 @@ Solo aparece cada reporte si el usuario tiene **ambos** permisos
       "filtros": ["periodo", "cultivo", "provincia", "distrito", "comunidad", "estado"],
       "formatos": ["xlsx", "pdf"],
       "limites": { "xlsx": 20000, "pdf": 1000 },
-      "aviso_privacidad": "Este reporte no incluye DNI ni teléfono"
+      "aviso_privacidad": "Este reporte no incluye DNI ni teléfono",
+      "sensible": false,
+      "aviso": null
+    },
+    {
+      "tipo": "actividades",
+      "nombre": "Reporte de actividades",
+      "descripcion": "Actividades registradas por fecha, con su campaña, cultivo, tipo y responsable.",
+      "filtros": ["periodo", "cultivo", "provincia", "distrito", "comunidad", "estado", "tipo_actividad", "fecha_actividad_desde", "fecha_actividad_hasta", "estado_actividad"],
+      "formatos": ["xlsx", "pdf"],
+      "limites": { "xlsx": 20000, "pdf": 1000 },
+      "aviso_privacidad": "Este reporte no incluye DNI ni teléfono",
+      "sensible": false,
+      "aviso": null
+    },
+    {
+      "tipo": "auditoria",
+      "nombre": "Reporte de auditoría",
+      "descripcion": "Eventos de la bitácora en un rango de fechas, con su detalle resumido. Información sensible.",
+      "filtros": ["fecha_desde", "fecha_hasta", "usuario", "accion", "modulo", "tabla", "registro", "ip"],
+      "formatos": ["xlsx", "pdf"],
+      "limites": { "xlsx": 20000, "pdf": 1000 },
+      "aviso_privacidad": "Este reporte no incluye DNI ni teléfono",
+      "sensible": true,
+      "aviso": "Contiene información sensible de auditoría: solo para uso interno y de verificación. No es evidencia oficial."
     }
   ]
 }
 ```
 
 `limites` y `aviso_privacidad` se leen en cada llamada (constantes del
-código, no migración).
+código, no migración). **Semana 18**: todas las entradas llevan además
+`sensible` y `aviso` (`false`/`null` en los reportes normales); el
+reporte de auditoría es el único `sensible` — su `aviso` es el que
+muestra la interfaz antes de descargar (§4) y el que acompañan los
+archivos (§6.4).
 
 ## 3. `GET /api/reportes/{tipo}/vista-previa/` — previa (HU-145)
 
@@ -135,6 +167,15 @@ X-Content-Type-Options: nosniff
   eventos (pruebas 293, 294, 299).
 - Un `GET` a la ruta de exportación → **405**; sin sesión → **401**.
 
+**Semana 18 — exportación desde la pantalla de Auditoría** (mismo
+endpoint, mismas reglas): `/auditoria/` tiene **dos botones** («Exportar
+Excel»/«Exportar PDF») que arman `fecha_desde`/`fecha_hasta` desde la URL
+(`filtrosDeExportacion()`) y llaman a `POST /api/reportes/auditoria/exportar/`
+tras un **Modal «Exportar estos resultados»** que muestra el `aviso` de
+confidencialidad. Sin `reportes.exportar` no hay botones («sin botón,
+sin modal»). Cada descarga deja un evento `EXPORTAR` con
+`{tipo: "auditoria", formato, filtros, filas}`.
+
 ## 5. Filtros (HU-147) y sus errores 400
 
 Los mismos del panel con la misma lectura y mensajes, combinables, en
@@ -146,6 +187,12 @@ la query string:
 | `cultivo`, `provincia`, `distrito`, `comunidad` | id numérico | `{"<campo>": "Debe ser un id numérico."}` |
 | `estado` | `PLANIFICADA`, `EN_PRODUCCION`, `COSECHADA`, `CERRADA`, `CANCELADA` | `{"estado": "Use PLANIFICADA, EN_PRODUCCION, COSECHADA, CERRADA o CANCELADA."}` |
 | `estado_productor` | `ACTIVO`, `INACTIVO`, `TODOS` (solo el reporte de productores) | `{"estado_productor": "Use ACTIVO, INACTIVO o TODOS."}` |
+| `tipo_actividad` (Semana 18, solo actividades) | código de tipo (p. ej. `SIEMBRA`) | `{"tipo_actividad": "El tipo de actividad indicado no existe."}` |
+| `fecha_actividad_desde` / `fecha_actividad_hasta` (Semana 18) | `AAAA-MM-DD` | `{"fecha_actividad_…": "La fecha no es válida: usa el formato AAAA-MM-DD."}` |
+| `estado_actividad` (Semana 18) | `ACTIVAS`, `ANULADAS`, `TODAS` | `{"estado_actividad": "Use ACTIVAS, ANULADAS o TODAS."}` (por defecto `ACTIVAS`) |
+| `fecha_desde` / `fecha_hasta` (Semana 18, solo auditoría) | `AAAA-MM-DD` | Ver §5.1 |
+| `usuario`, `registro` (Semana 18, solo auditoría) | id numérico | `{"<campo>": "Debe ser un id numérico."}` |
+| `accion`, `modulo`, `tabla`, `ip` (Semana 18, solo auditoría) | texto | — (valor libre; vacío = sin filtro) |
 
 - **Sin `estado_productor` el servidor usa `ACTIVO`** («solo activos»);
   `TODOS` incluye activos e inactivos. El texto del filtro solo aparece
@@ -154,8 +201,31 @@ la query string:
   catálogos de los filtros vienen de `/api/dashboard/filtros/`).
 - Las etiquetas del texto: `Período`, `Cultivo`, `Provincia`,
   `Distrito`, `Comunidad`, `Estado de campaña` (nombre completo del
-  estado) y `Estado del productor` (`solo activos` / `solo inactivos` /
-  `todos`).
+  estado), `Estado del productor` (`solo activos` / `solo inactivos` /
+  `todos`), `Tipo de actividad`, `Actividad desde`, `Actividad hasta`,
+  `Estado de la actividad` (`solo activas` / `solo anuladas` / `todas`),
+  `Fecha desde`, `Fecha hasta`, `Usuario`, `Acción`, `Módulo`, `Tabla`,
+  `Registro` e `IP`.
+
+### 5.1 Rango obligatorio del reporte de auditoría (Semana 18)
+
+Los filtros de la pantalla `/auditoria/` **más el rango**, con la misma
+validación compartida (`auditoria/filtros.py`) pero **estricta**: el
+reporte exige el rango y la pantalla no (HU-156, pruebas 309 y 311).
+
+| Condición | Error 400 |
+|---|---|
+| Falta `fecha_desde` o `fecha_hasta` | `{"fecha_desde" \| "fecha_hasta": "El rango de fechas es obligatorio."}` (el campo que falte) |
+| `fecha_desde` > `fecha_hasta` | `{"fecha_desde": "La fecha inicial no puede ser posterior a la final."}` |
+| `fecha_hasta` en el futuro | `{"fecha_hasta": "La fecha final no puede ser futura."}` |
+| Rango de más de **366 días** (`DIAS_MAX_RANGO_AUDITORIA`) | `{"fecha_hasta": "El rango admite como máximo 366 días."}` |
+| Formato distinto de `AAAA-MM-DD` | `{"fecha_desde" \| "fecha_hasta": "La fecha no es válida: usa el formato AAAA-MM-DD."}` |
+
+- Orden de validación: formato → invertida → futura → 366 (el caso
+  `2099-12-31` es «futura», no «366 días»; el caso `desde=2020-01-01` es
+  «366 días»).
+- En la **pantalla** el rango es opcional, no hay tope y un rango
+  invertido devuelve **0 filas** (no 400) — pruebas 300, 301.
 
 ## 6. Columnas y resúmenes
 
@@ -196,6 +266,53 @@ campaña · Revisión pendiente`
 - `por_cultivo` añade `toneladas`, `provisionales` y
   `excluidas_revision`; los archivos suman una fila **Totales**.
 
+### 6.3 Reporte de actividades (Semana 18, RF-68, HU-150..HU-154) — 13 columnas
+
+`Fecha · Productor · Parcela · Distrito · Campaña · Cultivo · Estado de
+la campaña · Tipo de actividad · Método · Densidad de siembra · Horas ·
+Estado de la actividad · Responsable`
+
+- Una fila por actividad; **por defecto solo `ACTIVAS`** (`estado_actividad`
+  acepta `ANULADAS`/`TODAS`, §5) con el invariante
+  **TODAS = ACTIVAS + ANULADAS** (prueba 306).
+- La campaña **CANCELADA no se filtra**: su estado viaja en la fila.
+- Sin costo, observaciones ni motivo de anulación (esa información vive
+  en la ficha, no en el reporte).
+- Orden fijado por el servidor: **fecha descendente**, desempate por
+  productor.
+- «Responsable» muestra el **nombre/username** de `registrado_por`;
+  para los roles con `limita_a_asignados` la columna desaparece →
+  **12 columnas** y solo sus productores asignados (§7).
+- Resumen: `{total, por_tipo, horas_totales, actividades_con_horas,
+  campanias_distintas, productores_distintos, rango}` — `horas_totales`
+  con 2 decimales y `por_tipo` como lista `{etiqueta, cantidad}` (pruebas
+  306 y 307).
+
+### 6.4 Reporte de auditoría (Semana 18, HU-155/HU-156) — 8 columnas y detalle en blanco seguro
+
+`Fecha y hora · Usuario · Acción · Módulo · Tabla · Registro · IP ·
+Detalle`
+
+- Un evento por fila con el **rango obligatorio** (§5.1), hora de
+  **America/Lima** y orden **fecha descendente** (el más reciente
+  primero; la fila 0 de la vista previa es el último evento, pruebas
+  310 y 562–563 de la colección).
+- Las acciones salen con **etiqueta humana** (`LOGIN` → «Iniciar
+  sesión», `CAMBIAR_CLAVE` → «Cambiar contraseña»…) y el usuario vacío
+  aparece como **«(sin usuario)»**.
+- **Detalle en blanco seguro** (`_DETALLE_SEGURO`): las claves seguras
+  (ids numéricos, enteros, fechas, `xlsx`/`pdf`, códigos de tipo) se
+  muestran con su valor; el **texto libre y las estructuras solo
+  muestran el nombre del campo** en «Campos: …»; la clave **`resumen`
+  no aparece nunca** (prueba 312). Así el reporte sirve para verificar
+  sin volcar datos personales o acciones libres.
+- Resumen: `{total, por_accion, por_modulo, sin_usuario, rango}` con
+  `por_accion`/`por_modulo` como `{etiqueta, cantidad}` (prueba 313).
+- Es el único reporte **sensible**: sus archivos llevan el aviso de
+  confidencialidad en la hoja Resumen del Excel y en el relato y pie
+  del PDF (pruebas 314 y 315), y la interfaz lo confirma antes de
+  descargar (§4).
+
 ## 7. Límites, frecuencia y alcance (HU-146, HU-148)
 
 | Regla | Valor | Comportamiento |
@@ -205,21 +322,42 @@ campaña · Revisión pendiente`
 | Frecuencia | **20 exportaciones/hora y usuario** | 429 con `retry_after` + `Retry-After`; la vista previa no cuenta |
 | Alcance | `filtrar_asignados` | El Técnico solo exporta de **sus** productores (pruebas 282, 299); el catálogo y la previa usan el mismo alcance |
 
-## 8. Privacidad (pregunta V)
+**Semana 18**: los límites y la frecuencia son **los mismos para los 4
+reportes** (prueba 317). La segunda capa también aplica: el Coordinador
+y el Técnico reciben **403** en `auditoria` por no tener `auditoria.ver`
+(pruebas 302 y 571/573 de la colección), y el reporte de actividades del
+Técnico sale con 12 columnas y alcance propio (pruebas 304, 317 y 574).
 
-Los dos reportes **no llevan DNI, teléfono ni `registrado_por`**: ni en
-las columnas, ni en el resumen, ni en los textos de filtro, ni en el
-evento de auditoría. El catálogo y la vista previa acompañan siempre el
-aviso `Este reporte no incluye DNI ni teléfono`. Es la pregunta **V**
-(`decisiones_semana17.md` §1.4), pendiente de confirmación: si el
-responsable pide añadir el DNI, se toca `reportes/catalogo.py` (columnas
-fijas) sin mover la base.
+## 8. Privacidad (pregunta V) y sensibilidad (Semana 18)
+
+Los cuatro reportes **no llevan DNI ni `registrado_por` crudo** (el de
+actividades muestra el responsable por nombre/username en su columna
+«Responsable», nunca el id): ni en columnas, ni en resúmenes, ni en
+textos de filtro, ni en el evento de auditoría. Los catálogos y las
+previas acompañan siempre el aviso `Este reporte no incluye DNI ni
+teléfono`. Es la pregunta **V** (`decisiones_semana17.md` §1.4),
+pendiente de confirmación: si el responsable pide añadir el DNI, se toca
+`reportes/catalogo.py` (columnas fijas) sin mover la base.
+
+**Semana 18 — reporte sensible**: el de auditoría añade su propio aviso
+`AVISO_CONFIDENCIALIDAD` (catálogo, hoja Resumen del Excel, relato y pie
+del PDF y Modal de la interfaz) más el **detalle en blanco seguro**
+(§6.4): el reporte nunca vuelca el resumen libre ni los textos libres
+del evento, solo los nombres de los campos.
 
 ## 9. Colección y pruebas
 
-`docs/coleccion_api_semana17.json` — **F7 cerrada: 540/540 en verde
-(538 obligatorias + 2 opcionales), 1005/1005 aserciones**. Validada con
-el pipeline habitual (BD temporal `sigpa_ga_coleccion17` con siembra
-previa, servidor 8001 con `LOGIN_RATE_IP=120/min`, borrada al terminar).
-Pruebas **280–299** en `backend/reportes/tests.py`; `manage.py test` →
-**299/299 OK**.
+- **Semana 17**: `docs/coleccion_api_semana17.json` — 540/540 en verde
+  (538 obligatorias + 2 opcionales), 1005/1005 aserciones; pruebas
+  **280–299** en `backend/reportes/tests.py`.
+- **Semana 18**: `docs/coleccion_api_semana18.json` — **F7 cerrada:
+  574/574 en verde (572 obligatorias + 2 opcionales), 1074/1074
+  aserciones** (34 nuevas: 541–574, con el catálogo ya de 4 reportes,
+  el rango de Lima dinámico y los 3 roles). Validada con el pipeline
+  habitual (BD temporal `sigpa_ga_coleccion18` con siembra previa,
+  servidor 8001 con `LOGIN_RATE_IP=120/min`, borrada al terminar).
+  Pruebas **300–301** en `backend/auditoria/tests.py` y **302–317** en
+  `backend/reportes/tests.py`.
+- **Suite completa**: `manage.py test --noinput` → **317/317 OK**
+  (632 s), `check` 0 issues, `makemigrations --check` sin cambios,
+  `frontend` `lint`/`build` en 0.

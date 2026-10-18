@@ -1,22 +1,37 @@
-"""Pruebas de la Semana 17: reportes descargables en Excel y PDF.
+"""Pruebas de los reportes descargables (Semanas 17 y 18).
 
-Numeración 280-299 (20 pruebas → 299 en total; el repositorio llegaba a
-279 con la Semana 16). Parten de los mismos datos que el panel
-(DashboardBase) para poder comparar cifras con él. Cubren: el catálogo
-con su doble permiso y el 404 de tipo desconocido; los 401/403 de las
-tres lecturas y el portón de cambio de contraseña; el alcance del
-Técnico; los filtros comunes con sus 400 y su eco; la granularidad y el
-orden del reporte de productores; sus superficies (parcelas contadas una
-sola vez); el detalle productivo con sus estados y marcas; la
-coincidencia de cifras con el panel; las dos hojas del Excel; la
-protección contra fórmulas inyectadas; el PDF con cabecera, pie,
-resumen y texto seguro; los límites de filas por formato (400, sin
-truncar); la privacidad por diseño; la auditoría EXPORTAR y el 503 sin
-archivo; las 20 exportaciones por hora; las cabeceras y el nombre de
-archivo; la generación en memoria sin tocar disco; la fecha de Lima
-cerca de la medianoche; la migración del CHECK (reversible) con 28
-tablas y 25 triggers; y el recorrido de rutas (405) donde solo exportar
-registra eventos.
+Numeración 280-317 (38 pruebas → 317 en total; el repositorio llegaba a
+279 con la Semana 16). La Semana 17 ocupa 280-299 en ReportesTests y la
+Semana 18, 302-317 en ReportesSemana18Tests (300-301 viven en
+auditoria/tests.py). Parten de los mismos datos que el panel
+(DashboardBase) para poder comparar cifras con él.
+
+Pruebas 280-299 (Semana 17): el catálogo con su doble permiso y el 404
+de tipo desconocido; los 401/403 de las tres lecturas y el portón de
+cambio de contraseña; el alcance del Técnico; los filtros comunes con
+sus 400 y su eco; la granularidad y el orden del reporte de productores;
+sus superficies (parcelas contadas una sola vez); el detalle productivo
+con sus estados y marcas; la coincidencia de cifras con el panel; las
+dos hojas del Excel; la protección contra fórmulas inyectadas; el PDF
+con cabecera, pie, resumen y texto seguro; los límites de filas por
+formato (400, sin truncar); la privacidad por diseño; la auditoría
+EXPORTAR y el 503 sin archivo; las 20 exportaciones por hora; las
+cabeceras y el nombre de archivo; la generación en memoria sin tocar
+disco; la fecha de Lima cerca de la medianoche; la migración del CHECK
+(reversible) con 28 tablas y 25 triggers; y el recorrido de rutas (405)
+donde solo exportar registra eventos.
+
+Pruebas 302-317 (Semana 18): los reportes nuevos de actividades (RF-68)
+y auditoría (HU-155/HU-156) — catálogo sensible con su aviso y segunda
+capa de permisos, columnas efectivas (sin costo/observaciones/motivo y
+sin «responsable» para roles limitados), filas, orden, campaña
+cancelada, alcance del Técnico, filtros con sus 400 y eco, estados y
+resumen, responsable/densidad/método, Excel y PDF; el rango obligatorio
+de auditoría con sus seis 400, hora de Lima, etiquetas, filtros
+compartidos con la pantalla, detalle en blanco segura, resumen por
+acción/módulo, Excel con aviso de confidencialidad y PDF con el aviso en
+relato y pie; el evento EXPORTAR de los dos tipos; y los límites y el
+formato compartidos.
 """
 import builtins
 import importlib
@@ -38,16 +53,19 @@ from django.db import IntegrityError, connection, transaction
 from django.db.migrations.exceptions import IrreversibleError
 from django.db.migrations.executor import MigrationExecutor
 from django.urls import get_resolver
+from django.utils import timezone
 from openpyxl import load_workbook
 from reportlab.pdfbase import pdfmetrics
 
 from auditoria.models import Auditoria
 from campanias.models import Campania
+from catalogos.models import TipoActividad
 from dashboard.tests import _TABLAS_DJANGO, _TABLAS_PROPIAS, DashboardBase
 from productores.models import Parcela, Productor
 from produccion.models import Produccion
-from reportes import catalogo
+from reportes import catalogo, consultas
 from reportes.formato import es_texto_de_formula
+from seguimiento.models import Actividad
 from usuarios.models import Permiso, Rol, RolPermiso, Usuario
 from usuarios.ratelimit import PREFIJO_EXPORTACIONES
 
@@ -116,7 +134,8 @@ class ReportesTests(ReportesBase):
         self._entrar_admin()
         catalogo_admin = self._catalogo()
         self.assertEqual(
-            [r["tipo"] for r in catalogo_admin], ["productores", "productivo"]
+            [r["tipo"] for r in catalogo_admin],
+            ["productores", "productivo", "actividades", "auditoria"],
         )
         primero = catalogo_admin[0]
         self.assertEqual(primero["nombre"], "Reporte de productores")
@@ -1000,3 +1019,769 @@ class ReportesTests(ReportesBase):
         ultimo = Auditoria.objects.order_by("-id").first()
         self.assertEqual(ultimo.accion, "EXPORTAR")
         self.assertEqual(ultimo.modulo, "reportes")
+
+
+class ReportesSemana18Tests(ReportesBase):
+    """Pruebas 302-317 (Semana 18): los reportes de actividades (RF-68)
+    y de auditoría (HU-155/HU-156), sus permisos, filtros, archivos y la
+    confidencialidad del segundo."""
+
+    def setUp(self):
+        super().setUp()
+        # El trigger de código rellena codigo en la base; el objeto en
+        # memoria sigue con el '' inicial
+        self.p1.refresh_from_db()
+        self.preparacion = TipoActividad.objects.get(codigo="PREPARACION")
+        self.siembra = TipoActividad.objects.get(codigo="SIEMBRA")
+        # Actividades con fechas, tipos, horas y estados variados
+        self.a1 = self._actividad(
+            self.c1, self.hoy - timedelta(days=10), self.preparacion,
+            horas="4.5", registrado_por=self.admin, metodo="Arado",
+        )
+        self.a2 = self._actividad(
+            self.c1, self.hoy - timedelta(days=3), self.siembra,
+            registrado_por=self.admin, densidad=("25", "KG_HA"),
+        )
+        self.a3 = self._actividad(
+            self.c4, self.hoy - timedelta(days=5), self.preparacion,
+            registrado_por=self.coordinador,
+        )
+        # La campaña se cancela DESPUÉS de registrar la actividad: los
+        # triggers rechazan altas sobre campañas canceladas, y el reporte
+        # debe seguir incluyéndola con su estado en la fila
+        self.c_cancelada = self._campania(
+            self.p1, self.cultivo, parcela="pa10"
+        )
+        self.a4 = self._actividad(
+            self.c_cancelada, self.hoy - timedelta(days=8), self.preparacion,
+            horas="2.0",
+        )
+        self._sql(
+            "UPDATE campanias SET estado = 'CANCELADA' WHERE id = %s",
+            [self.c_cancelada.pk],
+        )
+        self.a5 = self._actividad(
+            self.c2, self.hoy - timedelta(days=2), self.siembra,
+            horas="1.0", anulada=True, motivo="Lluvia persistente",
+        )
+        # Eventos de bitácora con formas variadas (los tres son
+        # anteriores al LOGIN que deja cada inicio de sesión)
+        ahora = timezone.now()
+        self.ev_exportar = Auditoria.objects.create(
+            usuario=self.admin, accion="EXPORTAR", modulo="reportes",
+            tabla="auditoria", registro_id=77, ip="10.0.0.5",
+            detalle={
+                "tipo": "xlsx",
+                "filtros": {"cultivo": 1},
+                "filas": 12,
+                "motivo": "Texto libre confidencial",
+                "resumen": {"alertas": 3},
+            },
+            fecha=ahora - timedelta(hours=1),
+        )
+        self.ev_sin_usuario = Auditoria.objects.create(
+            usuario=None, accion="LOGIN", modulo="sesiones_prueba",
+            ip="10.0.0.9", fecha=ahora - timedelta(hours=2),
+        )
+        self.ev_crear = Auditoria.objects.create(
+            usuario=self.coordinador, accion="CREAR", modulo="informes_esp",
+            tabla="cosas", registro_id=5, ip="10.0.0.7",
+            detalle={"estado": "ACTIVO", "nota": "No debe aparecer"},
+            fecha=ahora - timedelta(hours=3),
+        )
+        self._desde = (self.hoy - timedelta(days=30)).isoformat()
+        self._rango = f"?fecha_desde={self._desde}&fecha_hasta={self.hoy.isoformat()}"
+
+    # ------------------------------------------------------------------ #
+    # helpers
+    # ------------------------------------------------------------------ #
+    def _actividad(
+        self, campania, fecha, tipo, horas=None, registrado_por=None,
+        anulada=False, metodo="", densidad=None, motivo=None,
+    ):
+        datos = {
+            "campania": campania,
+            "tipo_actividad": tipo,
+            "fecha": fecha,
+            "registrado_por": registrado_por,
+            "metodo": metodo,
+            "anulada": anulada,
+        }
+        if horas is not None:
+            datos["horas"] = horas
+        if densidad is not None:
+            datos["densidad_siembra"], datos["densidad_unidad"] = densidad
+        if motivo is not None:
+            datos["motivo_anulacion"] = motivo
+        return Actividad.objects.create(**datos)
+
+    # ------------------------------------------------------------------ #
+    # 302: catálogo de los tipos nuevos (sensible, aviso) y 2ª capa
+    # ------------------------------------------------------------------ #
+    def test_302_catalogo_nuevo_sensible_aviso_y_segunda_capa(self):
+        self._entrar_admin()
+        cat = {r["tipo"]: r for r in self._catalogo()}
+        self.assertEqual(
+            set(cat),
+            {"productores", "productivo", "actividades", "auditoria"},
+        )
+        activ = cat["actividades"]
+        self.assertFalse(activ["sensible"])
+        self.assertIsNone(activ["aviso"])
+        self.assertEqual(activ["filtros"], list(catalogo.FILTROS_ACTIVIDADES))
+        self.assertEqual(len(activ["filtros"]), 10)
+        aud = cat["auditoria"]
+        self.assertTrue(aud["sensible"])
+        self.assertEqual(aud["aviso"], catalogo.AVISO_CONFIDENCIALIDAD)
+        self.assertEqual(aud["filtros"], list(catalogo.FILTROS_AUDITORIA))
+        # Segunda capa: el ver del módulo decide qué reportes se usan
+        self._usuario_con(
+            "cap_s18a", "Cap S18 A",
+            ["reportes.ver", "reportes.exportar", "actividades.ver"],
+        )
+        self._entrar("cap_s18a", "Reportes2026!")
+        self.assertEqual([r["tipo"] for r in self._catalogo()], ["actividades"])
+        self.assertEqual(self._previa("actividades").status_code, 200)
+        self.assertEqual(self._previa("auditoria").status_code, 403)
+        self.assertEqual(self._exportar("actividades", "xlsx").status_code, 200)
+        denegado = self._exportar("auditoria", "xlsx")
+        self.assertEqual(denegado.status_code, 403)
+        self.assertEqual(
+            self._json(denegado),
+            {"detail": "No tienes permiso para realizar esta acción."},
+        )
+        # Con el ver de auditoría pero sin el rango: 400, no 403
+        self._usuario_con(
+            "cap_s18b", "Cap S18 B",
+            ["reportes.ver", "reportes.exportar", "auditoria.ver"],
+        )
+        self._entrar("cap_s18b", "Reportes2026!")
+        self.assertEqual([r["tipo"] for r in self._catalogo()], ["auditoria"])
+        sin_rango = self._previa("auditoria")
+        self.assertEqual(sin_rango.status_code, 400)
+        self.assertEqual(
+            self._json(sin_rango),
+            {
+                "fecha_desde": "El rango de fechas es obligatorio.",
+                "fecha_hasta": "El rango de fechas es obligatorio.",
+            },
+        )
+
+    # ------------------------------------------------------------------ #
+    # 303: columnas efectivas (sin costo/observaciones ni responsable)
+    # ------------------------------------------------------------------ #
+    def test_303_columnas_efectivas_de_las_dos_vistas_previas(self):
+        self._entrar_admin()
+        previa = self._json(self._previa("actividades"))
+        claves = [c["clave"] for c in previa["columnas"]]
+        self.assertEqual(
+            claves, [c["clave"] for c in catalogo.COLUMNAS_ACTIVIDADES]
+        )
+        self.assertEqual(len(claves), 13)
+        # Privacidad por diseño: los tres campos de la ficha no salen
+        self.assertNotIn("costo", claves)
+        self.assertNotIn("observaciones", claves)
+        self.assertNotIn("motivo_anulacion", claves)
+        self.assertIn("responsable", claves)
+        previa_aud = self._json(self._previa("auditoria", self._rango))
+        self.assertEqual(
+            [c["clave"] for c in previa_aud["columnas"]],
+            [c["clave"] for c in catalogo.COLUMNAS_AUDITORIA],
+        )
+        self.assertEqual(
+            previa_aud["columnas"][0],
+            {"clave": "fecha", "etiqueta": "Fecha y hora"},
+        )
+        # Ninguna columna de los tipos nuevos nombra datos prohibidos
+        for tipo in ("actividades", "auditoria"):
+            for columna in catalogo.obtener(tipo)["columnas"]:
+                texto_col = f"{columna['clave']} {columna['etiqueta']}".lower()
+                for prohibido in _PROHIBIDOS:
+                    self.assertNotIn(prohibido, texto_col, f"{tipo}: {texto_col}")
+        # El rol limitado no recibe la columna «responsable»
+        self._entrar_tecnico()
+        previa_tec = self._json(self._previa("actividades"))
+        claves_tec = [c["clave"] for c in previa_tec["columnas"]]
+        self.assertNotIn("responsable", claves_tec)
+        self.assertEqual(len(claves_tec), 12)
+        # El Coordinador no se limita: la conserva
+        self._entrar_coordinador()
+        previa_coord = self._json(self._previa("actividades"))
+        self.assertIn(
+            "responsable", [c["clave"] for c in previa_coord["columnas"]]
+        )
+
+    # ------------------------------------------------------------------ #
+    # 304: filas, orden, campaña cancelada incluida y alcance del Técnico
+    # ------------------------------------------------------------------ #
+    def test_304_actividades_filas_orden_cancelada_y_alcance(self):
+        self._entrar_admin()
+        datos = self._json(self._previa("actividades"))
+        self.assertEqual(datos["total_filas"], 4)  # a5 anulada no cuenta
+        fechas = [f["fecha"] for f in datos["filas"]]
+        esperadas = [
+            (self.hoy - timedelta(days=3)).strftime("%d/%m/%Y"),
+            (self.hoy - timedelta(days=5)).strftime("%d/%m/%Y"),
+            (self.hoy - timedelta(days=8)).strftime("%d/%m/%Y"),
+            (self.hoy - timedelta(days=10)).strftime("%d/%m/%Y"),
+        ]
+        self.assertEqual(fechas, esperadas)
+        # La campaña cancelada sí aparece, con su estado en la fila
+        cancelada = datos["filas"][2]
+        self.assertEqual(cancelada["campania"], self.c_cancelada.periodo)
+        self.assertEqual(cancelada["estado_campania"], "Cancelada")
+        self.assertEqual(cancelada["cultivo"], "Quinua S16")
+        self.assertEqual(
+            cancelada["productor"], f"{self.p1.codigo} · Uno Alfa"
+        )
+        self.assertEqual(cancelada["parcela"], self.c_cancelada.parcela.codigo)
+        self.assertEqual(cancelada["distrito"], "Distrito S16")
+        # El estado de campaña, cuando se pide, sí filtra
+        solo_cancelada = self._json(
+            self._previa("actividades", "?estado=CANCELADA")
+        )
+        self.assertEqual(solo_cancelada["total_filas"], 1)
+        cosechadas = self._json(
+            self._previa("actividades", "?estado=COSECHADA")
+        )
+        self.assertEqual(cosechadas["total_filas"], 3)  # a1, a2 y a3
+        # Alcance del Técnico: solo sus productores (a1, a2 y a4)
+        self._entrar_tecnico()
+        tec = self._json(self._previa("actividades"))
+        self.assertEqual(tec["total_filas"], 3)
+        self.assertEqual(
+            {f["productor"] for f in tec["filas"]},
+            {f"{self.p1.codigo} · Uno Alfa"},
+        )
+        self.assertNotIn("Dos Beta", str(tec))
+
+    # ------------------------------------------------------------------ #
+    # 305: filtros con sus 400 y el eco resuelto a texto
+    # ------------------------------------------------------------------ #
+    def test_305_actividades_filtros_400_y_eco_de_texto(self):
+        self._entrar_admin()
+        casos = [
+            (
+                "?estado_actividad=LOCO",
+                {"estado_actividad": "Use ACTIVAS, ANULADAS o TODAS."},
+            ),
+            (
+                "?tipo_actividad=99999",
+                {"tipo_actividad": "El tipo de actividad indicado no existe."},
+            ),
+            (
+                "?tipo_actividad=abc",
+                {"tipo_actividad": "Debe ser un id numérico."},
+            ),
+            (
+                f"?fecha_actividad_desde={self.hoy.isoformat()}"
+                f"&fecha_actividad_hasta={(self.hoy - timedelta(days=5)).isoformat()}",
+                {"fecha_actividad_desde": "La fecha inicial no puede ser "
+                                          "posterior a la final."},
+            ),
+            (
+                "?fecha_actividad_desde=31-10-2026",
+                {"fecha_actividad_desde": "La fecha no es válida: usa el "
+                                          "formato AAAA-MM-DD."},
+            ),
+        ]
+        for consulta, esperado in casos:
+            respuesta = self._previa("actividades", consulta)
+            self.assertEqual(respuesta.status_code, 400, consulta)
+            self.assertEqual(self._json(respuesta), esperado, consulta)
+        # Eco: fechas en dd/mm/aaaa y etiquetas resueltas
+        desde = (self.hoy - timedelta(days=5)).isoformat()
+        eco = self._json(
+            self._previa(
+                "actividades",
+                f"?fecha_actividad_desde={desde}&estado_actividad=TODAS"
+                f"&tipo_actividad={self.siembra.pk}",
+            )
+        )
+        self.assertEqual(eco["filtros"]["fecha_actividad_desde"], desde)
+        self.assertEqual(eco["filtros"]["estado_actividad"], "TODAS")
+        texto_filtros = eco["filtros_texto"]
+        self.assertIn(
+            f"Actividad desde: {(self.hoy - timedelta(days=5)).strftime('%d/%m/%Y')}",
+            texto_filtros,
+        )
+        self.assertIn("Estado de la actividad: todas", texto_filtros)
+        self.assertIn(f"Tipo de actividad: {self.siembra.nombre}", texto_filtros)
+
+    # ------------------------------------------------------------------ #
+    # 306: estados, rango inclusivo y resumen completo
+    # ------------------------------------------------------------------ #
+    def test_306_actividades_estados_rango_y_resumen(self):
+        self._entrar_admin()
+        # Por defecto solo activas; anuladas y todas cambian el conteo
+        self.assertEqual(
+            self._json(self._previa("actividades"))["total_filas"], 4
+        )
+        anuladas = self._json(
+            self._previa("actividades", "?estado_actividad=ANULADAS")
+        )
+        self.assertEqual(anuladas["total_filas"], 1)
+        fila_anulada = anuladas["filas"][0]
+        self.assertEqual(fila_anulada["estado_actividad"], "Anulada")
+        self.assertEqual(
+            set(fila_anulada),
+            {c["clave"] for c in catalogo.COLUMNAS_ACTIVIDADES},
+        )
+        todas = self._json(
+            self._previa("actividades", "?estado_actividad=TODAS")
+        )
+        self.assertEqual(todas["total_filas"], 5)
+        # Rango inclusivo en los dos extremos
+        desde = self._json(
+            self._previa(
+                "actividades",
+                f"?fecha_actividad_desde={(self.hoy - timedelta(days=5)).isoformat()}",
+            )
+        )
+        self.assertEqual(desde["total_filas"], 2)  # a3 (hoy-5) y a2 (hoy-3)
+        hasta = self._json(
+            self._previa(
+                "actividades",
+                f"?fecha_actividad_hasta={(self.hoy - timedelta(days=8)).isoformat()}",
+            )
+        )
+        self.assertEqual(hasta["total_filas"], 2)  # a4 (hoy-8) y a1 (hoy-10)
+        # Resumen: totales, por tipo ordenado y rango de fechas
+        resumen = self._json(self._previa("actividades"))["resumen"]
+        self.assertEqual(resumen["total"], 4)
+        esperado = sorted(
+            [
+                {"etiqueta": self.preparacion.nombre, "cantidad": 3},
+                {"etiqueta": self.siembra.nombre, "cantidad": 1},
+            ],
+            key=lambda fila: fila["etiqueta"],
+        )
+        self.assertEqual(resumen["por_tipo"], esperado)
+        self.assertEqual(resumen["horas_totales"], "6.50")
+        self.assertEqual(resumen["actividades_con_horas"], 2)
+        self.assertEqual(resumen["campanias_distintas"], 3)
+        self.assertEqual(resumen["productores_distintos"], 2)
+        self.assertEqual(
+            resumen["rango"],
+            {
+                "desde": (self.hoy - timedelta(days=10)).strftime("%d/%m/%Y"),
+                "hasta": (self.hoy - timedelta(days=3)).strftime("%d/%m/%Y"),
+            },
+        )
+
+    # ------------------------------------------------------------------ #
+    # 307: responsable, densidad y método; ausente para el rol limitado
+    # ------------------------------------------------------------------ #
+    def test_307_actividades_responsable_densidad_y_metodo(self):
+        self._entrar_admin()
+        datos = self._json(self._previa("actividades"))
+        por_fecha = {f["fecha"]: f for f in datos["filas"]}
+        a1 = por_fecha[(self.hoy - timedelta(days=10)).strftime("%d/%m/%Y")]
+        self.assertEqual(a1["responsable"], "admin_dashboard")
+        self.assertEqual(a1["metodo"], "Arado")
+        a3 = por_fecha[(self.hoy - timedelta(days=5)).strftime("%d/%m/%Y")]
+        self.assertEqual(a3["responsable"], "coord_dashboard")
+        a4 = por_fecha[(self.hoy - timedelta(days=8)).strftime("%d/%m/%Y")]
+        self.assertEqual(a4["responsable"], "")  # registrado_por nulo
+        a2 = por_fecha[(self.hoy - timedelta(days=3)).strftime("%d/%m/%Y")]
+        self.assertEqual(a2["densidad"], "25.00 kg/ha")
+        self.assertEqual(a2["metodo"], "")
+        # El Técnico no recibe la columna ni en columnas ni en las filas
+        self._entrar_tecnico()
+        previa_tec = self._json(self._previa("actividades"))
+        self.assertEqual(len(previa_tec["columnas"]), 12)
+        for fila in previa_tec["filas"]:
+            self.assertNotIn("responsable", fila)
+
+    # ------------------------------------------------------------------ #
+    # 308: Excel y PDF del reporte de actividades
+    # ------------------------------------------------------------------ #
+    def test_308_excel_y_pdf_de_actividades(self):
+        self._entrar_admin()
+        respuesta = self._exportar("actividades", "xlsx")
+        self.assertEqual(respuesta.status_code, 200)
+        libro = load_workbook(BytesIO(respuesta.content))
+        self.assertEqual(libro.sheetnames, ["Resumen", "Datos"])
+        resumen = libro["Resumen"]
+        titulos = [celda.value for celda in resumen["A"] if celda.value]
+        self.assertEqual(titulos[0], "Reporte de actividades")
+        self.assertIn("Filtros: ninguno", titulos)
+        self.assertIn("Generado por: admin_dashboard", titulos)
+        self.assertIn("Actividades", titulos)
+        self.assertIn("Tipo de actividad", titulos)
+        self.assertIn(catalogo.AVISO_PRIVACIDAD, titulos)
+        # El aviso de confidencialidad es exclusivo del reporte sensible
+        self.assertNotIn(catalogo.AVISO_CONFIDENCIALIDAD, titulos)
+        datos = libro["Datos"]
+        self.assertEqual(
+            [celda.value for celda in datos[1]],
+            [c["etiqueta"] for c in catalogo.COLUMNAS_ACTIVIDADES],
+        )
+        cabeceras = [celda.value for celda in datos[1]]
+        self.assertNotIn("Costo", cabeceras)
+        self.assertNotIn("Observaciones", cabeceras)
+        self.assertNotIn("Motivo de anulación", cabeceras)
+        for prohibido in _PROHIBIDOS:
+            for cabecera in cabeceras:
+                self.assertNotIn(prohibido, str(cabecera).lower())
+        # Fecha como fecha real y horas como número (nunca texto)
+        columna_fecha = self._columna(datos, "Fecha")
+        self.assertIsInstance(
+            datos.cell(row=2, column=columna_fecha).value, datetime
+        )
+        columna_horas = self._columna(datos, "Horas")
+        valores_horas = [
+            datos.cell(row=fila, column=columna_horas).value
+            for fila in range(2, datos.max_row + 1)
+        ]
+        self.assertIn(4.5, valores_horas)
+        self.assertIn(2, valores_horas)
+        # El PDF con su título, su tabla y sin el aviso confidencial
+        pdf = self._exportar("actividades", "pdf")
+        self.assertEqual(pdf.status_code, 200)
+        self.assertTrue(pdf.content.startswith(b"%PDF"))
+        texto = self._texto_pdf(pdf.content)
+        self.assertIn("SIGPA-GA — Reporte de actividades", texto)
+        self.assertIn("Tipo de actividad", texto)
+        self.assertIn("Responsable", texto)
+        self.assertIn(catalogo.AVISO_PRIVACIDAD, texto)
+        self.assertNotIn("uso interno", texto)
+        self.assertNotIn("95000001", texto)
+
+    # ------------------------------------------------------------------ #
+    # 309: el rango de auditoría es obligatorio y valida seis formas
+    # ------------------------------------------------------------------ #
+    def test_309_auditoria_rango_obligatorio_y_sus_400(self):
+        self._entrar_admin()
+        hoy = self.hoy.isoformat()
+        casos = [
+            (
+                "",
+                {
+                    "fecha_desde": "El rango de fechas es obligatorio.",
+                    "fecha_hasta": "El rango de fechas es obligatorio.",
+                },
+            ),
+            (
+                f"?fecha_desde={hoy}",
+                {"fecha_hasta": "El rango de fechas es obligatorio."},
+            ),
+            (
+                f"?fecha_hasta={hoy}",
+                {"fecha_desde": "El rango de fechas es obligatorio."},
+            ),
+            (
+                f"?fecha_desde={hoy}&fecha_hasta="
+                f"{(self.hoy - timedelta(days=5)).isoformat()}",
+                {"fecha_desde": "La fecha inicial no puede ser posterior "
+                                "a la final."},
+            ),
+            (
+                f"?fecha_desde={(self.hoy - timedelta(days=1)).isoformat()}"
+                f"&fecha_hasta={(self.hoy + timedelta(days=1)).isoformat()}",
+                {"fecha_hasta": "La fecha final no puede ser futura."},
+            ),
+            (
+                f"?fecha_desde={(self.hoy - timedelta(days=400)).isoformat()}"
+                f"&fecha_hasta={hoy}",
+                {"fecha_hasta": "El rango admite como máximo 366 días."},
+            ),
+            (
+                f"?fecha_desde=31-10-2026&fecha_hasta={hoy}",
+                {"fecha_desde": "La fecha no es válida: usa el formato "
+                                "AAAA-MM-DD."},
+            ),
+        ]
+        for consulta, esperado in casos:
+            respuesta = self._previa("auditoria", consulta)
+            self.assertEqual(respuesta.status_code, 400, consulta)
+            self.assertEqual(self._json(respuesta), esperado, consulta)
+        # Frontera válida: exactamente 366 días (365 de diferencia)
+        borde = self._previa(
+            "auditoria",
+            f"?fecha_desde={(self.hoy - timedelta(days=365)).isoformat()}"
+            f"&fecha_hasta={hoy}",
+        )
+        self.assertEqual(borde.status_code, 200)
+
+    # ------------------------------------------------------------------ #
+    # 310: hora de Lima, «(sin usuario)», etiquetas y orden
+    # ------------------------------------------------------------------ #
+    def test_310_auditoria_filas_hora_lima_etiquetas_y_orden(self):
+        self._entrar_admin()
+        datos = self._json(self._previa("auditoria", self._rango))
+        self.assertEqual(datos["total_filas"], 4)
+        # La capa cruda devuelve la hora de Lima (la tabla guarda UTC)
+        crudo = consultas.preparar(
+            catalogo.obtener("auditoria"), self.admin,
+            {
+                "fecha_desde": self._desde,
+                "fecha_hasta": self.hoy.isoformat(),
+            },
+        )
+        fila_export = next(
+            f for f in crudo["filas"] if f["registro_id"] == 77
+        )
+        evento = Auditoria.objects.get(pk=self.ev_exportar.pk)
+        self.assertEqual(fila_export["fecha"], timezone.localtime(evento.fecha))
+        self.assertEqual(fila_export["fecha"].tzinfo.key, "America/Lima")
+        self.assertEqual(fila_export["fecha"].utcoffset(), timedelta(hours=-5))
+        # Vista previa: dd/mm/aaaa HH:MM de Lima (entero → texto en la API)
+        preview = next(f for f in datos["filas"] if f["registro_id"] == "77")
+        self.assertEqual(
+            preview["fecha"],
+            timezone.localtime(evento.fecha).strftime("%d/%m/%Y %H:%M"),
+        )
+        # Evento sin usuario → «(sin usuario)» con su etiqueta
+        sin_usuario = [
+            f for f in datos["filas"] if f["usuario"] == "(sin usuario)"
+        ]
+        self.assertEqual(len(sin_usuario), 1)
+        self.assertEqual(sin_usuario[0]["accion"], "Iniciar sesión")
+        # Etiquetas de acción, nunca códigos crudos
+        acciones = {f["accion"] for f in datos["filas"]}
+        self.assertIn("Exportar", acciones)
+        self.assertIn("Crear", acciones)
+        self.assertNotIn("EXPORTAR", acciones)
+        self.assertNotIn("CREAR", acciones)
+        # Orden: el evento más reciente (el LOGIN de este test) primero
+        self.assertEqual(datos["filas"][0]["usuario"], "admin_dashboard")
+        self.assertEqual(datos["filas"][0]["accion"], "Iniciar sesión")
+
+    # ------------------------------------------------------------------ #
+    # 311: los filtros compartidos acotan igual en pantalla y en reporte
+    # ------------------------------------------------------------------ #
+    def test_311_auditoria_filtros_compartidos_coinciden_con_la_pantalla(self):
+        self._entrar_admin()
+        parejas = [
+            f"usuario={self.coordinador.pk}",
+            "accion=EXPORTAR",
+            "tabla=cosas",
+            "registro=77",
+            "ip=10.0.0.7",
+            "modulo=informes_esp",
+        ]
+        for filtro in parejas:
+            pantalla = self._json(self._api("get", f"/api/auditoria/?{filtro}"))
+            previa = self._json(
+                self._previa("auditoria", f"{self._rango}&{filtro}")
+            )
+            self.assertGreater(pantalla["count"], 0, filtro)
+            self.assertEqual(previa["total_filas"], pantalla["count"], filtro)
+        # El mismo registro identificado en ambas capas
+        pantalla = self._json(self._api("get", "/api/auditoria/?registro=77"))
+        self.assertEqual(
+            [f["registro_id"] for f in pantalla["results"]], [77]
+        )
+        previa = self._json(
+            self._previa("auditoria", f"{self._rango}&registro=77")
+        )
+        self.assertEqual(
+            [f["registro_id"] for f in previa["filas"]], ["77"]
+        )
+
+    # ------------------------------------------------------------------ #
+    # 312: el detalle se reduce a un blanco seguro (sin valores libres)
+    # ------------------------------------------------------------------ #
+    def test_312_auditoria_detalle_blanco_segura(self):
+        self._entrar_admin()
+        datos = self._json(self._previa("auditoria", self._rango))
+        por_registro = {
+            f["registro_id"]: f for f in datos["filas"] if f["registro_id"]
+        }
+        # Claves seguras con su valor; texto libre y dicts solo con nombre
+        self.assertEqual(
+            por_registro["77"]["detalle"],
+            "filas: 12 · tipo: xlsx · Campos: filtros, motivo",
+        )
+        self.assertEqual(
+            por_registro["5"]["detalle"],
+            "estado: ACTIVO · Campos: nota",
+        )
+        # «resumen» (barrido de alertas) jamás se muestra
+        self.assertNotIn("alertas", por_registro["77"]["detalle"])
+        bruto = json.dumps(datos, ensure_ascii=False)
+        self.assertNotIn("Texto libre confidencial", bruto)
+        self.assertNotIn("No debe aparecer", bruto)
+        # Sin detalle → celda vacía
+        sin_usuario = next(
+            f for f in datos["filas"] if f["usuario"] == "(sin usuario)"
+        )
+        self.assertEqual(sin_usuario["detalle"], "")
+
+    # ------------------------------------------------------------------ #
+    # 313: resumen por acción y módulo, sin usuario y rango
+    # ------------------------------------------------------------------ #
+    def test_313_auditoria_resumen_por_accion_modulo_y_rango(self):
+        self._entrar_admin()
+        datos = self._json(self._previa("auditoria", self._rango))
+        resumen = datos["resumen"]
+        en_rango = Auditoria.objects.filter(
+            fecha__date__gte=self._desde, fecha__date__lte=self.hoy.isoformat()
+        )
+        self.assertEqual(resumen["total"], en_rango.count())
+        self.assertEqual(resumen["sin_usuario"], 1)
+        self.assertEqual(
+            resumen["sin_usuario"], en_rango.filter(usuario__isnull=True).count()
+        )
+        self.assertIn(
+            {"etiqueta": "Exportar", "cantidad": 1}, resumen["por_accion"]
+        )
+        self.assertIn(
+            {"etiqueta": "Crear", "cantidad": 1}, resumen["por_accion"]
+        )
+        # El LOGIN de este test y el evento sin usuario
+        self.assertIn(
+            {"etiqueta": "Iniciar sesión", "cantidad": 2},
+            resumen["por_accion"],
+        )
+        self.assertIn(
+            {"etiqueta": "informes_esp", "cantidad": 1}, resumen["por_modulo"]
+        )
+        self.assertIn(
+            {"etiqueta": "sesiones_prueba", "cantidad": 1},
+            resumen["por_modulo"],
+        )
+        minimo = timezone.localtime(en_rango.order_by("fecha").first().fecha)
+        maximo = timezone.localtime(en_rango.order_by("-fecha").first().fecha)
+        self.assertEqual(
+            resumen["rango"]["desde"], minimo.strftime("%d/%m/%Y")
+        )
+        self.assertEqual(resumen["rango"]["hasta"], maximo.strftime("%d/%m/%Y"))
+
+    # ------------------------------------------------------------------ #
+    # 314: Excel de auditoría con su aviso y la hora de Lima
+    # ------------------------------------------------------------------ #
+    def test_314_excel_de_auditoria_con_aviso_y_hora_de_lima(self):
+        self._entrar_admin()
+        respuesta = self._exportar("auditoria", "xlsx", self._rango)
+        self.assertEqual(respuesta.status_code, 200)
+        libro = load_workbook(BytesIO(respuesta.content))
+        self.assertEqual(libro.sheetnames, ["Resumen", "Datos"])
+        resumen = libro["Resumen"]
+        titulos = [celda.value for celda in resumen["A"] if celda.value]
+        self.assertEqual(titulos[0], "Reporte de auditoría")
+        self.assertIn(catalogo.AVISO_PRIVACIDAD, titulos)
+        # El aviso de confidencialidad va en la hoja Resumen
+        self.assertIn(catalogo.AVISO_CONFIDENCIALIDAD, titulos)
+        self.assertIn("Eventos", titulos)
+        self.assertIn("Sin usuario", titulos)
+        self.assertIn("Rango de fechas", titulos)
+        self.assertIn("Acción", titulos)
+        self.assertIn("Módulo", titulos)
+        datos = libro["Datos"]
+        self.assertEqual(
+            [celda.value for celda in datos[1]],
+            [c["etiqueta"] for c in catalogo.COLUMNAS_AUDITORIA],
+        )
+        columna_fecha = self._columna(datos, "Fecha y hora")
+        columna_ip = self._columna(datos, "IP")
+        # Sin huso: openpyxl rechazaría los datetimes aware
+        for fila in range(2, datos.max_row + 1):
+            valor = datos.cell(row=fila, column=columna_fecha).value
+            self.assertIsInstance(valor, datetime)
+            self.assertIsNone(valor.tzinfo)
+        fila_ev = next(
+            fila
+            for fila in range(2, datos.max_row + 1)
+            if datos.cell(row=fila, column=columna_ip).value == "10.0.0.5"
+        )
+        evento = Auditoria.objects.get(pk=self.ev_exportar.pk)
+        esperado = timezone.localtime(evento.fecha).replace(tzinfo=None)
+        celda = datos.cell(row=fila_ev, column=columna_fecha).value
+        self.assertLess(abs((celda - esperado).total_seconds()), 1)
+
+    # ------------------------------------------------------------------ #
+    # 315: PDF de auditoría con el aviso en el relato y en el pie
+    # ------------------------------------------------------------------ #
+    def test_315_pdf_de_auditoria_con_confidencialidad_en_relato_y_pie(self):
+        self._entrar_admin()
+        respuesta = self._exportar("auditoria", "pdf", self._rango)
+        self.assertEqual(respuesta.status_code, 200)
+        contenido = respuesta.content
+        self.assertTrue(contenido.startswith(b"%PDF"))
+        texto = self._texto_pdf(contenido)
+        self.assertIn("SIGPA-GA — Reporte de auditoría", texto)
+        self.assertIn(catalogo.AVISO_CONFIDENCIALIDAD, texto)
+        # Una vez en el relato y otra en el pie de cada página
+        self.assertGreaterEqual(texto.count("uso interno"), 2)
+        self.assertIn("(sin usuario)", texto)
+        self.assertIn("Acción", texto)
+        self.assertIn("Módulo", texto)
+        self.assertRegex(texto, r"Página 1 de \d+")
+
+    # ------------------------------------------------------------------ #
+    # 316: exportar los tipos nuevos deja su evento con detalle seguro
+    # ------------------------------------------------------------------ #
+    def test_316_exportar_de_los_tipos_nuevos_registra_su_evento(self):
+        self._entrar_admin()
+        base = Auditoria.objects.count()
+        for tipo in ("actividades", "auditoria"):
+            filtros = self._rango if tipo == "auditoria" else ""
+            respuesta = self._exportar(tipo, "xlsx", filtros)
+            self.assertEqual(respuesta.status_code, 200, tipo)
+        self.assertEqual(Auditoria.objects.count(), base + 2)
+        nuevos = list(Auditoria.objects.order_by("-id")[:2])
+        self.assertEqual(
+            [e.accion for e in nuevos], ["EXPORTAR", "EXPORTAR"]
+        )
+        for evento in nuevos:
+            self.assertEqual(evento.modulo, "reportes")
+            self.assertEqual(evento.usuario_id, self.admin.pk)
+        por_tipo = {e.detalle["tipo"]: e.detalle for e in nuevos}
+        self.assertEqual(por_tipo["actividades"]["formato"], "xlsx")
+        self.assertEqual(por_tipo["actividades"]["filtros"], {})
+        self.assertEqual(por_tipo["auditoria"]["formato"], "xlsx")
+        self.assertEqual(
+            por_tipo["auditoria"]["filtros"],
+            {"fecha_desde": self._desde, "fecha_hasta": self.hoy.isoformat()},
+        )
+        # Al re-exportarlo, su propio detalle es seguro y legible
+        previa = self._json(self._previa("auditoria", self._rango))
+        detalles = [
+            f["detalle"]
+            for f in previa["filas"]
+            if f["detalle"] and "tipo: auditoria" in f["detalle"]
+        ]
+        self.assertEqual(len(detalles), 1)
+        self.assertRegex(
+            detalles[0],
+            r"^filas: \d+ · formato: xlsx · tipo: auditoria · Campos: filtros$",
+        )
+        self.assertNotIn("cultivo", detalles[0])
+
+    # ------------------------------------------------------------------ #
+    # 317: límites de filas y formato también para los tipos nuevos
+    # ------------------------------------------------------------------ #
+    def test_317_limites_y_formato_compartidos_de_los_tipos_nuevos(self):
+        self._entrar_admin()
+        # Formato desconocido → 400 con el mensaje compartido
+        for tipo in ("actividades", "auditoria"):
+            respuesta = self._api(
+                "post", f"/api/reportes/{tipo}/exportar/", {"formato": "csv"}
+            )
+            self.assertEqual(respuesta.status_code, 400, tipo)
+            self.assertEqual(
+                self._json(respuesta), {"formato": "Use xlsx o pdf."}, tipo
+            )
+        # Límite de filas del PDF también en auditoría (4 eventos > 2)
+        with patch("reportes.catalogo.LIMITE_PDF_FILAS", 2):
+            respuesta = self._exportar("auditoria", "pdf", self._rango)
+            self.assertEqual(respuesta.status_code, 400)
+            detalle = self._json(respuesta)["detail"]
+            self.assertIn("El reporte tiene 4 filas", detalle)
+            self.assertIn("máximo para PDF es 2", detalle)
+            self.assertNotIn("Content-Disposition", respuesta)
+            # La vista previa no se ve afectada por el límite de descarga
+            self.assertEqual(
+                self._previa("auditoria", self._rango).status_code, 200
+            )
+        # Límite de Excel también en actividades (4 filas > 1)
+        with patch("reportes.catalogo.LIMITE_EXCEL_FILAS", 1):
+            respuesta = self._exportar("actividades", "xlsx")
+            self.assertEqual(respuesta.status_code, 400)
+            detalle = self._json(respuesta)["detail"]
+            self.assertIn("El reporte tiene 4 filas", detalle)
+            self.assertIn("máximo para XLSX es 1", detalle)
+            self.assertIn("Afina los filtros", detalle)
+            self.assertNotIn("Content-Disposition", respuesta)

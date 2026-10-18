@@ -36,6 +36,13 @@ def fecha_larga(valor):
     return valor.strftime("%d/%m/%Y")
 
 
+def fecha_hora_larga(valor):
+    """datetime a dd/mm/aaaa HH:MM (None → cadena vacía)."""
+    if valor is None:
+        return ""
+    return valor.strftime("%d/%m/%Y %H:%M")
+
+
 def hora_larga(valor):
     """date/datetime a dd/mm/aaaa HH:MM (None → cadena vacía)."""
     if valor is None:
@@ -76,6 +83,8 @@ def _preview(columna, valor):
         return str(int(valor))
     if tipo == "fecha":
         return fecha_larga(valor)
+    if tipo == "fecha_hora":
+        return fecha_hora_larga(valor)
     if tipo == "booleano":
         return "Sí" if valor else "No"
     return str(valor)
@@ -91,6 +100,10 @@ def _excel(columna, valor):
         return int(valor)
     if tipo == "fecha":
         return valor
+    if tipo == "fecha_hora":
+        # openpyxl rechaza datetimes con huso: la hora ya está en Lima
+        # (la conversión se hace en consultas), aquí se guarda ingenua
+        return valor.replace(tzinfo=None)
     if tipo == "booleano":
         return "Sí" if valor else "No"
     if tipo == "estado_productor":
@@ -110,6 +123,8 @@ def _pdf(columna, valor):
         return format(int(valor), ",")
     if tipo == "fecha":
         return fecha_larga(valor)
+    if tipo == "fecha_hora":
+        return fecha_hora_larga(valor)
     if tipo == "booleano":
         return "Sí" if valor else "No"
     if tipo == "estado_productor":
@@ -143,6 +158,30 @@ def resumen_preview(tipo, resumen):
             "filas": resumen["filas"],
             "superficie_parcelas_ha": texto(resumen["superficie_parcelas_ha"]),
             "superficie_sembrada_ha": texto(resumen["superficie_sembrada_ha"]),
+        }
+    if tipo == "actividades":
+        return {
+            "total": resumen["total"],
+            "por_tipo": resumen["por_tipo"],
+            "horas_totales": texto(resumen["horas_totales"]),
+            "actividades_con_horas": resumen["actividades_con_horas"],
+            "campanias_distintas": resumen["campanias_distintas"],
+            "productores_distintos": resumen["productores_distintos"],
+            "rango": {
+                "desde": fecha_larga(resumen["fecha_min"]),
+                "hasta": fecha_larga(resumen["fecha_max"]),
+            },
+        }
+    if tipo == "auditoria":
+        return {
+            "total": resumen["total"],
+            "por_accion": resumen["por_accion"],
+            "por_modulo": resumen["por_modulo"],
+            "sin_usuario": resumen["sin_usuario"],
+            "rango": {
+                "desde": fecha_larga(resumen["fecha_min"]),
+                "hasta": fecha_larga(resumen["fecha_max"]),
+            },
         }
     return {
         "por_cultivo": [

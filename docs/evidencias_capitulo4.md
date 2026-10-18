@@ -3,10 +3,10 @@
 > Qué artefacto del repositorio respalda cada sección del Capítulo IV
 > (Diseño e implementación del sistema), cómo se regeneró y qué **sigue
 > pendiente**. Se actualiza al cierre de cada semana.
-> **Estado: Semana 15 (apertura del Sprint 8) — F1..F7 cerradas (7/7)
-> — 262 pruebas verdes; colección de la Semana 15 validada en F7
-> (488/488: 459–488); sin commitear (el commit único lo hace el
-> responsable).**
+> **Estado: Semana 18 (cuarta semana del Sprint 8) — F1..F7 cerradas
+> (7/7) — 317 pruebas verdes; colección de la Semana 18 validada en F7
+> (574/574: ítems 541–574, 1074/1074 aserciones); sin commitear (el
+> commit único —semanas 13–18— lo hace el responsable).**
 
 Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
 
@@ -417,6 +417,18 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
    `docs/evaluacion_alertas.md` (tipos y condiciones, los 13 ganchos,
    `evaluar_todo()` paso a paso, ciclo de vida y cierre automático,
    comando `evaluar_alertas`, privacidad y la tabla de pruebas 242–262).
+- [x] Contrato de la API del panel (Semana 16) → `docs/api_dashboard.md`
+   (resumen con `generado_en` de Lima, campañas por estado, producción
+   agrupada con rendimiento ponderado, filtros en cascada con sus 400 y
+   permisos por rol).
+- [x] Contrato de la API de reportes (Semanas 17 y 18) →
+   `docs/api_reportes.md` (catálogo bajo doble permiso —hoy **4
+   reportes**—, vista previa con total/20 filas/resumen, exportación
+   Excel/PDF con límites 20 000/1 000, 20/hora y evento `EXPORTAR`,
+   filtros comunes más los de actividades, **rango obligatorio de la
+   auditoría** de 366 días con sus 400, columnas y resúmenes de los 4
+   reportes, detalle en blanco seguro, aviso de confidencialidad y
+   privacidad sin DNI).
 - [x] **Colecciones ejecutables** → `docs/coleccion_api_semana3.json`
   (36 peticiones), `docs/coleccion_api_semana4.json`
   (**48 peticiones** con `pm.test`, validadas **48/48** contra el servidor),
@@ -459,15 +471,22 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
      usa `LOGIN_RATE_IP=120/min` por la cantidad de logins; sin secretos:
      las claves se toman de `.credenciales`).
 - [x] **Colección de la Semana 15 (F7 cerrada):** `docs/coleccion_api_semana15.json` (**488 peticiones** = 458 de la Semana 14 + 30 de alertas — numeradas **459–488**: filtros y pestañas, ficha, `atender/`, `reabrir/`, `evaluar/` con su 429, `resumen/`, `productores-en-riesgo/`, `evaluacion/` y parámetros —, obligatorias **486** + 2 opcionales), **validada 488/488** (904/904 aserciones) contra la BD temporal `sigpa_ga_coleccion15` en el puerto 8001 con `LOGIN_RATE_IP=120/min` (BD borrada al terminar). Ajustes de la validación: la respuesta del alta de incidencia trae `campania` anidada y la alerta fuera del ámbito del Técnico se genera en `campania_s10_id` (la campaña de la Semana 8 queda CERRADA al final de la S14, como espera la prueba 274).
-- [x] **Suite de pruebas:** `python manage.py test` → **262 verdes**
+- [x] **Colección de la Semana 18 (F7 cerrada):** `docs/coleccion_api_semana18.json` (**574 peticiones** = 540 de la Semana 17 + 34 nuevas — numeradas **541–574**: catálogo ya de **4 reportes** (el de actividades con sus 13 columnas y el de auditoría marcado «sensible»), invariante `TODAS = ACTIVAS + ANULADAS`, filtros de actividades con sus 400, exportación Excel/PDF con firma del archivo y evento `EXPORTAR`, las **6 validaciones del rango obligatorio** de la auditoría, su vista previa de 8 columnas con hora de Lima y **detalle en blanco seguro**, filtros que comparte con su pantalla y los **3 roles** —, obligatorias **572** + 2 opcionales), **validada 574/574** (**1074/1074 aserciones**) contra la BD temporal `sigpa_ga_coleccion18` en el puerto 8001 con `LOGIN_RATE_IP=120/min`, pipeline `f7_correr18.ps1` (BD borrada al terminar). Entre medio, la Semana 16 cerró en **506/506** (939 aserciones) y la Semana 17 en **540/540** (1005 aserciones) con sus `coleccion_api_semana16.json` y `coleccion_api_semana17.json`.
+- [x] **Suite de pruebas:** `python manage.py test` → **317 verdes**
   (8 Semana 1 + 12 Semana 2 + 17 Semana 3 + 16 Semana 4 + 14 Semana 5 +
   19 Semana 6 + 16 Semana 7 + 18 Semana 8 + 17 Semana 9 +
   18 Semana 10 + 17 Semana 11 + 25 Semana 12 + 23 Semana 13 +
   **21 Semana 14** — 15 de roles/permisos (221–235, `usuarios/tests.py`) y
   6 de reglas de calidad (236–241, `sistema/tests_calidad.py`) — +
-  **21 Semana 15** — alertas (242–262, `alertas/tests.py` —);
+  **21 Semana 15** — alertas (242–262, `alertas/tests.py` —) +
+  **17 Semana 16** — panel (263–279, `dashboard/tests.py`) +
+  **20 Semana 17** — reportes descargables (280–299,
+  `reportes/tests.py`) +
+  **18 Semana 18** — reportes nuevos y filtros compartidos (300–317:
+  2 en `auditoria/tests.py` y 16 en `reportes/tests.py`);
   `manage.py check`
-  en 0 issues; `makemigrations --check` sin cambios. Comandos en
+  en 0 issues; `makemigrations --check` sin cambios; `frontend` lint y
+  build en 0. Comandos en
   `comparacion_sprint1.md` §6, `comparacion_semana3.md` §6,
   `comparacion_semana4.md` §6, `comparacion_semana5.md` §6,
   `comparacion_semana6.md` §7, `comparacion_semana7.md`,
@@ -475,8 +494,9 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
   `decisiones_semana10.md` §2 (decisión 14, con el smoke E2E de 15 pasos),
   `comparacion_semana11.md` §7,
   `cierre_semana12.md` §1 (F3 y F6),
-  `decisiones_semana13.md` §1.2 (D16) y
-  `decisiones_semana15.md` (F4).
+  `decisiones_semana13.md` §1.2 (D16),
+  `decisiones_semana15.md` (F4) y
+  `decisiones_semana18.md` (decisión 66).
 - [x] **Pantallas React:** `npm run lint` y `npm run build` en 0 problemas;
   checklist de ejecución manual en `docs/verificacion_ui_semana4.md`,
   `docs/verificacion_ui_semana5.md`, `docs/verificacion_ui_semana6.md`,
@@ -485,8 +505,11 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
   `docs/verificacion_ui_semana10.md`,
   `docs/verificacion_ui_semana11.md`, el §3 de
   `docs/cierre_semana12.md`,
-  `docs/verificacion_ui_semana13.md` y
-  `docs/verificacion_ui_semana15.md`
+  `docs/verificacion_ui_semana13.md`,
+  `docs/verificacion_ui_semana15.md`,
+  `docs/verificacion_ui_semana16.md`,
+  `docs/verificacion_ui_semana17.md` y
+  `docs/verificacion_ui_semana18.md`
   (decisiones 15/16/17/19, **pendientes de ejecutar por el responsable**).
   De la Semana 5: pantalla `/catalogos` con CRUD en modales; de la Semana 6:
   pantalla `/campanias` con alta/edición en modal y las fichas de
@@ -577,7 +600,12 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
    (HU-105..HU-113, **7/7**); la **Semana 14** (HU-114..HU-122, 241
    pruebas, colección 458/458) no dejó documento de decisiones (F6
    cancelada) y las **7 fases F1–F7 de la Semana 15** (HU-124..HU-132,
-   **7/7**, 262 pruebas, colección 488/488).
+   **7/7**, 262 pruebas, colección 488/488), las **7 fases F1–F7 de la
+   Semana 16** (HU-133..HU-140, **7/7**, 279 pruebas, colección
+   506/506), las **7 fases F1–F7 de la Semana 17** (HU-141..HU-149,
+   **7/7**, 299 pruebas, colección 540/540) y las **7 fases F1–F7 de
+   la Semana 18** (HU-150..HU-156, **7/7**, 317 pruebas, colección
+   574/574).
 - [x] Calendario y orden de sprints → `CONTEXTO_PROYECTO.md` §13.
 - [x] Contexto completo del proyecto (para que el responsable pueda defender
   cada decisión) → `CONTEXTO_PROYECTO.md` completo.
@@ -586,11 +614,14 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
 
 - [ ] Diagramas ER y modelo lógico (4.3.2 / 4.3.3).
 - [ ] Capturas de pantalla de pantallas y endpoints (incluye login de React).
-- [ ] Ejecutar los checklists de UI de las Semanas 4 a 15
+- [ ] Ejecutar los checklists de UI de las Semanas 4 a 18
   (`docs/verificacion_ui_semana4.md` … `docs/verificacion_ui_semana11.md`,
   el §3 de `docs/cierre_semana12.md`,
-  `docs/verificacion_ui_semana13.md` y
-  `docs/verificacion_ui_semana15.md`)
+  `docs/verificacion_ui_semana13.md`,
+  `docs/verificacion_ui_semana15.md`,
+  `docs/verificacion_ui_semana16.md`,
+  `docs/verificacion_ui_semana17.md` y
+  `docs/verificacion_ui_semana18.md`)
   en Chrome/Edge/móvil y anotar los resultados.
 - [ ] Pantallas de los módulos en React (hoy: login, 403, 404, productores,
   parcelas, **catálogos** con CRUD en modales, **campañas** con su

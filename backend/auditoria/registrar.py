@@ -4,7 +4,15 @@ registrar_evento se llama dentro de la transacción del evento de
 negocio (AuditoriaMixin o los @action manuales): si el negocio falla,
 el evento no se guarda — y viceversa. La IP es solo REMOTE_ADDR; la
 cabecera X-Forwarded-For se ignora (no es fiable sin proxy de confianza).
+
+El detalle se normaliza con DjangoJSONEncoder antes de guardarlo: los
+filtros de los reportes de la Semana 18 traen fechas (date) y sin esto
+json.dumps lanzaría TypeError y la exportación entregaría un 503.
 """
+import json
+
+from django.core.serializers.json import DjangoJSONEncoder
+
 from .models import Auditoria
 
 
@@ -26,6 +34,8 @@ def registrar_evento(
 ):
     if not getattr(usuario, "is_authenticated", False):
         usuario = None
+    if detalle is not None:
+        detalle = json.loads(json.dumps(detalle, cls=DjangoJSONEncoder))
     Auditoria.objects.create(
         usuario=usuario,
         accion=accion,

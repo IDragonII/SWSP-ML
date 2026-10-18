@@ -1,31 +1,23 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { ACCIONES_AUDITORIA, listarAuditoria } from '../api/auditoria.js'
+import {
+  ACCIONES_AUDITORIA,
+  ETIQUETAS_ACCION,
+  listarAuditoria,
+} from '../api/auditoria.js'
+import { guardarArchivo } from '../api/descargas.js'
 import { mensajeDeError } from '../api/errores.js'
+import { descargarReporte } from '../api/reportes.js'
 import Aviso from '../components/Aviso.jsx'
 import Campo from '../components/Campo.jsx'
 import Cargando from '../components/Cargando.jsx'
 import Chip from '../components/Chip.jsx'
+import Modal from '../components/Modal.jsx'
 import Paginacion from '../components/Paginacion.jsx'
+import RuedaCarga from '../components/RuedaCarga.jsx'
 import Tabla from '../components/Tabla.jsx'
-
-const ETIQUETAS_ACCION = {
-  CREAR: 'Crear',
-  MODIFICAR: 'Modificar',
-  ELIMINAR: 'Eliminar',
-  ACTIVAR: 'Activar',
-  DESACTIVAR: 'Desactivar',
-  ANULAR: 'Anular',
-  REACTIVAR: 'Reactivar',
-  ASIGNAR: 'Asignar',
-  DESASIGNAR: 'Desasignar',
-  LOGIN: 'Entrar',
-  LOGOUT: 'Salir',
-  BLOQUEAR: 'Bloquear',
-  DESBLOQUEAR: 'Desbloquear',
-  RESTABLECER_CLAVE: 'Restablecer clave',
-  CAMBIAR_CLAVE: 'Cambiar clave',
-}
+import { useToast } from '../context/useToast.js'
+import { useSesion } from '../context/useSesion.js'
 
 const TABLAS_CONOCIDAS = {
   productores: 'Productor',
@@ -33,6 +25,11 @@ const TABLAS_CONOCIDAS = {
   usuarios: 'Usuario',
   cultivos: 'Cultivo',
 }
+
+// Aviso que acompaña a la exportación de la bitácora (Semana 18,
+// HU-155): el mismo que llevan el archivo y el pie del PDF
+const AVISO_CONFIDENCIALIDAD =
+  'Contiene información sensible de auditoría: solo para uso interno y de verificación. No es evidencia oficial.'
 
 export default function Auditoria() {
   const [params, setParams] = useSearchParams()
@@ -56,6 +53,57 @@ export default function Auditoria() {
   const [claveCargada, setClaveCargada] = useState(null)
   const [error, setError] = useState(null)
   const refrescando = datos !== null && claveCargada !== clave
+  const { tienePermiso } = useSesion()
+  const { avisar } = useToast()
+  const [exportando, setExportando] = useState(null)
+  const [confirmarExportar, setConfirmarExportar] = useState(null)
+  const puedeExportar = tienePermiso('reportes.exportar')
+
+  // Filtros compatibles con el reporte `auditoría` (la búsqueda libre
+  // no forma parte de los filtros del reporte)
+  function filtrosDeExportacion() {
+    const filtros = {}
+    if (modulo) filtros.modulo = modulo
+    if (accion) filtros.accion = accion
+    if (fechaDesde) filtros.fecha_desde = fechaDesde
+    if (fechaHasta) filtros.fecha_hasta = fechaHasta
+    if (tabla) filtros.tabla = tabla
+    if (registro) filtros.registro = registro
+    return filtros
+  }
+
+  function pedirExportacion(formato) {
+    if (!fechaDesde || !fechaHasta) {
+      avisar(
+        'Selecciona un rango de fechas (máximo 366 días) para exportar.',
+        'error',
+      )
+      return
+    }
+    setConfirmarExportar(formato)
+  }
+
+  async function exportar(formato) {
+    const filtros = filtrosDeExportacion()
+    setExportando(formato)
+    try {
+      const { archivo, nombre } = await descargarReporte(
+        'auditoria',
+        formato,
+        filtros,
+      )
+      guardarArchivo(
+        archivo,
+        nombre || `auditoria_${fechaDesde}_${fechaHasta}.${formato}`,
+      )
+      avisar('Exportación lista.')
+    } catch (e) {
+      avisar(mensajeDeError(e), 'error')
+    } finally {
+      setExportando(null)
+      setConfirmarExportar(null)
+    }
+  }
 
   // Sincroniza los campos de texto cuando la URL cambia (p. ej. al
   // llegar de «Ver historial» o al Limpiar), mismo patrón que Usuarios
@@ -132,6 +180,40 @@ export default function Auditoria() {
           >
             Actualizar
           </button>
+          {puedeExportar && (
+            <>
+              <button
+                className="boton-secundario"
+                type="button"
+                onClick={() => pedirExportacion('xlsx')}
+                disabled={exportando !== null}
+              >
+                {exportando === 'xlsx' ? (
+                  <>
+                    <RuedaCarga etiqueta="Exportando…" />
+                    Exportando…
+                  </>
+                ) : (
+                  'Exportar Excel'
+                )}
+              </button>
+              <button
+                className="boton-secundario"
+                type="button"
+                onClick={() => pedirExportacion('pdf')}
+                disabled={exportando !== null}
+              >
+                {exportando === 'pdf' ? (
+                  <>
+                    <RuedaCarga etiqueta="Exportando…" />
+                    Exportando…
+                  </>
+                ) : (
+                  'Exportar PDF'
+                )}
+              </button>
+            </>
+          )}
           {hayHistorial && (
             <button
               className="boton-secundario"
@@ -310,6 +392,16 @@ export default function Auditoria() {
           onCambio={(siguiente) => cambiar({ page: siguiente })}
         />
       )}
+
+      <Modal
+        abierto={confirmarExportar !== null}
+        titulo="Exportar estos resultados"
+        texto={`${AVISO_CONFIDENCIALIDAD} ¿Exportar de todos modos?`}
+        confirmar="Exportar"
+        ocupado={exportando !== null}
+        onConfirmar={() => exportar(confirmarExportar)}
+        onCerrar={() => setConfirmarExportar(null)}
+      />
     </>
   )
 }

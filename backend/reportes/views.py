@@ -80,6 +80,10 @@ class ReportesViewSet(PermisosReportes, viewsets.GenericViewSet):
                             "pdf": catalogo.limite_de("pdf"),
                         },
                         "aviso_privacidad": catalogo.AVISO_PRIVACIDAD,
+                        # Semana 18: el de auditoría es «sensible» y su
+                        # aviso acompaña a la confirmación de descarga
+                        "sensible": bool(reporte.get("sensible")),
+                        "aviso": reporte.get("aviso"),
                     }
                     for reporte in catalogo.disponibles(permisos)
                 ]
@@ -115,10 +119,10 @@ class ReportesViewSet(PermisosReportes, viewsets.GenericViewSet):
                 },
                 "columnas": [
                     {"clave": columna["clave"], "etiqueta": columna["etiqueta"]}
-                    for columna in reporte["columnas"]
+                    for columna in datos["columnas"]
                 ],
                 "filas": [
-                    formato.vista_preview(reporte["columnas"], fila)
+                    formato.vista_preview(datos["columnas"], fila)
                     for fila in datos["filas"][:20]
                 ],
                 "resumen": formato.resumen_preview(

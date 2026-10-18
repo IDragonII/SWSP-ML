@@ -87,11 +87,13 @@ _ESTILO_TABLA = TableStyle(
 
 
 class _CanvasReporte(canvas.Canvas):
-    """Lienzo con encabezado y pie «Página X de Y» (sin compresión)."""
+    """Lienzo con encabezado, pie «Página X de Y» y —si el reporte lo
+    trae— el aviso de confidencialidad a la izquierda (sin compresión)."""
 
     def __init__(self, *args, **kwargs):
         self._titulo = kwargs.pop("titulo", "")
         self._generado = kwargs.pop("generado", "")
+        self._pie = kwargs.pop("pie", "")
         kwargs["pageCompression"] = 0
         super().__init__(*args, **kwargs)
         self._paginas = []
@@ -116,6 +118,9 @@ class _CanvasReporte(canvas.Canvas):
         self.drawString(_MARGEN, ALTURA - 13 * mm, formato.seguro(self._titulo))
         self.setFont("Helvetica", 8)
         self.drawString(_MARGEN, ALTURA - 17.5 * mm, formato.seguro(self._generado))
+        if self._pie:
+            self.setFont("Helvetica", 7)
+            self.drawString(_MARGEN, 9 * mm, formato.seguro(self._pie))
         self.setFont("Helvetica", 8)
         self.drawRightString(
             ANCHURA - _MARGEN, 9 * mm, f"Página {self._pageNumber} de {total}"
@@ -143,7 +148,12 @@ def generar_pdf(reporte, datos, generado_por, generado_en):
     )
     documento.build(
         _relato(reporte, datos),
-        canvasmaker=partial(_CanvasReporte, titulo=titulo, generado=generado),
+        canvasmaker=partial(
+            _CanvasReporte,
+            titulo=titulo,
+            generado=generado,
+            pie=reporte.get("aviso") or "",
+        ),
     )
     return buffer.getvalue()
 
@@ -156,14 +166,16 @@ def _relato(reporte, datos):
         ),
         Paragraph(formato.seguro(catalogo.AVISO_PRIVACIDAD), _ESTILO_NOTA),
     ]
+    if reporte.get("aviso"):
+        relato.append(Paragraph(formato.seguro(reporte["aviso"]), _ESTILO_NOTA))
     for advertencia in datos["advertencias"]:
         relato.append(
             Paragraph(f"• {formato.seguro(advertencia)}", _ESTILO_NOTA)
         )
     relato.append(Spacer(1, 6))
-    relato.append(_tabla_resumen(reporte, datos))
+    relato.extend(_tabla_resumen(reporte, datos))
     relato.append(Spacer(1, 10))
-    relato.append(_tabla_detalle(reporte, datos))
+    relato.append(_tabla_detalle(datos))
     return relato
 
 
@@ -179,59 +191,124 @@ def _parrafo(columna, valor, estilo=None):
     return Paragraph(valor or "", estilo)
 
 
-def _tabla_resumen(reporte, datos):
-    resumen = datos["resumen"]
-    if reporte["tipo"] == "productores":
-        filas = [
-            [Paragraph("Indicador", _ESTILO_CABECERA),
-             Paragraph("Valor", _ESTILO_CABECERA)],
-            ["Productores distintos", str(resumen["productores"])],
-            ["Filas", str(resumen["filas"])],
-            [
-                "Superficie de parcelas (ha)",
-                formato.numero_pdf(resumen["superficie_parcelas_ha"]),
-            ],
-            [
-                "Superficie sembrada (ha)",
-                formato.numero_pdf(resumen["superficie_sembrada_ha"]),
-            ],
-        ]
-        filas = [
-            fila if isinstance(fila[0], Paragraph) else
-            [Paragraph(str(valor), _ESTILO_CELDA) for valor in fila]
-            for fila in filas
-        ]
-        tabla = Table(
-            filas, colWidths=[_USABLE * 0.7, _USABLE * 0.3], repeatRows=1
-        )
-    else:
-        columnas = catalogo.COLUMNAS_RESUMEN_PRODUCTIVO
-        cabecera = [
-            Paragraph(formato.seguro(c["etiqueta"]), _ESTILO_CABECERA)
-            for c in columnas
-        ]
-        filas = [cabecera]
-        for fila_datos in [*resumen["por_cultivo"], fila_totales(resumen)]:
-            valores = formato.celda_pdf(columnas, fila_datos)
-            es_total = valores["etiqueta"] == "Totales"
-            filas.append(
-                [
-                    _parrafo(
-                        columna,
-                        valores[columna["clave"]],
-                        _ESTILO_TOTAL if es_total else None,
-                    )
-                    for columna in columnas
-                ]
-            )
-        anchos = _anchos(columnas, _USABLE)
-        tabla = Table(filas, colWidths=anchos, repeatRows=1, hAlign="LEFT")
+def _tabla_pares(pares):
+    """Tabla «Indicador | Valor» (resumen de productores y nuevos)."""
+    filas = [
+        [Paragraph("Indicador", _ESTILO_CABECERA), Paragraph("Valor", _ESTILO_CABECERA)]
+    ]
+    filas += [
+        [Paragraph(str(etiqueta), _ESTILO_CELDA), Paragraph(str(valor), _ESTILO_CELDA)]
+        for etiqueta, valor in pares
+    ]
+    tabla = Table(filas, colWidths=[_USABLE * 0.7, _USABLE * 0.3], repeatRows=1)
     tabla.setStyle(_ESTILO_TABLA)
     return tabla
 
 
-def _tabla_detalle(reporte, datos):
-    columnas = reporte["columnas"]
+def _tabla_conteos(encabezado, conteos):
+    """Tabla «<encabezado> | Cantidad» (por tipo, por acción…)."""
+    filas = [
+        [Paragraph(encabezado, _ESTILO_CABECERA), Paragraph("Cantidad", _ESTILO_CABECERA)]
+    ]
+    filas += [
+        [Paragraph(formato.seguro(c["etiqueta"]), _ESTILO_CELDA),
+         Paragraph(str(c["cantidad"]), _ESTILO_CELDA)]
+        for c in conteos
+    ]
+    tabla = Table(filas, colWidths=[_USABLE * 0.7, _USABLE * 0.3], repeatRows=1)
+    tabla.setStyle(_ESTILO_TABLA)
+    return tabla
+
+
+def _tabla_resumen(reporte, datos):
+    """Tablas del resumen: una lista de flowables (una sola para
+    productores/productivo; varias para los reportes nuevos)."""
+    resumen = datos["resumen"]
+    if reporte["tipo"] == "productores":
+        return [
+            _tabla_pares(
+                [
+                    ("Productores distintos", resumen["productores"]),
+                    ("Filas", resumen["filas"]),
+                    (
+                        "Superficie de parcelas (ha)",
+                        formato.numero_pdf(resumen["superficie_parcelas_ha"]),
+                    ),
+                    (
+                        "Superficie sembrada (ha)",
+                        formato.numero_pdf(resumen["superficie_sembrada_ha"]),
+                    ),
+                ]
+            )
+        ]
+    if reporte["tipo"] == "actividades":
+        horas = resumen["horas_totales"]
+        return [
+            _tabla_pares(
+                [
+                    ("Actividades", resumen["total"]),
+                    ("Campañas distintas", resumen["campanias_distintas"]),
+                    ("Productores distintos", resumen["productores_distintos"]),
+                    ("Con horas registradas", resumen["actividades_con_horas"]),
+                    (
+                        "Horas totales",
+                        formato.numero_pdf(horas, 1) if horas is not None else "—",
+                    ),
+                    ("Rango de fechas", _rango(resumen)),
+                ]
+            ),
+            _tabla_conteos("Tipo de actividad", resumen["por_tipo"]),
+        ]
+    if reporte["tipo"] == "auditoria":
+        return [
+            _tabla_pares(
+                [
+                    ("Eventos", resumen["total"]),
+                    ("Sin usuario", resumen["sin_usuario"]),
+                    ("Rango de fechas", _rango(resumen)),
+                ]
+            ),
+            _tabla_conteos("Acción", resumen["por_accion"]),
+            _tabla_conteos("Módulo", resumen["por_modulo"]),
+        ]
+
+    columnas = catalogo.COLUMNAS_RESUMEN_PRODUCTIVO
+    cabecera = [
+        Paragraph(formato.seguro(c["etiqueta"]), _ESTILO_CABECERA)
+        for c in columnas
+    ]
+    filas = [cabecera]
+    for fila_datos in [*resumen["por_cultivo"], fila_totales(resumen)]:
+        valores = formato.celda_pdf(columnas, fila_datos)
+        es_total = valores["etiqueta"] == "Totales"
+        filas.append(
+            [
+                _parrafo(
+                    columna,
+                    valores[columna["clave"]],
+                    _ESTILO_TOTAL if es_total else None,
+                )
+                for columna in columnas
+            ]
+        )
+    tabla = Table(
+        filas, colWidths=_anchos(columnas, _USABLE), repeatRows=1, hAlign="LEFT"
+    )
+    tabla.setStyle(_ESTILO_TABLA)
+    return [tabla]
+
+
+def _rango(resumen):
+    """«dd/mm/aaaa – dd/mm/aaaa» del resumen (sin fechas → vacío)."""
+    desde = formato.fecha_larga(resumen.get("fecha_min"))
+    hasta = formato.fecha_larga(resumen.get("fecha_max"))
+    if not desde and not hasta:
+        return ""
+    return f"{desde} – {hasta}"
+
+
+def _tabla_detalle(datos):
+    columnas = datos["columnas"]
     cabecera = [
         Paragraph(formato.seguro(columna["etiqueta"]), _ESTILO_CABECERA)
         for columna in columnas

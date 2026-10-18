@@ -4,7 +4,8 @@ Numeración del repositorio 198-210 (13 pruebas): el registro de eventos
 en los endpoints que escriben, la API de consulta con filtros, la
 inmutabilidad garantizada por trigger y la separación entre lectura y
 escritura. Las 10 pruebas de cambio de contraseña propio (211-220) viven
-en usuarios/tests.py.
+en usuarios/tests.py. La Semana 18 añade 300-301: los filtros
+compartidos con el reporte (auditoria.filtros) en la propia pantalla.
 """
 import json
 from datetime import timedelta
@@ -520,3 +521,134 @@ class AuditoriaSeguimientoTests(Semana9Base):
             .registro_id,
             uso_id,
         )
+
+
+class AuditoriaFiltrosCompartidosTests(TestCase):
+    """Pruebas 300-301 (Semana 18): la pantalla /api/auditoria/ con los
+    filtros que ahora comparte con su reporte (auditoria.filtros): ids
+    validados, criterios nuevos (usuario, ip, tabla+registro) y un rango
+    de fechas indulgente —al contrario del reporte, que lo exige—."""
+
+    def setUp(self):
+        cache.clear()
+        self.admin = Usuario.objects.create_superuser(
+            username="admin_f18", email="", password="AdminF182026!",
+            rol=Rol.objects.get(nombre="Administrador"),
+        )
+        self.coordinador = Usuario.objects.create_user(
+            username="coord_f18", password="CoordF182026!",
+            rol=Rol.objects.get(nombre="Coordinador"),
+        )
+        ahora = timezone.now()
+        self.e1 = Auditoria.objects.create(
+            usuario=self.admin, accion="EXPORTAR", modulo="reportes",
+            tabla="auditoria", registro_id=77, ip="10.0.0.5",
+            detalle={"tipo": "xlsx", "filas": 12},
+            fecha=ahora - timedelta(hours=1),
+        )
+        self.e2 = Auditoria.objects.create(
+            usuario=None, accion="LOGIN", modulo="sesiones_prueba",
+            ip="10.0.0.9", fecha=ahora - timedelta(hours=2),
+        )
+        self.e3 = Auditoria.objects.create(
+            usuario=self.coordinador, accion="CREAR", modulo="informes_esp",
+            tabla="cosas", registro_id=5, ip="10.0.0.7",
+            detalle={"estado": "ACTIVO"}, fecha=ahora - timedelta(hours=3),
+        )
+
+    # ------------------------------------------------------------------ #
+    # helpers
+    # ------------------------------------------------------------------ #
+    def _entrar_admin(self):
+        self.assertEqual(
+            _post_login(self.client, "admin_f18", "AdminF182026!").status_code,
+            200,
+        )
+
+    def _json(self, respuesta):
+        return json.loads(respuesta.content.decode("utf-8"))
+
+    def _api(self, metodo, url, cuerpo=None):
+        kwargs = {"content_type": "application/json"}
+        if cuerpo is not None:
+            kwargs["data"] = json.dumps(cuerpo)
+        return getattr(self.client, metodo)(url, **kwargs)
+
+    def _hoy_lima(self):
+        return timezone.now().astimezone(ZoneInfo("America/Lima")).date()
+
+    # ------------------------------------------------------------------ #
+    # 300: ids validados y los criterios nuevos acotan como en el reporte
+    # ------------------------------------------------------------------ #
+    def test_300_pantalla_filtros_ids_invalidos_y_criterios_nuevos(self):
+        # La sesión hace falta desde el primer request: sin ella el 401
+        # taparía los 400 que se quieren comprobar
+        self._entrar_admin()
+        # Ids no numéricos → 400 con mensaje claro (fuente compartida)
+        mala = self._api("get", "/api/auditoria/?usuario=abc")
+        self.assertEqual(mala.status_code, 400)
+        self.assertEqual(self._json(mala), {"usuario": "Debe ser un id numérico."})
+        mala = self._api("get", "/api/auditoria/?registro=xyz")
+        self.assertEqual(mala.status_code, 400)
+        self.assertEqual(self._json(mala), {"registro": "Debe ser un id numérico."})
+        # Fecha mal formada → 400 (una cruda sería un error 500 al
+        # llegar a fecha__date; el reporte da el mismo mensaje)
+        mala = self._api("get", "/api/auditoria/?fecha_desde=31-12-2025")
+        self.assertEqual(mala.status_code, 400)
+        self.assertEqual(
+            self._json(mala),
+            {"fecha_desde": "La fecha no es válida: usa el formato AAAA-MM-DD."},
+        )
+        mala = self._api("get", "/api/auditoria/?fecha_hasta=2025/12/31")
+        self.assertEqual(mala.status_code, 400)
+        self.assertEqual(
+            self._json(mala),
+            {"fecha_hasta": "La fecha no es válida: usa el formato AAAA-MM-DD."},
+        )
+        # Criterios: usuario, ip, tabla+registro, módulo y acción
+        con_usuario = self._json(
+            self._api("get", f"/api/auditoria/?usuario={self.admin.pk}")
+        )
+        self.assertEqual(con_usuario["count"], 2)  # e1 + el LOGIN de entrada
+        ids = {fila["id"] for fila in con_usuario["results"]}
+        self.assertIn(self.e1.id, ids)
+        self.assertNotIn(self.e3.id, ids)
+        con_ip = self._json(self._api("get", "/api/auditoria/?ip=10.0.0.5"))
+        self.assertEqual([fila["id"] for fila in con_ip["results"]], [self.e1.id])
+        con_tabla = self._json(
+            self._api("get", "/api/auditoria/?tabla=cosas&registro=5")
+        )
+        self.assertEqual([fila["id"] for fila in con_tabla["results"]], [self.e3.id])
+        con_modulo = self._json(
+            self._api("get", "/api/auditoria/?modulo=informes_esp")
+        )
+        self.assertEqual([fila["id"] for fila in con_modulo["results"]], [self.e3.id])
+        con_accion = self._json(self._api("get", "/api/auditoria/?accion=EXPORTAR"))
+        self.assertEqual([fila["id"] for fila in con_accion["results"]], [self.e1.id])
+
+    # ------------------------------------------------------------------ #
+    # 301: la pantalla no exige rango ni aplica el tope de 366 días
+    # ------------------------------------------------------------------ #
+    def test_301_pantalla_sin_rango_obligatorio_ni_tope(self):
+        self._entrar_admin()
+        hoy = self._hoy_lima().isoformat()
+        # Sin fechas la pantalla consulta; el reporte exigiría el rango
+        libre = self._api("get", "/api/auditoria/")
+        self.assertEqual(libre.status_code, 200)
+        self.assertGreater(self._json(libre)["count"], 0)
+        # Solo la fecha inicial también vale
+        solo_desde = self._api("get", "/api/auditoria/?fecha_desde=2020-01-01")
+        self.assertEqual(solo_desde.status_code, 200)
+        self.assertGreater(self._json(solo_desde)["count"], 0)
+        # Rango invertido: sin 400, simplemente no hay eventos
+        invertido = self._api(
+            "get", f"/api/auditoria/?fecha_desde={hoy}&fecha_hasta=2020-01-01"
+        )
+        self.assertEqual(invertido.status_code, 200)
+        self.assertEqual(self._json(invertido)["count"], 0)
+        # Más de un año: la pantalla no aplica el tope de 366 del reporte
+        largo = self._api(
+            "get", f"/api/auditoria/?fecha_desde=2019-01-01&fecha_hasta={hoy}"
+        )
+        self.assertEqual(largo.status_code, 200)
+        self.assertGreater(self._json(largo)["count"], 0)

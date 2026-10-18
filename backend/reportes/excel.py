@@ -29,7 +29,7 @@ def generar_excel(reporte, datos, generado_por, generado_en):
     hoja_resumen.title = "Resumen"
     _escribir_resumen(hoja_resumen, reporte, datos, generado_por, generado_en)
     hoja_datos = libro.create_sheet("Datos")
-    _escribir_datos(hoja_datos, reporte, datos["filas"])
+    _escribir_datos(hoja_datos, datos)
     buffer = BytesIO()
     libro.save(buffer)
     return buffer.getvalue()
@@ -57,6 +57,10 @@ def _escribir_resumen(hoja, reporte, datos, generado_por, generado_en):
         (f"Filas: {len(datos['filas'])}", None),
         (catalogo.AVISO_PRIVACIDAD, None),
     ]
+    if reporte.get("aviso"):
+        # Semana 18: el de auditoría lleva su aviso de confidencialidad
+        # en la hoja Resumen, en el pie del PDF y en la interfaz
+        filas.append((reporte["aviso"], None))
     fila = 1
     for texto_fila, fuente in filas:
         celda = hoja.cell(row=fila, column=1, value=texto_fila)
@@ -83,6 +87,33 @@ def _escribir_resumen(hoja, reporte, datos, generado_por, generado_en):
             _celda(hoja, fila, 1, etiqueta, negrita=True)
             _celda(hoja, fila, 2, valor)
             fila += 1
+    elif reporte["tipo"] == "actividades":
+        valores = (
+            ("Actividades", resumen["total"]),
+            ("Campañas distintas", resumen["campanias_distintas"]),
+            ("Productores distintos", resumen["productores_distintos"]),
+            ("Con horas registradas", resumen["actividades_con_horas"]),
+            ("Horas totales", resumen["horas_totales"]),
+            ("Rango de fechas", _rango(resumen)),
+        )
+        for etiqueta, valor in valores:
+            _celda(hoja, fila, 1, etiqueta, negrita=True)
+            _celda(hoja, fila, 2, valor)
+            fila += 1
+        fila = _escribir_conteos(hoja, fila, "Tipo de actividad", resumen["por_tipo"])
+    elif reporte["tipo"] == "auditoria":
+        valores = (
+            ("Eventos", resumen["total"]),
+            ("Sin usuario", resumen["sin_usuario"]),
+            ("Rango de fechas", _rango(resumen)),
+        )
+        for etiqueta, valor in valores:
+            _celda(hoja, fila, 1, etiqueta, negrita=True)
+            _celda(hoja, fila, 2, valor)
+            fila += 1
+        fila = _escribir_conteos(hoja, fila, "Acción", resumen["por_accion"])
+        fila += 1
+        _escribir_conteos(hoja, fila, "Módulo", resumen["por_modulo"])
     else:
         columnas = catalogo.COLUMNAS_RESUMEN_PRODUCTIVO
         for indice, columna in enumerate(columnas, start=1):
@@ -100,18 +131,39 @@ def _escribir_resumen(hoja, reporte, datos, generado_por, generado_en):
     _ajustar_anchos(hoja)
 
 
-def _escribir_datos(hoja, reporte, filas):
-    columnas = reporte["columnas"]
+def _rango(resumen):
+    """«dd/mm/aaaa – dd/mm/aaaa» del resumen (sin fechas → vacío)."""
+    desde = formato.fecha_larga(resumen.get("fecha_min"))
+    hasta = formato.fecha_larga(resumen.get("fecha_max"))
+    if not desde and not hasta:
+        return ""
+    return f"{desde} – {hasta}"
+
+
+def _escribir_conteos(hoja, fila, encabezado, conteos):
+    """Tabla de dos columnas «encabezado | Actividades/Eventos»."""
+    _celda(hoja, fila, 1, encabezado, negrita=True)
+    _celda(hoja, fila, 2, "Cantidad", negrita=True)
+    fila += 1
+    for conteo in conteos:
+        _celda(hoja, fila, 1, conteo["etiqueta"])
+        _celda(hoja, fila, 2, conteo["cantidad"])
+        fila += 1
+    return fila
+
+
+def _escribir_datos(hoja, datos):
+    columnas = datos["columnas"]
     for indice, columna in enumerate(columnas, start=1):
         _celda(hoja, 1, indice, columna["etiqueta"], negrita=True)
-    for numero_fila, datos_fila in enumerate(filas, start=2):
+    for numero_fila, datos_fila in enumerate(datos["filas"], start=2):
         valores = formato.celda_excel(columnas, datos_fila)
         for indice, columna in enumerate(columnas, start=1):
             _celda(hoja, numero_fila, indice, valores[columna["clave"]])
     hoja.freeze_panes = "A2"
-    if filas:
+    if datos["filas"]:
         ultima = get_column_letter(len(columnas))
-        hoja.auto_filter.ref = f"A1:{ultima}{len(filas) + 1}"
+        hoja.auto_filter.ref = f"A1:{ultima}{len(datos['filas']) + 1}"
     _ajustar_anchos(hoja)
 
 
