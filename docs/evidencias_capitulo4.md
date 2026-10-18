@@ -3,9 +3,10 @@
 > Qué artefacto del repositorio respalda cada sección del Capítulo IV
 > (Diseño e implementación del sistema), cómo se regeneró y qué **sigue
 > pendiente**. Se actualiza al cierre de cada semana.
-> **Estado: Semana 13 — 7/7 fases (F1–F7 cerradas) — 220 pruebas verdes;
-> colección de la Semana 13 validada 430/430 (793/793 aserciones); sin
-> commitear (el commit único lo hace el responsable).**
+> **Estado: Semana 15 (apertura del Sprint 8) — F1..F7 cerradas (7/7)
+> — 262 pruebas verdes; colección de la Semana 15 validada en F7
+> (488/488: 459–488); sin commitear (el commit único lo hace el
+> responsable).**
 
 Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
 
@@ -15,11 +16,11 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
   y los `Meta.db_table`/`related_name` de los modelos Django).
 - [x] Lista y descripción de las 33 tablas agrupadas por módulo →
   `CONTEXTO_PROYECTO.md` §5.
-- Nota: hasta la Semana 13 existen **27 tablas** en la BD real (4 de usuarios +
+- Nota: hasta la Semana 15 existen **28 tablas** en la BD real (4 de usuarios +
   4 de ubicación/productores + `parcelas` y `asignaciones_tecnico` + las
   **8 de catálogos** + `campanias` + `actividades` + `uso_recursos` +
   `producciones` y `parametros_sistema` + `clima` + **`incidencias`** +
-  **`seguimiento_etapas`** + **`auditoria`**); el
+  **`seguimiento_etapas`** + **`auditoria`** + **`alertas`**); el
   diagrama completo se dibuja con el diseño completo.
 
 ## 4.3.3 Modelo lógico
@@ -105,18 +106,30 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
   (`ix_auditoria_usuario/modulo/fecha` y `ix_auditoria_tabla_registro`),
   trigger **`trg_auditoria_inmutable`** (25.º) con `fn_auditoria_inmutable`
   literal y columna `debe_cambiar_clave` en `usuarios`; verificado con
-  `check`, `makemigrations --check`, `sqlmigrate` (las 3 migraciones) y
-  las pruebas 198–220.
+   `check`, `makemigrations --check`, `sqlmigrate` (las 3 migraciones) y
+   las pruebas 198–220.
+- [x] **Comparación diseño vs implementación — alertas (Semana 15):**
+  `docs/decisiones_semana15.md` §1.1 (decisión 1) y §1.2 (decisión 14)
+  (diseño = migración): tabla **`alertas`** con sus **11 columnas** (incluido
+  `id`; `incidencia_id` y `nota_atencion` añadidas al diseño en F1),
+  CHECKs con nombre (`ck_alerta_atendida`, `ck_alerta_nota`,
+  `ck_alerta_incidencia` y `ck_alerta_tipo`), **2 restricciones únicas**
+  (`uq_alerta_incidencia`; `uq_alerta_pendiente_campania_tipo` parcial:
+  pendientes de SIN_ACTIVIDAD/RENDIMIENTO_BAJO por campaña+tipo) y **2
+  índices** (`ix_alertas_pendientes` parcial y `ix_alertas_campania`), y
+  **0 triggers nuevos**; verificado con `check`, `makemigrations --check`
+  y `sqlmigrate` (las 21 pruebas de la semana, 242–262).
 - [x] **Migraciones propias:** `backend/usuarios/migrations/` (0001–**0004**),
   `backend/productores/migrations/` (0001–0004, las dos últimas reversibles),
   `backend/catalogos/migrations/` (0001–0002; `0002` reversible sin borrar lo
   referenciado), `backend/campanias/migrations/` (0001–0003, todas
   reversibles), `backend/seguimiento/migrations/` (0001–**0010**, todas
   reversibles), `backend/produccion/migrations/` (0001–0002, reversibles),
-  `backend/sistema/migrations/` (0001–**0002**, reversibles) y
-  `backend/auditoria/migrations/` (**0001–0002**, reversibles). La creación de la
-  BD de pruebas en cada `manage.py test` aplica las **59 migraciones** desde
-  cero (incluidas las de terceros; verificado con
+  `backend/sistema/migrations/` (0001–**0002**, reversibles),
+  `backend/auditoria/migrations/` (**0001–0002**, reversibles) y
+  `backend/alertas/migrations/` (**0001**, la Semana 15). La creación de la
+  BD de pruebas en cada `manage.py test` aplica las **60 migraciones** desde
+  cero (30 propias; verificado con
   `manage.py showmigrations --plan | Measure-Object -Line`).
 
 ## Reglas de negocio y triggers
@@ -142,16 +155,18 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
   `comparacion_semana7.md` §4, `comparacion_semana8.md`,
   `decisiones_semana9.md` §2, `decisiones_semana10.md` §2,
    `comparacion_semana11.md`, `cierre_semana12.md` §1 (F5: diseño =
-  migraciones = pruebas 120/137/172, que pasaron a contar 24) y
+  migraciones = pruebas 120/137/172, que pasaron a contar 24),
   `decisiones_semana13.md` §1.2 (pruebas 198–210: UPDATE/DELETE sobre
-  `auditoria` responden la excepción del trigger).
+  `auditoria` responden la excepción del trigger) y
+  `decisiones_semana15.md` (pruebas 242–262: **la Semana 15 no añade
+  triggers** — se cubre por la aplicación y sus ganchos `on_commit`).
 - [x] **Migración desde cero como evidencia:** base vacía `sigpa_ga_migracion`
   → `manage.py migrate` aplicó 27 migraciones; seeds 55 permisos / 3 roles /
   101 asignaciones; 4 tablas nuevas; prueba funcional en SQL crudo generó
   `PROD-0001` y actualizó `actualizado_en` en otra transacción (Semana 3).
   Reproducible: crear BD, `DB_NAME=<nombre> python manage.py migrate`, borrar.
   Desde la Semana 4, la BD de pruebas que crea cada `manage.py test` vuelve a
-  aplicar todas las migraciones desde cero en cada ejecución (hoy 56). En las
+  aplicar todas las migraciones desde cero en cada ejecución (hoy 60). En las
   Semanas 7 a 12 además se migraron BD temporales completas de validación de
    las colecciones y del smoke (creadas, migradas y **borradas al terminar**;
    Semanas 7 a 13).
@@ -182,7 +197,7 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
    P —restablecer la propia clave—), y en la Semana 13 (vuelta a docs
    separados) `docs/decisiones_semana13.md` (21 decisiones: auditoría y
    cambio de contraseña, con la pregunta P **cerrada** y las nuevas Q
-   —auditar lecturas—, R —purgado— y S —XFF tras proxy—).
+   —auditar lecturas—, R —purgado— y S —XFF tras proxy—); la **Semana 14 no tiene documento de decisiones** (F6 cancelada) y, en la Semana 15, `docs/decisiones_semana15.md` (28 filas: alertas y productores en riesgo, con **RF-63, RF-64, RF-65** y **RF-15** verificados leyendo `requerimientos.tex` **sin modificarlo**, la decisión de que `RENDIMIENTO_BAJO` no se genera hasta el modelo de regresión, el hallazgo del 429 de «Evaluar ahora» y la nueva pregunta **T** —`limita_a_asignados` con usuarios— con su nota de letras).
 - [x] RN «el DNI debe ser único y tener 8 dígitos» → pruebas 23 y 24.
 - [x] RN «no se eliminan físicamente; se desactivan» → sin `DELETE` (405),
   prueba 28, FK `PROTECT`; en la Semana 4 el mismo patrón para parcelas
@@ -391,9 +406,17 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
    `docs/api_auditoria.md` (`GET /api/auditoria/` con 7 filtros, fila con
    `usuario` anulable, 15 acciones auditadas por módulo, inmutabilidad y
    solo lectura → 405) y `docs/api_cambio_clave.md`
-   (`POST /api/auth/cambiar-clave/` con `password_actual`, validadores con
+   (   `POST /api/auth/cambiar-clave/` con `password_actual`, validadores con
    el usuario, 429 con `Retry-After`, rutas libres de la puerta
    `DebeCambiarClave` y el hallazgo del `iat` de segundo).
+- [x] Contrato de la API de alertas y del estado de evaluación (Semana 15) →
+   `docs/api_alertas.md` (listado con pestañas y filtros **solo en `list`**,
+   fila y ficha, `atender/` y `reabrir/`, `evaluar/` con **429 propio** y
+   `retry_after`, `resumen/`, `productores-en-riesgo/`, `evaluacion/`,
+   matriz de permisos por rol y catálogo de errores) y
+   `docs/evaluacion_alertas.md` (tipos y condiciones, los 13 ganchos,
+   `evaluar_todo()` paso a paso, ciclo de vida y cierre automático,
+   comando `evaluar_alertas`, privacidad y la tabla de pruebas 242–262).
 - [x] **Colecciones ejecutables** → `docs/coleccion_api_semana3.json`
   (36 peticiones), `docs/coleccion_api_semana4.json`
   (**48 peticiones** con `pm.test`, validadas **48/48** contra el servidor),
@@ -432,14 +455,17 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
     cookies nuevas, evento CAMBIAR_CLAVE y límite 5/hora —, obligatorias
     **429/429** + 1 opcional, validadas **430/430** con **793/793
     aserciones** contra el servidor en la BD temporal
-    `sigpa_ga_coleccion13`, borrada al terminar; el servidor de validación
-    usa `LOGIN_RATE_IP=120/min` por la cantidad de logins; sin secretos:
-    las claves se toman de `.credenciales`).
-- [x] **Suite de pruebas:** `python manage.py test` → **220 verdes**
+     `sigpa_ga_coleccion13`, borrada al terminar; el servidor de validación
+     usa `LOGIN_RATE_IP=120/min` por la cantidad de logins; sin secretos:
+     las claves se toman de `.credenciales`).
+- [x] **Colección de la Semana 15 (F7 cerrada):** `docs/coleccion_api_semana15.json` (**488 peticiones** = 458 de la Semana 14 + 30 de alertas — numeradas **459–488**: filtros y pestañas, ficha, `atender/`, `reabrir/`, `evaluar/` con su 429, `resumen/`, `productores-en-riesgo/`, `evaluacion/` y parámetros —, obligatorias **486** + 2 opcionales), **validada 488/488** (904/904 aserciones) contra la BD temporal `sigpa_ga_coleccion15` en el puerto 8001 con `LOGIN_RATE_IP=120/min` (BD borrada al terminar). Ajustes de la validación: la respuesta del alta de incidencia trae `campania` anidada y la alerta fuera del ámbito del Técnico se genera en `campania_s10_id` (la campaña de la Semana 8 queda CERRADA al final de la S14, como espera la prueba 274).
+- [x] **Suite de pruebas:** `python manage.py test` → **262 verdes**
   (8 Semana 1 + 12 Semana 2 + 17 Semana 3 + 16 Semana 4 + 14 Semana 5 +
   19 Semana 6 + 16 Semana 7 + 18 Semana 8 + 17 Semana 9 +
-  18 Semana 10 + 17 Semana 11 + 25 Semana 12 + **23 Semana 13** —
-  13 de auditoría (198–210) y 10 de cambio de clave (211–220) —);
+  18 Semana 10 + 17 Semana 11 + 25 Semana 12 + 23 Semana 13 +
+  **21 Semana 14** — 15 de roles/permisos (221–235, `usuarios/tests.py`) y
+  6 de reglas de calidad (236–241, `sistema/tests_calidad.py`) — +
+  **21 Semana 15** — alertas (242–262, `alertas/tests.py` —);
   `manage.py check`
   en 0 issues; `makemigrations --check` sin cambios. Comandos en
   `comparacion_sprint1.md` §6, `comparacion_semana3.md` §6,
@@ -448,8 +474,9 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
   `comparacion_semana8.md`, `decisiones_semana9.md` §2 («Cómo se verificó»),
   `decisiones_semana10.md` §2 (decisión 14, con el smoke E2E de 15 pasos),
   `comparacion_semana11.md` §7,
-  `cierre_semana12.md` §1 (F3 y F6) y
-  `decisiones_semana13.md` §1.2 (D16).
+  `cierre_semana12.md` §1 (F3 y F6),
+  `decisiones_semana13.md` §1.2 (D16) y
+  `decisiones_semana15.md` (F4).
 - [x] **Pantallas React:** `npm run lint` y `npm run build` en 0 problemas;
   checklist de ejecución manual en `docs/verificacion_ui_semana4.md`,
   `docs/verificacion_ui_semana5.md`, `docs/verificacion_ui_semana6.md`,
@@ -457,8 +484,9 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
   `docs/verificacion_ui_semana9.md`,
   `docs/verificacion_ui_semana10.md`,
   `docs/verificacion_ui_semana11.md`, el §3 de
-  `docs/cierre_semana12.md` y
-  `docs/verificacion_ui_semana13.md`
+  `docs/cierre_semana12.md`,
+  `docs/verificacion_ui_semana13.md` y
+  `docs/verificacion_ui_semana15.md`
   (decisiones 15/16/17/19, **pendientes de ejecutar por el responsable**).
   De la Semana 5: pantalla `/catalogos` con CRUD en modales; de la Semana 6:
   pantalla `/campanias` con alta/edición en modal y las fichas de
@@ -488,7 +516,13 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
      `ProductorFicha`, `ParcelaFicha` y `UsuarioFicha` (solo con
      `auditoria.ver`), pantalla **`/cambiar-clave`** (fuera del Layout,
      redirección con la marca `debe_cambiar_clave` desde `RutaProtegida` y
-     `Login`, rueda «Guardando…») y `actualizarUsuario` en `SesionProvider`.
+     `Login`, rueda «Guardando…») y `actualizarUsuario` en `SesionProvider`;
+     de la Semana 15: pantallas **`/alertas`** (pestañas
+     Pendientes/Atendidas/Todas, filtros en URL, aviso de atraso de 36 h,
+     «Evaluar ahora», ficha, atender con nota ≤ 250 y reabrir) y
+     **`/productores-riesgo`**, **insignia** de pendientes en `Layout`,
+     sección «Alertas» en `CampaniaFicha` y `ProductorFicha`, y panel
+     «Evaluación de alertas» (chip ATRASADA/AL DÍA) en `/parametros`.
 
 ## Usuarios, roles y permisos (evidencia funcional)
 
@@ -538,9 +572,12 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
   Semana 10 (HU-76..HU-84, **7/7**), las **7 fases F1–F7** de la Semana 11
    (HU-85..HU-92, **7/7**), las **7 fases F1–F7** de la Semana 12
    (HU-93..HU-104, **7/7**; HU-01..HU-14 resumidos
-   ahí mismo: textos originales de HU no están en el repositorio: mapeo
+    ahí mismo: textos originales de HU no están en el repositorio: mapeo
    propuesto) y las **7 fases F1–F7** de la Semana 13
-   (HU-105..HU-113, **7/7**).
+   (HU-105..HU-113, **7/7**); la **Semana 14** (HU-114..HU-122, 241
+   pruebas, colección 458/458) no dejó documento de decisiones (F6
+   cancelada) y las **7 fases F1–F7 de la Semana 15** (HU-124..HU-132,
+   **7/7**, 262 pruebas, colección 488/488).
 - [x] Calendario y orden de sprints → `CONTEXTO_PROYECTO.md` §13.
 - [x] Contexto completo del proyecto (para que el responsable pueda defender
   cada decisión) → `CONTEXTO_PROYECTO.md` completo.
@@ -549,17 +586,19 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
 
 - [ ] Diagramas ER y modelo lógico (4.3.2 / 4.3.3).
 - [ ] Capturas de pantalla de pantallas y endpoints (incluye login de React).
-- [ ] Ejecutar los checklists de UI de las Semanas 4 a 13
+- [ ] Ejecutar los checklists de UI de las Semanas 4 a 15
   (`docs/verificacion_ui_semana4.md` … `docs/verificacion_ui_semana11.md`,
-  el §3 de `docs/cierre_semana12.md` y
-  `docs/verificacion_ui_semana13.md`)
+  el §3 de `docs/cierre_semana12.md`,
+  `docs/verificacion_ui_semana13.md` y
+  `docs/verificacion_ui_semana15.md`)
   en Chrome/Edge/móvil y anotar los resultados.
 - [ ] Pantallas de los módulos en React (hoy: login, 403, 404, productores,
   parcelas, **catálogos** con CRUD en modales, **campañas** con su
   línea de tiempo, **actividades** con `CampaniaFicha`, **parámetros**,
   **recursos**, **clima**, **incidencias**,
-  **usuarios** y **auditoría** con **cambiar-clave**, con producción,
-  recursos, clima, incidencias y etapas
+  **usuarios** y **auditoría** con **cambiar-clave**,
+  **alertas** y **productores-riesgo**, con producción,
+  recursos, clima, incidencias, etapas y alertas
   dentro de las fichas; la entrada
   «Producción» del menú sigue siendo placeholder: faltan su pantalla y los
   demás módulos).

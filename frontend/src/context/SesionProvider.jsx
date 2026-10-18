@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { cerrarSesion, iniciarSesion, obtenerSesion } from '../api/auth.js'
-import { alExpirarSesion } from '../api/cliente.js'
+import { alDenegarPermiso, alExpirarSesion } from '../api/cliente.js'
 import { SesionContext } from './sesionContexto.js'
 
 export function SesionProvider({ children }) {
@@ -22,9 +22,19 @@ export function SesionProvider({ children }) {
       })
 
     const cancelar = alExpirarSesion(() => setUsuario(null))
+    // Semana 14: ante un 403 se relee /auth/me y los permisos del menú,
+    // las rutas y los botones se recalculan sin recargar la página
+    const cancelarPermiso = alDenegarPermiso(() => {
+      obtenerSesion()
+        .then((datos) => {
+          if (activo) setUsuario(datos)
+        })
+        .catch(() => {})
+    })
     return () => {
       activo = false
       cancelar()
+      cancelarPermiso()
     }
   }, [])
 

@@ -2,6 +2,7 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import Layout from './components/Layout.jsx'
 import AccesoDenegado from './pages/AccesoDenegado.jsx'
 import Actividades from './pages/Actividades.jsx'
+import Alertas from './pages/Alertas.jsx'
 import Auditoria from './pages/Auditoria.jsx'
 import Campanias from './pages/Campanias.jsx'
 import CambiarClave from './pages/CambiarClave.jsx'
@@ -15,7 +16,9 @@ import NoEncontrado from './pages/NoEncontrado.jsx'
 import Parametros from './pages/Parametros.jsx'
 import Parcelas from './pages/Parcelas.jsx'
 import Productores from './pages/Productores.jsx'
+import ProductoresRiesgo from './pages/ProductoresRiesgo.jsx'
 import Recursos from './pages/Recursos.jsx'
+import Roles from './pages/Roles.jsx'
 import Usuarios from './pages/Usuarios.jsx'
 import RutaProtegida from './routes/RutaProtegida.jsx'
 import RutaSoloInvitado from './routes/RutaSoloInvitado.jsx'
@@ -33,7 +36,10 @@ const rutasConPantalla = new Set([
   '/recursos',
   '/clima',
   '/incidencias',
+  '/alertas',
+  '/productores-riesgo',
   '/usuarios',
+  '/roles',
   '/auditoria',
 ])
 const modulos = opcionesMenu.filter(
@@ -155,6 +161,24 @@ export default function App() {
           />
 
           <Route
+            path="/alertas"
+            element={
+              <RutaProtegida permiso="alertas.ver">
+                <Alertas />
+              </RutaProtegida>
+            }
+          />
+
+          <Route
+            path="/productores-riesgo"
+            element={
+              <RutaProtegida permiso="alertas.ver">
+                <ProductoresRiesgo />
+              </RutaProtegida>
+            }
+          />
+
+          <Route
             path="/usuarios"
             element={
               <RutaProtegida permiso="usuarios.ver">
@@ -168,6 +192,15 @@ export default function App() {
             element={
               <RutaProtegida permiso="auditoria.ver">
                 <Auditoria />
+              </RutaProtegida>
+            }
+          />
+
+          <Route
+            path="/roles"
+            element={
+              <RutaProtegida permiso="roles.gestionar">
+                <Roles />
               </RutaProtegida>
             }
           />

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { cliente } from '../api/cliente.js'
+import { listarAlertas } from '../api/alertas.js'
 import { tecnicosDisponibles } from '../api/catalogos.js'
 import { mensajeDeError } from '../api/errores.js'
 import {
@@ -45,6 +46,7 @@ export default function ProductorFicha({ id, abierto, onCerrar }) {
   const navegar = useNavigate()
   const [ficha, setFicha] = useState(null)
   const [comunidad, setComunidad] = useState(null)
+  const [alertas, setAlertas] = useState([])
   const [asignaciones, setAsignaciones] = useState([])
   const [tecnicos, setTecnicos] = useState([])
   const [tecnicoElegido, setTecnicoElegido] = useState('')
@@ -98,6 +100,17 @@ export default function ProductorFicha({ id, abierto, onCerrar }) {
       activo = false
     }
   }, [id, gestionaAsignaciones, recarga])
+
+  useEffect(() => {
+    if (!tienePermiso('alertas.ver')) return undefined
+    let activo = true
+    listarAlertas({ productor: id, estado: 'TODAS' })
+      .then((respuesta) => activo && setAlertas(respuesta.results ?? []))
+      .catch(() => activo && setAlertas([]))
+    return () => {
+      activo = false
+    }
+  }, [id, tienePermiso, recarga])
 
   function pedirCambioProductor() {
     const nuevo = ficha.estado === 'ACTIVO' ? 'INACTIVO' : 'ACTIVO'
@@ -419,6 +432,71 @@ export default function ProductorFicha({ id, abierto, onCerrar }) {
           <p className="nota">Este productor todavía no tiene campañas.</p>
         )}
       </section>
+
+      {tienePermiso('alertas.ver') && (
+        <section className="panel">
+          <div className="ficha-cabecera">
+            <h2>Alertas</h2>
+            <div className="ficha-acciones">
+              <button
+                type="button"
+                className="boton-texto"
+                onClick={() => {
+                  navegar(`/alertas?productor=${ficha.id}`)
+                  onCerrar?.()
+                }}
+              >
+                Ver todas
+              </button>
+            </div>
+          </div>
+          {alertas.length > 0 ? (
+            <>
+              <Tabla
+                filas={alertas}
+                columnas={[
+                  {
+                    clave: 'creada_en',
+                    etiqueta: 'Creada',
+                    celda: (fila) =>
+                      new Date(fila.creada_en).toLocaleDateString('es-PE'),
+                  },
+                  {
+                    clave: 'tipo',
+                    etiqueta: 'Tipo',
+                    celda: (fila) => <Chip>{fila.tipo}</Chip>,
+                  },
+                  {
+                    clave: 'campania',
+                    etiqueta: 'Campaña',
+                    celda: (fila) => fila.campania_periodo,
+                  },
+                  {
+                    clave: 'mensaje',
+                    etiqueta: 'Mensaje',
+                    celda: (fila) => fila.mensaje,
+                  },
+                  {
+                    clave: 'estado',
+                    etiqueta: 'Estado',
+                    celda: (fila) => (
+                      <Chip>{fila.atendida ? 'ATENDIDA' : 'PENDIENTE'}</Chip>
+                    ),
+                  },
+                ]}
+              />
+              <p className="nota">
+                Solo se muestran las 20 alertas más recientes del productor;
+                usa «Ver todas» para atenderlas.
+              </p>
+            </>
+          ) : (
+            <p className="nota">
+              Este productor no tiene alertas registradas.
+            </p>
+          )}
+        </section>
+      )}
 
       {asignadosEnFicha !== undefined && (
         <section className="panel">

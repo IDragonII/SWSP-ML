@@ -6,19 +6,265 @@ endpoint de prueba — UsuarioListaSerializer (tabla), UsuarioDetalleSerializer
 (ficha), UsuarioEscrituraSerializer (alta y edición) y
 RestablecerClaveSerializer; más RolSerializer reutilizado por el
 desplegable de roles.
+
+Semana 14 (HU-114..HU-116): los serializers de gestión de roles —
+RolListaSerializer (tabla), RolDetalleSerializer (ficha con permisos),
+RolEscrituraSerializer (alta con «basado en»), RolEdicionSerializer
+(nombre/descripción/limita_a_asignados) y RolPermisosSerializer
+(reemplazo del conjunto completo).
 """
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
 from . import ratelimit
-from .models import Rol, Usuario
+from .dependencias import validar_dependencias
+from .models import Permiso, Rol, RolPermiso, Usuario
 
 
 class RolSerializer(serializers.ModelSerializer):
+    """Desplegable de roles (Semana 12): lista corta para Usuarios."""
+
     class Meta:
         model = Rol
         fields = ('id', 'nombre')
+
+
+class RolListaSerializer(serializers.ModelSerializer):
+    """Fila del listado de gestión (Semana 14): nombre, descripción, tipo,
+    alcance, número de usuarios y de permisos, y estado. Los conteos
+    vienen anotados en el listado; en el detalle se calculan."""
+
+    usuarios_activos = serializers.SerializerMethodField()
+    total_permisos = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Rol
+        fields = (
+            'id',
+            'nombre',
+            'descripcion',
+            'es_sistema',
+            'limita_a_asignados',
+            'activo',
+            'usuarios_activos',
+            'total_permisos',
+        )
+
+    def get_usuarios_activos(self, obj):
+        anotado = getattr(obj, 'usuarios_activos', None)
+        if anotado is not None:
+            return anotado
+        return obj.usuarios.filter(is_active=True).count()
+
+    def get_total_permisos(self, obj):
+        anotado = getattr(obj, 'total_permisos', None)
+        if anotado is not None:
+            return anotado
+        return obj.permisos.count()
+
+
+class RolDetalleSerializer(RolListaSerializer):
+    """Ficha: los datos del listado más los códigos de permiso asignados."""
+
+    permisos = serializers.SerializerMethodField()
+
+    class Meta(RolListaSerializer.Meta):
+        fields = RolListaSerializer.Meta.fields + ('permisos',)
+
+    def get_permisos(self, obj):
+        return sorted(obj.permisos.values_list('codigo', flat=True))
+
+
+class RolEscrituraSerializer(serializers.ModelSerializer):
+    """Alta de un rol (Semana 14): nombre normalizado y único sin
+    distinguir mayúsculas, descripción opcional, limita_a_asignados
+    obligatorio y explícito (sin valor por defecto), y los permisos como
+    lista de códigos o «basado en» otro rol (no ambos). El cliente no
+    puede enviar es_sistema: la pantalla nunca crea roles del sistema."""
+
+    nombre = serializers.CharField(
+        max_length=50,
+        error_messages={'required': 'El nombre del rol es obligatorio.'},
+    )
+    descripcion = serializers.CharField(
+        max_length=200, required=False, allow_blank=True, default=''
+    )
+    limita_a_asignados = serializers.BooleanField(
+        error_messages={
+            'required': (
+                'Indica si el rol limita a los productores asignados.'
+            )
+        }
+    )
+    permisos = serializers.ListField(
+        child=serializers.CharField(), required=False, allow_empty=True
+    )
+    basado_en = serializers.PrimaryKeyRelatedField(
+        queryset=Rol.objects.all(), required=False
+    )
+
+    class Meta:
+        model = Rol
+        fields = (
+            'nombre',
+            'descripcion',
+            'limita_a_asignados',
+            'permisos',
+            'basado_en',
+        )
+
+    def validate_nombre(self, value):
+        nombre = ' '.join((value or '').split())
+        if len(nombre) < 3:
+            raise serializers.ValidationError(
+                'El nombre del rol debe tener al menos 3 caracteres.'
+            )
+        existente = Rol.objects.filter(nombre__iexact=nombre).first()
+        if existente is not None:
+            raise serializers.ValidationError(
+                f'Ya existe un rol con el nombre «{nombre}» '
+                f'(id {existente.pk}).'
+            )
+        return nombre
+
+    def validate(self, attrs):
+        if 'permisos' in attrs and 'basado_en' in attrs:
+            raise serializers.ValidationError(
+                {
+                    'permisos': (
+                        'Elige permisos directos o «basado en» otro rol, '
+                        'no ambos.'
+                    )
+                }
+            )
+        codigos = self._codigos_validos(attrs)
+        validar_dependencias(codigos)
+        attrs['_codigos'] = codigos
+        return attrs
+
+    @staticmethod
+    def _codigos_validos(attrs):
+        """Resuelve la lista final de códigos y rechaza los desconocidos."""
+        if attrs.get('basado_en') is not None:
+            codigos = list(
+                attrs['basado_en'].permisos.values_list('codigo', flat=True)
+            )
+        else:
+            codigos = []
+            for item in attrs.get('permisos') or []:
+                codigo = (item or '').strip()
+                if codigo and codigo not in codigos:
+                    codigos.append(codigo)
+        conocidos = set(Permiso.objects.values_list('codigo', flat=True))
+        desconocidos = [c for c in codigos if c not in conocidos]
+        if desconocidos:
+            raise serializers.ValidationError(
+                {
+                    'permisos': [
+                        f'El permiso «{codigo}» no existe.'
+                        for codigo in desconocidos
+                    ]
+                }
+            )
+        return codigos
+
+    def create(self, validated_data):
+        codigos = validated_data.pop('_codigos', [])
+        validated_data.pop('permisos', None)
+        validated_data.pop('basado_en', None)
+        rol = Rol.objects.create(es_sistema=False, activo=True, **validated_data)
+        permisos = {
+            p.codigo: p for p in Permiso.objects.filter(codigo__in=codigos)
+        }
+        RolPermiso.objects.bulk_create(
+            RolPermiso(rol=rol, permiso=permisos[codigo]) for codigo in codigos
+        )
+        return rol
+
+
+class RolEdicionSerializer(serializers.ModelSerializer):
+    """Edición de datos de un rol (Semana 14): nombre, descripción y
+    limita_a_asignados. En los roles del sistema el nombre no cambia y
+    el alcance tampoco; en un rol personalizado con usuarios el alcance
+    tampoco (cambiaría de golpe lo que ven)."""
+
+    nombre = serializers.CharField(max_length=50, required=False)
+    descripcion = serializers.CharField(
+        max_length=200, required=False, allow_blank=True
+    )
+    limita_a_asignados = serializers.BooleanField(required=False)
+
+    class Meta:
+        model = Rol
+        fields = ('nombre', 'descripcion', 'limita_a_asignados')
+
+    def validate_nombre(self, value):
+        nombre = ' '.join((value or '').split())
+        if len(nombre) < 3:
+            raise serializers.ValidationError(
+                'El nombre del rol debe tener al menos 3 caracteres.'
+            )
+        if self.instance.es_sistema:
+            raise serializers.ValidationError(
+                'El nombre de un rol del sistema no se modifica.'
+            )
+        existente = (
+            Rol.objects.filter(nombre__iexact=nombre)
+            .exclude(pk=self.instance.pk)
+            .first()
+        )
+        if existente is not None:
+            raise serializers.ValidationError(
+                f'Ya existe un rol con el nombre «{nombre}» '
+                f'(id {existente.pk}).'
+            )
+        return nombre
+
+    def validate_limita_a_asignados(self, value):
+        if self.instance.es_sistema:
+            raise serializers.ValidationError(
+                'No se puede cambiar «limita a asignados» de un rol del '
+                'sistema.'
+            )
+        if self.instance.usuarios.exists():
+            raise serializers.ValidationError(
+                'No se puede cambiar «limita a asignados» de un rol que '
+                'tiene usuarios.'
+            )
+        return value
+
+
+class RolPermisosSerializer(serializers.Serializer):
+    """Reemplazo del conjunto completo de permisos de un rol (Semana 14):
+    lista de códigos, sin duplicados, existentes y con sus dependencias
+    cumplidas. La lista vacía es válida: retira todos los permisos."""
+
+    permisos = serializers.ListField(
+        child=serializers.CharField(),
+        allow_empty=True,
+        error_messages={
+            'required': 'La lista de permisos es obligatoria.'
+        },
+    )
+
+    def validate_permisos(self, value):
+        codigos = []
+        for item in value:
+            codigo = (item or '').strip()
+            if codigo and codigo not in codigos:
+                codigos.append(codigo)
+        conocidos = set(Permiso.objects.values_list('codigo', flat=True))
+        desconocidos = [c for c in codigos if c not in conocidos]
+        if desconocidos:
+            raise serializers.ValidationError(
+                [
+                    f'El permiso «{codigo}» no existe.'
+                    for codigo in desconocidos
+                ]
+            )
+        validar_dependencias(codigos)
+        return codigos
 
 
 class DatosUsuarioSerializer(serializers.ModelSerializer):

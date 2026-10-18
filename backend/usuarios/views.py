@@ -18,12 +18,27 @@ ahora el CRUD completo, sin DELETE — las cuentas se desactivan):
 - POST   /api/usuarios/{id}/restablecer-clave/ → usuarios.editar
 - POST   /api/usuarios/{id}/desbloquear/     → usuarios.editar
 - GET    /api/roles/                  → roles activos (desplegable); usuarios.ver
+
+Roles y permisos (Semana 14, HU-114..HU-118; SIN DELETE — los roles no se
+borran y el trigger del Sprint 1 protege a los del sistema):
+- GET    /api/roles-admin/            → listado paginado con conteos
+                                         (?busqueda=&estado=&tipo=); roles.gestionar
+- POST   /api/roles-admin/            → alta (nombre, limita_a_asignados,
+                                         permisos o basado_en); roles.gestionar
+- GET    /api/roles-admin/{id}/       → ficha + permisos; roles.gestionar
+- PATCH  /api/roles-admin/{id}/       → nombre/descripción/limita; roles.gestionar
+- POST   /api/roles-admin/{id}/desactivar/  → roles.gestionar
+- POST   /api/roles-admin/{id}/reactivar/   → roles.gestionar
+- PUT    /api/roles-admin/{id}/permisos/    → reemplaza el conjunto completo
+                                         (agregados/quitados/afectados); roles.gestionar
+- GET    /api/permisos-catalogo/      → catálogo agrupado por módulo; roles.gestionar
 """
 import math
 import logging
 
 from django.contrib.auth import authenticate
 from django.db import transaction
+from django.db.models import Count, Q
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException, ValidationError
@@ -48,12 +63,17 @@ from .autenticacion import (
     marcar_sesion_cambiada,
     sesion_cambiada_despues,
 )
-from .models import Rol, Usuario
+from .models import Permiso, Rol, Usuario
 from .permisos import DebeCambiarClave, TienePermiso
 from .serializers import (
     CambiarClaveSerializer,
     DatosUsuarioSerializer,
     RestablecerClaveSerializer,
+    RolDetalleSerializer,
+    RolEdicionSerializer,
+    RolEscrituraSerializer,
+    RolListaSerializer,
+    RolPermisosSerializer,
     RolSerializer,
     UsuarioDetalleSerializer,
     UsuarioEscrituraSerializer,
@@ -519,10 +539,278 @@ class UsuarioViewSet(
 class RolViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     """Roles activos para el desplegable del formulario de usuarios
     (Semana 12): solo listado, sin paginación (lista corta) y exige
-    usuarios.ver — quien no ve usuarios no necesita la lista de roles."""
+    usuarios.ver — quien no ve usuarios no necesita la lista de roles.
+    La gestión completa vive en RolAdminViewSet (Semana 14)."""
 
     permission_classes = (DebeCambiarClave, TienePermiso)
     permiso_requerido = 'usuarios.ver'
     queryset = Rol.objects.filter(activo=True)
     serializer_class = RolSerializer
     pagination_class = None
+
+
+class PermisosRolesAdmin(PermisosPorAccion):
+    """Gestión de roles y permisos (Semana 14, HU-120): roles.gestionar
+    en todas las acciones — es control total sobre los permisos."""
+
+    permiso_requerido = 'roles.gestionar'
+    PERMISOS = {
+        accion: 'roles.gestionar'
+        for accion in (
+            'list',
+            'retrieve',
+            'create',
+            'update',
+            'partial_update',
+            'desactivar',
+            'reactivar',
+            'permisos',
+        )
+    }
+
+
+class RolAdminViewSet(
+    AuditoriaMixin,
+    PermisosRolesAdmin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin,
+    mixins.UpdateModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Administración de roles (Semana 14, HU-114..HU-118): SIN DELETE
+    (405) — los roles no se borran y el trigger del Sprint 1 protege a
+    los del sistema. El Administrador conserva siempre los 55 permisos
+    del catálogo; Técnico y Coordinador admiten editar permisos y
+    descripción pero no su nombre ni su condición de limitar a
+    asignados. Última escritura gana: dos administradores editando a la
+    vez guardan el último conjunto y la auditoría refleja cada diff."""
+
+    auditoria_modulo = 'roles'
+    auditoria_tabla = 'roles'
+    queryset = Rol.objects.all().order_by('nombre')
+    filter_backends = (BusquedaPorNombre,)
+    search_fields = ('nombre',)
+
+    def get_queryset(self):
+        queryset = (
+            Rol.objects.all()
+            .order_by('nombre')
+            .annotate(
+                usuarios_activos=Count(
+                    'usuarios',
+                    filter=Q(usuarios__is_active=True),
+                    distinct=True,
+                ),
+                total_permisos=Count('permisos', distinct=True),
+            )
+        )
+        estado = (self.request.query_params.get('estado') or '').strip().lower()
+        if estado == 'activo':
+            queryset = queryset.filter(activo=True)
+        elif estado == 'inactivo':
+            queryset = queryset.filter(activo=False)
+        elif estado:
+            raise ValidationError({'estado': 'Usa «activo» o «inactivo».'})
+        tipo = (self.request.query_params.get('tipo') or '').strip().lower()
+        if tipo == 'sistema':
+            queryset = queryset.filter(es_sistema=True)
+        elif tipo == 'personalizado':
+            queryset = queryset.filter(es_sistema=False)
+        elif tipo:
+            raise ValidationError({'tipo': 'Usa «sistema» o «personalizado».'})
+        return queryset
+
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return RolListaSerializer
+        if self.action == 'create':
+            return RolEscrituraSerializer
+        if self.action in ('update', 'partial_update'):
+            return RolEdicionSerializer
+        return RolDetalleSerializer
+
+    def create(self, request, *args, **kwargs):
+        serializador = RolEscrituraSerializer(data=request.data)
+        serializador.is_valid(raise_exception=True)
+        codigos = serializador.validated_data.get('_codigos', [])
+        with transaction.atomic():
+            rol = serializador.save()
+            self._registrar_auditoria(
+                'CREAR', rol, detalle={'permisos': sorted(codigos)}
+            )
+        return Response(
+            RolDetalleSerializer(rol, context=self.get_serializer_context()).data,
+            status=201,
+        )
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        rol = self.get_object()
+        serializador = self.get_serializer(
+            rol, data=request.data, partial=partial
+        )
+        serializador.is_valid(raise_exception=True)
+        with transaction.atomic():
+            serializador.save()
+            self._registrar_auditoria('MODIFICAR', rol)
+        return Response(
+            RolDetalleSerializer(rol, context=self.get_serializer_context()).data
+        )
+
+    @action(detail=True, methods=('post',), url_path='desactivar')
+    def desactivar(self, request, pk=None):
+        """Desactiva un rol sin usuarios activos (HU-118): los roles del
+        sistema no se desactivan y el historial se conserva (sin borrar)."""
+        rol = self.get_object()
+        if rol.es_sistema:
+            raise ValidationError(
+                {'estado': 'Los roles del sistema no se pueden desactivar.'}
+            )
+        if not rol.activo:
+            raise ValidationError({'estado': 'El rol ya está desactivado.'})
+        con_cuentas = rol.usuarios.filter(is_active=True).count()
+        if con_cuentas:
+            plural = 's' if con_cuentas != 1 else ''
+            raise ValidationError(
+                {
+                    'estado': (
+                        f'No se puede desactivar el rol: tiene {con_cuentas} '
+                        f'usuario{plural} activo{plural}.'
+                    )
+                }
+            )
+        with transaction.atomic():
+            rol.activo = False
+            rol.save(update_fields=('activo',))
+            self._registrar_auditoria('DESACTIVAR', rol)
+        logger.info('rol_desactivado id=%s por=%s', rol.pk, request.user.pk)
+        return Response(RolDetalleSerializer(rol).data)
+
+    @action(detail=True, methods=('post',), url_path='reactivar')
+    def reactivar(self, request, pk=None):
+        """Reactiva un rol desactivado (HU-118)."""
+        rol = self.get_object()
+        if rol.activo:
+            raise ValidationError({'estado': 'El rol ya está activo.'})
+        with transaction.atomic():
+            rol.activo = True
+            rol.save(update_fields=('activo',))
+            self._registrar_auditoria('ACTIVAR', rol)
+        logger.info('rol_reactivado id=%s por=%s', rol.pk, request.user.pk)
+        return Response(RolDetalleSerializer(rol).data)
+
+    @action(detail=True, methods=('put',), url_path='permisos')
+    def permisos(self, request, pk=None):
+        """Reemplaza el conjunto completo de permisos del rol (HU-115) en
+        una sola transacción: o se guarda todo o nada. Responde los
+        códigos agregados y quitados y cuántos usuarios activos se ven
+        afectados; si el conjunto es igual, no hace nada ni registra
+        evento. El Administrador nunca admite cambios (siempre los 55) y
+        nadie se puede quitar roles.gestionar de su propio rol."""
+        rol = self.get_object()
+        if rol.nombre == 'Administrador':
+            raise ValidationError(
+                {
+                    'permisos': (
+                        'Los permisos del rol Administrador no se pueden '
+                        'cambiar: siempre tiene todos los permisos del '
+                        'catálogo.'
+                    )
+                }
+            )
+        serializador = RolPermisosSerializer(data=request.data)
+        serializador.is_valid(raise_exception=True)
+        nuevos = serializador.validated_data['permisos']
+        actuales = sorted(rol.permisos.values_list('codigo', flat=True))
+        afectados = rol.usuarios.filter(is_active=True).count()
+        if sorted(nuevos) == actuales:
+            return Response(
+                {
+                    'detail': 'Sin cambios: el rol ya tenía esos permisos.',
+                    'permisos': actuales,
+                    'agregados': [],
+                    'quitados': [],
+                    'usuarios_afectados': afectados,
+                }
+            )
+        if (
+            request.user.rol_id == rol.pk
+            and 'roles.gestionar' in actuales
+            and 'roles.gestionar' not in nuevos
+        ):
+            raise ValidationError(
+                {
+                    'permisos': (
+                        'No puedes quitarte el permiso de gestionar roles '
+                        'de tu propio rol.'
+                    )
+                }
+            )
+        if 'roles.gestionar' in actuales and 'roles.gestionar' not in nuevos:
+            queda_gestor = (
+                Usuario.objects.filter(
+                    is_active=True, rol__permisos__codigo='roles.gestionar'
+                )
+                .exclude(rol_id=rol.pk)
+                .exists()
+            )
+            if not queda_gestor:
+                raise ValidationError(
+                    {
+                        'permisos': (
+                            'Debe quedar al menos un usuario activo con '
+                            'permiso para gestionar roles.'
+                        )
+                    }
+                )
+        agregados = sorted(set(nuevos) - set(actuales))
+        quitados = sorted(set(actuales) - set(nuevos))
+        with transaction.atomic():
+            rol.permisos.set(Permiso.objects.filter(codigo__in=nuevos))
+            self._registrar_auditoria(
+                'MODIFICAR',
+                rol,
+                detalle={'agregados': agregados, 'quitados': quitados},
+            )
+        logger.info(
+            'rol_permisos_cambiados id=%s agregados=%s quitados=%s por=%s',
+            rol.pk, len(agregados), len(quitados), request.user.pk,
+        )
+        return Response(
+            {
+                'detail': 'Permisos actualizados.',
+                'permisos': sorted(nuevos),
+                'agregados': agregados,
+                'quitados': quitados,
+                'usuarios_afectados': afectados,
+            }
+        )
+
+
+class CatalogoPermisosView(APIView):
+    """Catálogo de permisos (Semana 14): solo lectura, agrupado por
+    módulo y con su descripción — lo define el desarrollador, no el
+    Administrador. Dibuja la matriz de la pantalla de roles."""
+
+    permission_classes = (DebeCambiarClave, TienePermiso)
+    permiso_requerido = 'roles.gestionar'
+
+    def get(self, request):
+        grupos = {}
+        for permiso in Permiso.objects.order_by('modulo', 'codigo'):
+            grupos.setdefault(permiso.modulo, []).append(
+                {
+                    'codigo': permiso.codigo,
+                    'accion': permiso.accion,
+                    'descripcion': permiso.descripcion,
+                }
+            )
+        return Response(
+            {
+                'modulos': [
+                    {'modulo': modulo, 'permisos': permisos}
+                    for modulo, permisos in grupos.items()
+                ]
+            }
+        )

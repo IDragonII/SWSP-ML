@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import { NavLink, Outlet } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { resumenAlertas } from '../api/alertas.js'
 import { useSesion } from '../context/useSesion.js'
 import { opcionesMenu } from '../routes/opcionesMenu.js'
 import Marca from './Marca.jsx'
@@ -7,6 +8,21 @@ import Marca from './Marca.jsx'
 export default function Layout() {
   const { usuario, cerrarSesion, tienePermiso } = useSesion()
   const [menuAbierto, setMenuAbierto] = useState(false)
+  const [pendientes, setPendientes] = useState(null)
+  const ubicacion = useLocation()
+
+  // Semana 15 (HU-127): insignia con el número de alertas pendientes;
+  // se relee en cada cambio de ruta para reflejar atenciones y cierres
+  useEffect(() => {
+    if (!tienePermiso('alertas.ver')) return undefined
+    let activo = true
+    resumenAlertas()
+      .then((datos) => activo && setPendientes(datos.pendientes))
+      .catch(() => activo && setPendientes(null))
+    return () => {
+      activo = false
+    }
+  }, [tienePermiso, ubicacion.pathname])
 
   const visibles = opcionesMenu.filter(
     (opcion) => !opcion.permiso || tienePermiso(opcion.permiso),
@@ -53,6 +69,14 @@ export default function Layout() {
               onClick={() => setMenuAbierto(false)}
             >
               {opcion.nombre}
+              {opcion.ruta === '/alertas' && pendientes > 0 && (
+                <span
+                  className="insignia"
+                  aria-label={`${pendientes} alertas pendientes`}
+                >
+                  {pendientes}
+                </span>
+              )}
             </NavLink>
           ))}
         </nav>

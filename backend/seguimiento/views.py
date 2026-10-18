@@ -86,6 +86,7 @@ from productores.views import (
 )
 
 from auditoria.mixins import AuditoriaMixin
+from alertas.servicio import tras_confirmar
 
 from .models import Actividad, Clima, Incidencia, SeguimientoEtapa, UsoRecurso
 from .serializers import (
@@ -211,6 +212,13 @@ class ActividadViewSet(
         with transaction.atomic():
             obj = serializer.save(registrado_por=self.request.user)
             self._registrar_auditoria("CREAR", obj)
+            tras_confirmar("campania", obj.campania)
+
+    def perform_update(self, serializer):
+        with transaction.atomic():
+            obj = serializer.save()
+            self._registrar_auditoria("MODIFICAR", obj)
+            tras_confirmar("campania", obj.campania)
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -278,6 +286,7 @@ class ActividadViewSet(
             self._registrar_auditoria(
                 "ANULAR", actividad, detalle={"motivo": motivo}
             )
+            tras_confirmar("campania", actividad.campania)
         actividad.refresh_from_db()
         actividad.campania.refresh_from_db()
         datos = self._lectura(actividad).data
@@ -318,6 +327,7 @@ class ActividadViewSet(
             actividad.motivo_anulacion = None
             actividad.save(update_fields=("anulada", "motivo_anulacion"))
             self._registrar_auditoria("REACTIVAR", actividad)
+            tras_confirmar("campania", actividad.campania)
         actividad.refresh_from_db()
         actividad.campania.refresh_from_db()
         return Response(self._lectura(actividad).data)
@@ -938,6 +948,13 @@ class IncidenciaViewSet(
         with transaction.atomic():
             obj = serializer.save(registrado_por=self.request.user)
             self._registrar_auditoria("CREAR", obj)
+            tras_confirmar("incidencia", obj)
+
+    def perform_update(self, serializer):
+        with transaction.atomic():
+            obj = serializer.save()
+            self._registrar_auditoria("MODIFICAR", obj)
+            tras_confirmar("incidencia", obj)
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -1000,6 +1017,7 @@ class IncidenciaViewSet(
             self._registrar_auditoria(
                 "ANULAR", incidencia, detalle={"motivo": motivo}
             )
+            tras_confirmar("incidencia", incidencia)
         incidencia.refresh_from_db()
         return Response(self._lectura(incidencia).data)
 
@@ -1036,6 +1054,7 @@ class IncidenciaViewSet(
             incidencia.motivo_anulacion = None
             incidencia.save(update_fields=("anulada", "motivo_anulacion"))
             self._registrar_auditoria("REACTIVAR", incidencia)
+            tras_confirmar("incidencia", incidencia)
         incidencia.refresh_from_db()
         return Response(self._lectura(incidencia).data)
 

@@ -6,6 +6,8 @@ from . import views
 router = SimpleRouter()
 router.register('usuarios', views.UsuarioViewSet, basename='usuario')
 router.register('roles', views.RolViewSet, basename='rol')
+# Semana 14 (HU-120): administración de roles (roles.gestionar)
+router.register('roles-admin', views.RolAdminViewSet, basename='rol-admin')
 
 urlpatterns = [
     # Autenticación
@@ -16,5 +18,11 @@ urlpatterns = [
     # Semana 13 (HU-112): cambio de la propia contraseña
     path('auth/cambiar-clave/', views.CambiarClaveView.as_view(), name='cambiar-clave'),
     # Gestión de usuarios (Semana 12; sustituye al endpoint de prueba)
+    # Semana 14: catálogo de permisos para la matriz
+    path(
+        'permisos-catalogo/',
+        views.CatalogoPermisosView.as_view(),
+        name='permisos-catalogo',
+    ),
     *router.urls,
 ]

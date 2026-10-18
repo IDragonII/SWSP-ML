@@ -65,4 +65,12 @@ class ParametroViewSet(
             )
         # trg_parametros_sistema_actualizado fija actualizado_en
         instance.refresh_from_db(fields=("valor", "actualizado_en"))
-        return Response(ParametroSerializer(instance).data)
+        datos = ParametroSerializer(instance).data
+        # Semana 15 (HU-129): el umbral de sin actividad no reevalúa lo
+        # pendiente; se explica en la respuesta
+        if instance.clave == "dias_sin_actividad":
+            datos["aviso"] = (
+                "El nuevo valor se aplica en la siguiente evaluación de "
+                "alertas; las ya generadas no cambian."
+            )
+        return Response(datos)

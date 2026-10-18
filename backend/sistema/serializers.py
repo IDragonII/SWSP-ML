@@ -17,6 +17,11 @@ from .models import ParametroSistema
 _UMBRAL_HELADA_MIN = Decimal("-10")
 _UMBRAL_HELADA_MAX = Decimal("5")
 
+# Días sin actividad (Semana 15, HU-129): entero entre 1 y 365; el
+# aviso explica que el cambio se aplica en la siguiente evaluación
+_DIAS_MIN = 1
+_DIAS_MAX = 365
+
 
 class ParametroSerializer(serializers.ModelSerializer):
     """Lectura: clave, valor, descripción y actualizado_en."""
@@ -57,6 +62,16 @@ class ParametroEscrituraSerializer(serializers.ModelSerializer):
             if not _UMBRAL_HELADA_MIN <= numero <= _UMBRAL_HELADA_MAX:
                 raise serializers.ValidationError(
                     "El umbral de helada debe estar entre -10 y 5 °C."
+                )
+            return valor
+        if clave == "dias_sin_actividad":
+            if numero != numero.to_integral_value():
+                raise serializers.ValidationError(
+                    "Los días sin actividad deben ser un número entero."
+                )
+            if not _DIAS_MIN <= numero <= _DIAS_MAX:
+                raise serializers.ValidationError(
+                    f"Los días sin actividad deben estar entre {_DIAS_MIN} y {_DIAS_MAX}."
                 )
             return valor
         if numero <= 0:

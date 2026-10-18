@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { mensajeDeError } from '../api/errores.js'
 import { listarTodo } from '../api/catalogos.js'
+import { listarAlertas } from '../api/alertas.js'
 import {
   cerrarCampania,
   obtenerCampania,
@@ -42,6 +43,7 @@ export default function CampaniaFicha({ id, abierto, onCerrar }) {
   const [actividades, setActividades] = useState([])
   const [lineaTiempo, setLineaTiempo] = useState(null)
   const [etapas, setEtapas] = useState([])
+  const [alertas, setAlertas] = useState([])
   const [error, setError] = useState(null)
   const [recarga, setRecarga] = useState(0)
   const [editando, setEditando] = useState(false)
@@ -135,10 +137,15 @@ export default function CampaniaFicha({ id, abierto, onCerrar }) {
     listarEtapasCampania({ campania: id })
       .then((respuesta) => activo && setEtapas(respuesta.results ?? []))
       .catch(() => activo && setEtapas([]))
+    if (tienePermiso('alertas.ver')) {
+      listarAlertas({ campania: id, estado: 'TODAS' })
+        .then((respuesta) => activo && setAlertas(respuesta.results ?? []))
+        .catch(() => activo && setAlertas([]))
+    }
     return () => {
       activo = false
     }
-  }, [id, recarga])
+  }, [id, recarga, tienePermiso])
 
   return (
     <Modal
@@ -585,6 +592,68 @@ export default function CampaniaFicha({ id, abierto, onCerrar }) {
               </p>
             )}
           </section>
+
+          {tienePermiso('alertas.ver') && (
+            <section className="panel">
+              <div className="ficha-cabecera">
+                <h2>Alertas</h2>
+                <div className="ficha-acciones">
+                  <button
+                    type="button"
+                    className="boton-texto"
+                    onClick={() => {
+                      navegar(`/alertas?campania=${ficha.id}`)
+                      onCerrar?.()
+                    }}
+                  >
+                    Ver todas
+                  </button>
+                </div>
+              </div>
+              {alertas.length > 0 ? (
+                <>
+                  <Tabla
+                    filas={alertas}
+                    columnas={[
+                      {
+                        clave: 'creada_en',
+                        etiqueta: 'Creada',
+                        celda: (fila) =>
+                          new Date(fila.creada_en).toLocaleDateString('es-PE'),
+                      },
+                      {
+                        clave: 'tipo',
+                        etiqueta: 'Tipo',
+                        celda: (fila) => <Chip>{fila.tipo}</Chip>,
+                      },
+                      {
+                        clave: 'mensaje',
+                        etiqueta: 'Mensaje',
+                        celda: (fila) => fila.mensaje,
+                      },
+                      {
+                        clave: 'estado',
+                        etiqueta: 'Estado',
+                        celda: (fila) => (
+                          <Chip>
+                            {fila.atendida ? 'ATENDIDA' : 'PENDIENTE'}
+                          </Chip>
+                        ),
+                      },
+                    ]}
+                  />
+                  <p className="nota">
+                    Solo se muestran las 20 alertas más recientes de la
+                    campaña; usa «Ver todas» para atenderlas.
+                  </p>
+                </>
+              ) : (
+                <p className="nota">
+                  Esta campaña no tiene alertas registradas.
+                </p>
+              )}
+            </section>
+          )}
         </>
       )}
 

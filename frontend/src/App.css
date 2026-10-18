@@ -59,6 +59,21 @@
   box-shadow: inset 3px 0 0 var(--marigold);
 }
 
+/* Semana 15: insignia de alertas pendientes en el menú */
+.menu .enlace .insignia {
+  display: inline-block;
+  min-width: 1.3rem;
+  margin-left: 0.5rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: var(--marigold);
+  color: var(--tinta);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.3rem;
+  text-align: center;
+}
+
 .pie-menu {
   margin-top: auto;
   padding: 1rem 1.25rem 0;
@@ -1213,5 +1228,111 @@
     left: 1rem;
     right: 1rem;
     width: auto;
+  }
+}
+
+/* ---------- Matriz de permisos de roles (Semana 14) ---------- */
+
+.matriz-cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-top: 1.25rem;
+}
+
+.matriz-cabecera h2 {
+  font-family: var(--fuente-ui);
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.matriz-permisos .panel h3 {
+  font-family: var(--fuente-ui);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+}
+
+.matriz-lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.matriz-lista li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  font-size: 0.875rem;
+}
+
+.matriz-lista .nota {
+  margin: 0;
+  flex: 1 1 12rem;
+}
+
+.matriz-lista__fuera {
+  opacity: 0.55;
+}
+
+.matriz-lista__casilla {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  cursor: pointer;
+}
+
+.casilla-linea {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9375rem;
+  cursor: pointer;
+}
+
+/* ---------- Panel de Inicio (Semana 16) ---------- */
+
+.tarjetas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.85rem 1rem;
+  margin: 1rem 0 0;
+}
+
+.tarjetas .tarjeta {
+  padding: 0.85rem 1rem;
+  background: var(--crema);
+  border: 1px solid var(--linea);
+  border-radius: 10px;
+}
+
+.tarjetas dt {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--apagado);
+}
+
+.tarjetas dd {
+  margin: 0.25rem 0 0;
+  font-family: var(--fuente-ui);
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--tinta);
+}
+
+.grafico-envoltura {
+  height: 260px;
+  margin-top: 1rem;
+}
+
+@media (max-width: 860px) {
+  .grafico-envoltura {
+    height: 200px;
   }
 }

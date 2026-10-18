@@ -27,4 +27,6 @@ urlpatterns = [
     path('api/', include('produccion.urls')),
     path('api/', include('sistema.urls')),
     path('api/', include('auditoria.urls')),
+    path('api/', include('alertas.urls')),
+    path('api/', include('dashboard.urls')),
 ]

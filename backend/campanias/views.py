@@ -36,6 +36,7 @@ from productores.views import (
 from seguimiento.models import SeguimientoEtapa
 
 from auditoria.mixins import AuditoriaMixin
+from alertas.servicio import tras_confirmar
 
 from .models import Campania
 from .serializers import (
@@ -324,6 +325,7 @@ class CampaniaViewSet(
             self._registrar_auditoria(
                 "MODIFICAR", campania, detalle={"estado": "EN_PRODUCCION"}
             )
+            tras_confirmar("campania", campania)
         campania.refresh_from_db()
         return Response(self._lectura(campania).data)
 
@@ -365,6 +367,7 @@ class CampaniaViewSet(
             self._registrar_auditoria(
                 "MODIFICAR", campania, detalle={"estado": "CANCELADA", "motivo": motivo}
             )
+            tras_confirmar("campania", campania)
         campania.refresh_from_db()
         return Response(self._lectura(campania).data)
 
@@ -407,6 +410,7 @@ class CampaniaViewSet(
             self._registrar_auditoria(
                 "MODIFICAR", campania, detalle={"estado": "CERRADA"}
             )
+            tras_confirmar("campania", campania)
         campania.refresh_from_db()
         return Response(self._lectura(campania).data)
 

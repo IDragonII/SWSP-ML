@@ -10,6 +10,12 @@ export const opcionesMenu = [
   { ruta: '/recursos', nombre: 'Recursos', permiso: 'recursos.ver' },
   { ruta: '/clima', nombre: 'Clima', permiso: 'clima.ver' },
   { ruta: '/incidencias', nombre: 'Incidencias', permiso: 'incidencias.ver' },
+  { ruta: '/alertas', nombre: 'Alertas', permiso: 'alertas.ver' },
+  {
+    ruta: '/productores-riesgo',
+    nombre: 'Productores en riesgo',
+    permiso: 'alertas.ver',
+  },
   { ruta: '/prediccion', nombre: 'Predicción', permiso: 'ml.ver_predicciones' },
   { ruta: '/reportes', nombre: 'Reportes', permiso: 'reportes.ver' },
   { ruta: '/usuarios', nombre: 'Usuarios', permiso: 'usuarios.ver' },

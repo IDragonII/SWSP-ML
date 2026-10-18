@@ -59,6 +59,29 @@ class BusquedaPorNombre(SearchFilter):
     search_param = "busqueda"
 
 
+def filtrar_asignados(queryset, usuario, campo="pk"):
+    """Alcance «solo mis productores» (decisión 6 de la Semana 4).
+
+    Devuelve el queryset tal cual cuando el rol no limita a sus
+    asignados (Administrador, Coordinador); para un rol con
+    limita_a_asignados (Técnico de campo) lo reduce a los productores
+    con una asignación ACTIVA, filtrando por el campo indicado (por
+    defecto la clave del propio productor).
+
+    Función pura compartida: la usa el mixin SoloSusProductores de esta
+    misma API (los ViewSet pasan su request.user) y el dashboard de la
+    Semana 16, que agrega sin un ViewSet de productores detrás. El
+    efecto en un detalle sigue siendo 404 para un productor ajeno.
+    """
+    rol = getattr(usuario, "rol", None)
+    if rol is None or not rol.limita_a_asignados:
+        return queryset
+    asignados = AsignacionTecnico.objects.filter(
+        tecnico=usuario, activo=True
+    ).values("productor_id")
+    return queryset.filter(**{f"{campo}__in": asignados})
+
+
 class SoloSusProductores:
     """Filtro «solo mis productores» (decisión 6 de la Semana 4).
 
@@ -70,13 +93,7 @@ class SoloSusProductores:
     """
 
     def _filtrar_asignados(self, queryset, campo="pk"):
-        rol = getattr(self.request.user, "rol", None)
-        if rol is None or not rol.limita_a_asignados:
-            return queryset
-        asignados = AsignacionTecnico.objects.filter(
-            tecnico=self.request.user, activo=True
-        ).values("productor_id")
-        return queryset.filter(**{f"{campo}__in": asignados})
+        return filtrar_asignados(queryset, self.request.user, campo)
 
 
 class PermisosPorAccion:

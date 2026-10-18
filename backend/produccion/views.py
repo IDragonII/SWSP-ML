@@ -36,6 +36,7 @@ from productores.views import (
 )
 
 from auditoria.mixins import AuditoriaMixin
+from alertas.servicio import tras_confirmar
 
 from .models import Produccion
 from .serializers import (
@@ -176,6 +177,9 @@ class ProduccionViewSet(
         with transaction.atomic():
             obj = serializer.save(registrado_por=self.request.user)
             self._registrar_auditoria("CREAR", obj)
+            # fn_produccion_post pasó la campaña a COSECHADA: se
+            # reevalúan sus alertas pendientes tras el COMMIT
+            tras_confirmar("campania", obj.campania)
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -314,6 +318,7 @@ class ProduccionViewSet(
                 registro_id=produccion_pk,
                 detalle={"motivo": motivo, "campania": campania.pk},
             )
+            tras_confirmar("campania", campania)
         campania.refresh_from_db()
         return Response(
             {"campania": campania.id, "estado": campania.estado, "motivo": motivo}

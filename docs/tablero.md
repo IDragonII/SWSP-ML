@@ -1,14 +1,120 @@
-# Tablero SIGPA-GA — Semana 13: auditoría y cambio de contraseña
+# Tablero SIGPA-GA — Semana 16: panel de indicadores (dashboard)
 
-> Tablero de la semana del **28 de diciembre al 3 de enero** (calendario
-> referencial; feriados 30 dic — Ley N.° 31096 — y 1 de enero: ~3 días
-> laborables).
+> Tablero de la semana del **18 al 24 de enero** (calendario
+> referencial; sin feriados).
 > Sustituye mientras tanto a Trello/GitHub Projects (decisión de metodología:
 > se confirmará con el responsable qué herramienta usa él).
 > Los textos originales de las historias de usuario **no están en este
 > repositorio**: las descripciones siguientes son el **mapeo propuesto**
 > (igual que en semanas anteriores), anclado a los RF/RN del documento de
 > requerimientos.
+
+## Semana 16 — F1..F7 terminadas (7/7)
+
+El tema «panel de indicadores» (segunda semana del **Sprint 8**)
+corresponde al **mapeo HU-133 a HU-140** de la semana (RF-62, panel de
+indicadores; los reportes descargables quedan fuera); se ejecutó **por
+fases F1–F7** acordadas con el responsable: **F1–F7 cerradas** (suite
+**279/279**, documentación de la semana escrita, frontend en
+`lint`/`build` en 0, colección **506/506 con 939/939 aserciones
+validadas**). La Semana 16 se
+entrega **íntegra sin commitear**, decisión del responsable: el commit
+único (con las semanas 13, 14 y 15) lo hace él al cierre.
+
+| HU | Descripción (propuesta) | Estado | Evidencia |
+|---|---|---|---|
+| **HU-133** | Tarjetas de resumen del panel: productores (activos, inactivos y con campaña activa), aptas para entrenar, revisiones pendientes y alertas | ✅ Hecha | `GET /dashboard/resumen/` · pruebas 263, 264 · `pages/Inicio.jsx` |
+| **HU-134** | Superficie sembrada de las campañas activas del alcance (texto con 2 decimales, `null` sin datos) | ✅ Hecha | `GET /dashboard/resumen/` · prueba 264 |
+| **HU-135** | Campañas agrupadas por estado (los 5 siempre, con `?periodo=` opcional) con gráfico de barras | ✅ Hecha | `GET /dashboard/campanias-estado/` · pruebas 265, 272 · `Inicio.jsx` |
+| **HU-136** | Producción agrupada por cultivo o distrito con rendimiento **ponderado** (kg ÷ superficie cosechada) más el promedio simple y totales | ✅ Hecha | `GET /dashboard/produccion/` · pruebas 267–269, 271, 273 |
+| **HU-137** | Opciones de filtro (períodos, cultivos y ubicación en cascada) dentro del alcance del usuario | ✅ Hecha | `GET /dashboard/filtros/` · pruebas 274–276 |
+| **HU-138** | Franja de alertas pendientes por tipo (`por_tipo` con ceros en `/alertas/resumen/`) | ✅ Hecha | `alertas/views.py` · pruebas 263, 279 · `Inicio.jsx` |
+| **HU-139** | Señales `provisional` (campaña sin cerrar) y `pocos_datos` (< 3 campañas) por fila | ✅ Hecha | `dashboard/views.py` · pruebas 267, 268 |
+| **HU-140** | `generado_en` en hora de Lima (`America/Lima` con huso) | ✅ Hecha | `dashboard/views.py:48` · prueba 263 |
+
+> **Nota:** el mapeo HU-133..HU-140 es el **mapeo propuesto** de la semana
+> (los textos originales no están en el repositorio; el RF-62 se verificó
+> leyendo `requerimientos.tex` **sin modificarlo** — solo lectura,
+> decisión del responsable). Los docstrings del código usan los mismos
+> rangos (`backend/dashboard/views.py`, `tests.py`).
+
+| Fase | Contenido | Estado | Evidencia |
+|---|---|---|---|
+| **F1** | Estructura: app **`dashboard/`** (sin modelos ni migraciones, `dashboard.ver` ya sembrado) + `filtrar_asignados` extraída y compartida + `GET /dashboard/resumen/` | ✅ Hecha | `backend/dashboard/`, `productores/views.py` |
+| **F2** | `GET /dashboard/produccion/` (agrupar + filtros + ponderado + `provisional`/`pocos_datos`), `GET /dashboard/filtros/` (cascada), `GET /dashboard/campanias-estado/` y `por_tipo` en `/alertas/resumen/` | ✅ Hecha | `backend/dashboard/views.py`, `alertas/views.py` |
+| **F3** | Pruebas **263–279** (17): resumen, producción, alcance, filtros, presupuesto de consultas (12/4/5/8) y recorrido de rutas 405; **total 279/279**; hallazgos corregidos (`/producciones/` plural, `values(F())`, cosechada ≤ sembrada, `requiere_revision` en Produccion, 401 antes que 405, BD de pruebas huérfana) | ✅ Hecha | `backend/dashboard/tests.py` · `manage.py test` 279/279 |
+| **F4** | Frontend: **Recharts 3.10.1** + `Inicio.jsx` reescrito (tarjetas, franja de alertas, filtros en URL con cascada, 2 gráficos, `Tabla` con señales, estados por bloque) + estilos `.tarjetas`/`.grafico-envoltura` | ✅ Hecha | `frontend/src/{api/dashboard.js,pages/Inicio.jsx,App.css}` · `lint`/`build` en 0 |
+| **F5** | Documentación: `decisiones_semana16.md` (17 decisiones + pregunta **U** con nota de letras), `api_dashboard.md`, `verificacion_ui_semana16.md` y la actualización de este tablero y `CONTEXTO_PROYECTO.md` | ✅ Hecha | `docs/decisiones_semana16.md`, `api_dashboard.md`, `verificacion_ui_semana16.md` |
+| **F6** | Colección de Postman: **488** de la Semana 15 + **18 nuevas** = **506** (numeradas 489–506) | ✅ Hecha | `docs/coleccion_api_semana16.json` |
+| **F7** | Cierre: colección validada end-to-end con el pipeline habitual (BD temporal `sigpa_ga_coleccion16` con migrate + usuarios + **siembra previa** de F7, servidor 8001 con `LOGIN_RATE_IP=120/min`, `validador/validar.js`): **506/506 peticiones (504 obligatorias + 2 opcionales) y 939/939 aserciones**; BD borrada y servidor detenido; comando **`datos_demostracion`** mínimo e idempotente (inventado y marcado, probado); el panel de calidad HU-123 (pruebas 280–284) **no se aplicó** por falta de holgura (corte mínimo acordado: 279/506) | ✅ Hecha | `backend/sistema/management/commands/datos_demostracion.py` · `docs/evidencias_semana16.md` |
+
+**Estado (7/7 fases):** **279 pruebas verdes** (`manage.py test`; las 17
+de la semana son la 263–279), `manage.py check` en 0 issues,
+`makemigrations --check` sin cambios, `npm run lint` y `npm run build` en
+0 problemas, colección **506/506 (939/939 aserciones)**, comando
+`datos_demostracion` creado y documentación escrita en
+`decisiones_semana16.md`, `api_dashboard.md`,
+`verificacion_ui_semana16.md`, `evidencias_semana16.md` y
+`CONTEXTO_PROYECTO.md`. Único pendiente: el commit único del
+responsable (semanas 13–16).
+
+## Semana 15 — F1..F7 terminadas (7/7)
+
+El tema «alertas y productores en riesgo» (apertura del **Sprint 8**)
+corresponde al **mapeo HU-124 a HU-132** de la semana (RF-63, RF-64,
+RF-65 y RF-15); se ejecutó **por fases F1–F7** acordadas con el
+responsable: **F1–F7 cerradas** (suite **262/262**, documentación de la
+semana escrita, frontend en `lint`/`build` en 0, colección
+**488/488 validada**). La Semana 15 se entrega
+**íntegra sin commitear**, decisión del responsable: el commit único lo
+hace él al cierre (las semanas 13 y 14 siguen pendientes también).
+
+| HU | Descripción (propuesta) | Estado | Evidencia |
+|---|---|---|---|
+| **HU-124** | Generación automática de alertas: `INCIDENCIA_SEVERA` única por incidencia con su ciclo anular→cierra / reactivar→reabre; mensajes en español sin datos personales; `RENDIMIENTO_BAJO` reservado al modelo de regresión | ✅ Hecha | `alertas/servicio.py` · pruebas 242, 243, 261 |
+| **HU-125** | Atención manual (`alertas.atender`, nota opcional ≤ 250 y evento MODIFICAR) y reapertura solo de lo atendido a mano (lo automático → 400); 401 sin sesión y 403 sin permiso | ✅ Hecha | `POST /alertas/{id}/atender/`, `…/reabrir/` · pruebas 251, 252, 254 |
+| **HU-126** | Productores en riesgo: agrupación de pendientes por productor con código, ubicación, conteo, tipos y última alerta | ✅ Hecha | `GET /alertas/productores-en-riesgo/` · prueba 256 · `pages/ProductoresRiesgo.jsx` |
+| **HU-127** | Listado con pestañas (Pendientes/Atendidas/Todas), filtros y orden «pendientes primero»; resumen para la insignia del menú y sección «Alertas» en las fichas de campaña y productor | ✅ Hecha | `GET /alertas/`, `…/resumen/` · pruebas 255, 257 · `Alertas.jsx`, `Layout.jsx` |
+| **HU-128** | Ámbito del Técnico (solo sus productores; detalle ajeno → 404) y privacidad del atendiente (`atendida_por_nombre` solo para roles sin `limita_a_asignados`) | ✅ Hecha | `SoloSusProductores` + serializador · prueba 253 |
+| **HU-129** | Alerta de campaña sin actividad con umbral `dias_sin_actividad` (entero 1–365, por defecto 30) y aviso «el cambio se aplica en la siguiente evaluación» | ✅ Hecha | `alertas/servicio.py`, `sistema/` · pruebas 244, 246, 260 |
+| **HU-130** | Cierre automático al cambiar el estado de la campaña (cancelar/cerrar/cosechar) más la red de seguridad del barrido | ✅ Hecha | ganchos en `campanias`, `produccion` · prueba 247 |
+| **HU-131** | Evaluación: comando diario idempotente (`--dry-run`, `--hoy` solo en DEBUG), evaluación manual con `parametros.gestionar` (una cada 5 min) y gracia tras la atención manual | ✅ Hecha | `evaluar_alertas`, `views.evaluar` · pruebas 245, 248, 249, 258 |
+| **HU-132** | Evento resumen de cada evaluación en auditoría y estado del proceso (`ultima_evaluacion`, atraso de 36 h) en `/alertas` y `/parametros` | ✅ Hecha | `GET /alertas/evaluacion/` · pruebas 250, 259 |
+
+> **Nota:** el mapeo HU-124..HU-132 es el **mapeo propuesto** de la semana
+> (los textos originales no están en el repositorio; los RF-63/64/65 y
+> RF-15 se verificaron leyendo `requerimientos.tex` **sin modificarlo**).
+> Los docstrings del código usan los mismos rangos (`alertas/models.py`,
+> `views.py`, `servicio.py`, `tests.py`).
+
+| Fase | Contenido | Estado | Evidencia |
+|---|---|---|---|
+| **F1** | Estructura: app **`alertas/`** con el modelo `Alerta` (3 tipos, CHECKs e índices únicos del diseño, **sin triggers nuevos**: 25 intactos) + migración **`0001_alertas.py`**; `DB_sql/01_tablas.sql` actualizado (columnas `incidencia_id`, `nota_atencion`); verificado con `check`, `makemigrations --check` y `sqlmigrate` | ✅ Hecha | `backend/alertas/` · `DB_sql/01_tablas.sql` |
+| **F2** | Servicio de evaluación (`evaluar_incidencia`, `evaluar_campania`, `evaluar_todo`, gracia, cierres automáticos) + **13 ganchos** `transaction.on_commit` (seguimiento, campanias, produccion) + comando **`evaluar_alertas`** (`--dry-run`, `--hoy` solo en DEBUG) | ✅ Hecha | `alertas/servicio.py`, `management/commands/evaluar_alertas.py` |
+| **F3** | API: `AlertasViewSet` (listado con pestañas/filtros **solo en `list`**, detalle, 405 en escritura), `atender`, `reabrir`, `evaluar` (429 propio), `resumen`, `productores-en-riesgo`, `evaluacion`; validación 1–365 de `dias_sin_actividad` + aviso en `sistema/` | ✅ Hecha | `alertas/{views,serializers}.py`, `sistema/` · pruebas en verde |
+| **F4** | Pruebas **242–262** (21): evaluación, API, parámetros y restricciones de la tabla; **total 262/262**; hallazgos corregidos en el código (filtros solo en `list`, errores como cadena, datos de prueba) | ✅ Hecha | `alertas/tests.py` · `manage.py test` 262/262 |
+| **F5** | Frontend: pantallas **`/alertas`** y **`/productores-riesgo`**, insignia en `Layout`, sección «Alertas» en las fichas de campaña/productor, panel «Evaluación de alertas» + ayuda en `/parametros` | ✅ Hecha | `frontend/src/pages/{Alertas,ProductoresRiesgo}.jsx`, `Layout.jsx`, `App.css` · `lint`/`build` en 0 |
+| **F6** | Documentación: `decisiones_semana15.md` (28 decisiones + pregunta **T** con nota de letras), `api_alertas.md`, `evaluacion_alertas.md`, `verificacion_ui_semana15.md` y la actualización de este tablero, `CONTEXTO_PROYECTO.md`, `evidencias_capitulo4.md` y `matriz_reglas_calidad.md`; **hallazgo de F6 corregido** (el 429 de «Evaluar ahora» perdió su mensaje en el manejador global de `Throttled`) | ✅ Hecha | `docs/decisiones_semana15.md`, `api_alertas.md`, `evaluacion_alertas.md`, `verificacion_ui_semana15.md` |
+| **F7** | Cierre: colección de Postman (**458** de la Semana 14 + **30 nuevas** = **488**: 486 obligatorias + 2 opcionales, numeradas 459–488), validada end-to-end en la BD temporal `sigpa_ga_coleccion15` con `LOGIN_RATE_IP=120/min` y borrada al terminar: **488/488 en verde (904/904 aserciones)**; dos ajustes de la propia F7 (respuesta de incidencia con `campania` anidada; la alerta fuera del ámbito se genera en `campania_s10_id` porque la campaña de la S8 queda CERRADA) | ✅ Hecha | `docs/coleccion_api_semana15.json` (459–488) |
+
+**Estado (7/7 fases):** **262 pruebas verdes** (`manage.py test`; las 21 de
+la semana son la 242–262), `manage.py check` en 0 issues,
+`makemigrations --check` sin cambios, `npm run lint` y `npm run build` en
+0 problemas, colección **488/488** y documentación escrita en
+`decisiones_semana15.md`,
+`api_alertas.md`, `evaluacion_alertas.md`, `verificacion_ui_semana15.md`,
+`CONTEXTO_PROYECTO.md` y `evidencias_capitulo4.md`. Único pendiente:
+el commit único del responsable.
+
+## Semana 14 — nota (sin documento de decisiones)
+
+La Semana 14 (4–10 de enero) trató **roles y permisos + reglas de
+calidad** (mapeo **HU-114 a HU-122**): pruebas 221–241 (**241/241** en su
+momento, 824 s), matriz de reglas de calidad RN-01..RN-16 y colección
+**458/458** validada en su F7 (457 obligatorias + 1 opcional). Su **F6
+se canceló**: no existe `decisiones_semana14.md`, y las dudas que dejó —
+en especial la de roles sobre `limita_a_asignados` (prueba 227) —
+quedan recogidas en `decisiones_semana15.md` §1.4 como **pregunta T**.
 
 ## Semana 13 — 7/7 fases terminadas
 
@@ -372,17 +478,17 @@ de **48 peticiones validada 48/48** contra el servidor (estados y aserciones),
 | 2 (12–18 oct) — autenticación y permisos | HU-07..HU-14 (login, refresh, logout, `/me`, permisos, rate limit, sesión y menú en React) | ✅ 20 pruebas · `api_autenticacion.md` |
 | 3 (19–25 oct) — ubicación y productores | HU-15..HU-22 (ubicación con `cargar_ubicacion`, productor con código PROD-000N, filtros, enmascarado, ficha parcial) | ✅ 37 pruebas · `api_ubicacion_productores.md` |
 
-## Siguiente (Semana 14, 4–10 ene)
+## Siguiente (Semana 17, 25–31 ene)
 
-Cierre del **Sprint 7** y arranque de lo que falte (la semana es larga:
-sin feriados). Reparto provisional a confirmar con el responsable tras el
-control del domingo 3 (velocidad real y vídeo de 5 minutos):
+Continúa el **Sprint 8 en curso** (lo abrieron las semanas 15 y 16).
+Reparto provisional a confirmar con el responsable:
 
 | Tema | Nota |
 |---|---|
-| **Commit único de la Semana 13** | El responsable ejecuta el commit al visto bueno (F1–F7 ya entregadas sin commitear; la colección se cerró en F7: 430/430) |
-| Roles y permisos + reglas de calidad (tema sugerido) | Pantalla de gestión de roles/permisos (el CRUD de roles ya existe desde la Semana 1) y reglas de calidad de datos; depende de lo que decida el responsable en el control |
-| Preguntas pendientes del responsable | F, G, H, densidad, I, umbrales y quintal, J, K, L, M, etapas fenológicas, N (conservación y acceso a la auditoría) y las nuevas Q/R/S de `decisiones_semana13.md` (lecturas, purga, XFF): enviar en un solo mensaje con fecha límite |
+| **Commit único de las Semanas 13, 14, 15 y 16** | El responsable ejecuta el commit al visto bueno (las cuatro semanas entregadas sin commitear; sus colecciones ya están validadas: 430/430, 458/458, 488/488 y 506/506) |
+| Reportes descargables (RF-62, resto del dashboard) + ML (modelo de regresión: rendimiento predicho, `RENDIMIENTO_BAJO` y predicciones) | Temas grandes del backlog; el ML libera además la fila 1 y la decisión 2 de `decisiones_semana15.md` §1.1; el panel de indicadores ya está (Semana 16) |
+| Olvido de contraseña / recuperación de cuenta | Pendiente desde semanas anteriores |
+| Preguntas pendientes del responsable | F, G, H, densidad, I, umbrales y quintal, J, K, L, M, etapas fenológicas, N (conservación y acceso a la auditoría), Q/R/S de `decisiones_semana13.md` (lecturas, purga, XFF) y la **T** de `decisiones_semana15.md` (`limita_a_asignados`): enviar en un solo mensaje con fecha límite |
 
 ## Preguntas abiertas que bloquean decisiones
 

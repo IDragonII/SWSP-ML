@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { guardarParametro, listarParametros } from '../api/parametros.js'
+import { estadoEvaluacion } from '../api/alertas.js'
 import { erroresDeCampo, mensajeDeError } from '../api/errores.js'
 import Aviso from '../components/Aviso.jsx'
 import Campo from '../components/Campo.jsx'
 import Cargando from '../components/Cargando.jsx'
+import Chip from '../components/Chip.jsx'
 import Modal from '../components/Modal.jsx'
 import RuedaCarga from '../components/RuedaCarga.jsx'
 import Tabla from '../components/Tabla.jsx'
@@ -18,7 +20,7 @@ const NOMBRES = {
 
 const AYUDAS = {
   dias_sin_actividad:
-    'Días sin actividad registrada antes de marcar un seguimiento pendiente.',
+    'Días sin actividad registrada antes de generar una alerta de seguimiento a la campaña (entero de 1 a 365).',
   umbral_rendimiento_bajo:
     'Rendimiento por debajo del cual el técnico debe atender la campaña (kg/ha).',
   rendimiento_min_plausible:
@@ -44,6 +46,13 @@ function ParametroFormulario({ parametro, otros, abierto, onGuardado, onCancelar
     const numero = Number(limpio)
     if (Number.isNaN(numero) || numero <= 0) {
       fallos.valor = 'El valor debe ser un número mayor que 0.'
+      return fallos
+    }
+    if (
+      parametro.clave === 'dias_sin_actividad' &&
+      (!Number.isInteger(numero) || numero > 365)
+    ) {
+      fallos.valor = 'Los días sin actividad deben ser un entero de 1 a 365.'
       return fallos
     }
     const min = otros.rendimiento_min_plausible
@@ -148,6 +157,7 @@ export default function Parametros() {
   const [error, setError] = useState(null)
   const [recarga, setRecarga] = useState(0)
   const [editando, setEditando] = useState(null)
+  const [evaluacion, setEvaluacion] = useState(null)
 
   useEffect(() => {
     let activo = true
@@ -158,6 +168,17 @@ export default function Parametros() {
         setDatos(respuesta)
       })
       .catch((e) => activo && setError(mensajeDeError(e)))
+    return () => {
+      activo = false
+    }
+  }, [recarga])
+
+  // Semana 15 (HU-132): estado del proceso diario de alertas
+  useEffect(() => {
+    let activo = true
+    estadoEvaluacion()
+      .then((respuesta) => activo && setEvaluacion(respuesta))
+      .catch(() => activo && setEvaluacion(null))
     return () => {
       activo = false
     }
@@ -183,6 +204,33 @@ export default function Parametros() {
         Los umbrales se aplican al registrar o editar producciones: no
         reevalúan las producciones ya guardadas.
       </p>
+
+      {evaluacion && (
+        <section className="panel">
+          <h2>Evaluación de alertas</h2>
+          <p>
+            <Chip>
+              {evaluacion.atrasada ? 'ATRASADA' : 'AL DÍA'}
+            </Chip>{' '}
+            <span className="nota">
+              {evaluacion.ultima_evaluacion
+                ? `Última evaluación: ${new Date(
+                    evaluacion.ultima_evaluacion,
+                  ).toLocaleString('es-PE', {
+                    dateStyle: 'long',
+                    timeStyle: 'short',
+                  })}`
+                : 'La evaluación automática aún no se ha ejecutado.'}
+            </span>
+          </p>
+          <p className="nota">
+            El proceso diario debe correr al menos cada{' '}
+            {evaluacion.umbral_horas} horas. Puedes lanzarla a mano desde la
+            pantalla de Alertas (requiere el permiso de gestión de
+            parámetros).
+          </p>
+        </section>
+      )}
 
       <Aviso>{error}</Aviso>
 
