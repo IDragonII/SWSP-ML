@@ -16,9 +16,16 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import include, path
+import os
+
+# Ruta del panel de Django: configurable con ADMIN_URL en el .env (Semana 19)
+# para no anunciar /admin/ en producción; siempre con barra final.
+ADMIN_URL = os.getenv("ADMIN_URL", "admin/")
+if not ADMIN_URL.endswith("/"):
+    ADMIN_URL += "/"
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
+    path(ADMIN_URL, admin.site.urls),
     path('api/', include('usuarios.urls')),
     path('api/', include('productores.urls')),
     path('api/', include('catalogos.urls')),

@@ -30,6 +30,23 @@ DEBUG = os.getenv("DEBUG", "True").strip().lower() in ("1", "true", "yes", "on")
 
 ALLOWED_HOSTS = [h.strip() for h in os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if h.strip()]
 
+# Endurecimiento de despliegue (Semana 19 / Entrega 1, docs/seguridad_entrega1.md).
+# Con PRODUCCION=1 en el .env la app exige HTTPS, cookies seguras y HSTS;
+# en desarrollo local sigue en HTTP para no romper el entorno. El aviso
+# `manage.py check --deploy` queda en cero con esta configuración (prueba 321).
+PRODUCCION = os.getenv("PRODUCCION", "0").strip().lower() in ("1", "true", "yes", "on")
+if PRODUCCION:
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    # 1 año con subdominios y precarga: recomendación de `check --deploy`
+    # (W004/W005/W021); el valor sigue siendo configurable por .env.
+    SECURE_HSTS_SECONDS = int(os.getenv("SECURE_HSTS_SECONDS", "31536000"))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    # Detrás de un proxy/terminador TLS que entrega en HTTP (nginx, Heroku):
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
 
 # Application definition
 
