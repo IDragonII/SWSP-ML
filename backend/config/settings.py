@@ -74,6 +74,7 @@ INSTALLED_APPS = [
     'alertas',
     'dashboard',
     'reportes',
+    'importaciones',
 ]
 
 # Modelo de usuario propio: DEBE declararse antes del primer migrate.

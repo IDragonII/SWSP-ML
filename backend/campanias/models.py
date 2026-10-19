@@ -36,6 +36,13 @@ class Campania(models.Model):
     # (índice uq_campania_activa_por_parcela).
     ESTADOS_ACTIVOS = (ESTADO_PLANIFICADA, ESTADO_EN_PRODUCCION, ESTADO_COSECHADA)
 
+    ORIGEN_SISTEMA = "SISTEMA"
+    ORIGEN_IMPORTADA = "IMPORTADA"
+    ORIGENES = [
+        (ORIGEN_SISTEMA, "Sistema"),
+        (ORIGEN_IMPORTADA, "Importada"),
+    ]
+
     periodo = models.CharField("período", max_length=9)
     parcela = models.ForeignKey(
         Parcela,
@@ -76,6 +83,17 @@ class Campania(models.Model):
         choices=ESTADOS,
         default=ESTADO_PLANIFICADA,
         db_default=ESTADO_PLANIFICADA,
+    )
+    # Semana 20: SISTEMA (registrada por la API) o IMPORTADA (carga
+    # histórica). Las variables que la importación no conoce (incidencias,
+    # aplicaciones, heladas sin clima) quedan vacías en el dataset, no en
+    # cero — ver vw_dataset_entrenamiento.
+    origen = models.CharField(
+        "origen",
+        max_length=10,
+        choices=ORIGENES,
+        default=ORIGEN_SISTEMA,
+        db_default=ORIGEN_SISTEMA,
     )
     observaciones = models.TextField("observaciones", null=True, blank=True)
     creado_por = models.ForeignKey(
@@ -118,6 +136,10 @@ class Campania(models.Model):
                     ]
                 ),
                 name="ck_campania_estado",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(origen__in=["SISTEMA", "IMPORTADA"]),
+                name="ck_campania_origen",
             ),
             # ck_campania_periodo (formato AAAA-AAAA y años consecutivos) y la
             # clave compuesta fk_campania_variedad_cultivo se agregan con SQL
