@@ -1,0 +1,4 @@
+dni_productor,comunidad,referencia_ubicacion,superficie_ha,altitud_msnm,latitud,longitud,tipo_suelo,pendiente,disponibilidad_agua,sistema_riego
+77880001,Comunidad Demo N1-1,Terreno del puente,2.50,3900,-15.600000,-70.200000,FRANCO,SUAVE,MEDIA,GRAVEDAD
+77880002,Comunidad Demo N1-2,Chacra de la escuela,1.20,3750,,,ARCILLOSO,,,GOTEO
+77880003,Comunidad Demo N2-1,Tierra alta,3.10,4000,-15.710000,-70.150000,ARENOSO,FUERTE,ESCASA,

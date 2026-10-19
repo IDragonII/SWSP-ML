@@ -661,16 +661,16 @@ class PermisosYConsultaTests(Semana5Base):
         )
         listado = self._json(self._api("get", "/api/recursos/"))
         tamano = settings.REST_FRAMEWORK["PAGE_SIZE"]
-        self.assertEqual(listado["count"], 26)  # 25 + el de setUp
-        self.assertEqual(len(listado["results"]), min(tamano, 26))
-        if tamano < 26:
+        self.assertEqual(listado["count"], 30)  # 25 + 4 de la S20 + setUp
+        self.assertEqual(len(listado["results"]), min(tamano, 30))
+        if tamano < 30:
             self.assertIsNotNone(listado["next"])
         # Sin paginar: lista cruda con los campos del desplegable (la
         # Semana 9 añade categoría y tipo de unidad a los recursos y el
         # factor a la base a las unidades, para el formulario de usos)
         datos = self._json(self._api("get", "/api/recursos/?desplegable=1"))
         self.assertIsInstance(datos, list)
-        self.assertEqual(len(datos), 26)
+        self.assertEqual(len(datos), 30)
         self.assertTrue(
             all(
                 set(fila) == {"id", "nombre", "categoria", "tipo_unidad"}
