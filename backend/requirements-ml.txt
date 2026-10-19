@@ -1,0 +1,5 @@
+# Solo para análisis local con notebooks (Semana 21) — NO se despliega.
+# Las librerías que el servidor sí necesita (pandas, numpy, scikit-learn,
+# joblib) están en requirements.txt con las mismas versiones.
+jupyter==1.1.1
+matplotlib==3.11.2

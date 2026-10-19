@@ -2,7 +2,8 @@
 
 Vista de una fila por **campaña cerrada con producción** que alimenta el
 módulo de Machine Learning. Definida en
-`backend/importaciones/migrations/0002_vista_dataset.py` (Semana 20) y
+`backend/importaciones/migrations/0002_vista_dataset.py` (Semana 20,
+con los cambios de la Semana 21 en `0003_vista_dataset_ids.py`) y
 replicada en `DB_sql/02_reglas_y_vista.sql` como referencia del diseño.
 
 ```sql
@@ -26,13 +27,28 @@ que alguien las revisa y cierra.
 
 ## Columnas
 
-`campania_id`, `periodo`, `anio_campania`, `cultivo`, `variedad`,
+`campania_id`, **`parcela_id`**, **`productor_id`**, `periodo`,
+`anio_campania`, `cultivo`, `variedad`,
 `superficie_sembrada_ha`, `altitud_msnm`, `tipo_suelo`, `pendiente`,
 `sistema_riego`, **`origen`**, `precipitacion_acum_mm`, `temp_prom_c`,
 `humedad_prom_pct`, `n_heladas`, `dias_con_clima`,
 **`dias_ventana_clima`**, `semilla_kg_ha`, `fertilizante_kg_ha`,
 `jornales_ha`, `agua_m3_ha`, `n_incidencias`, `severidad_max`,
 `n_aplicaciones`, `dias_ciclo`, `rendimiento_kg_ha` (etiqueta).
+
+## Semana 21: identificadores y momento de predicción
+
+- **`parcela_id` y `productor_id`** (migración
+  `importaciones/0003_vista_dataset_ids`, reversible a la versión de la
+  Semana 20): números internos, no datos personales. Sin ellos no se
+  puede validar agrupando por productor y una parcela con varias
+  campañas aparecería en entrenamiento y en prueba a la vez.
+- **Momento de predicción**: el primer modelo se define como
+  «rendimiento esperado dado el plan de manejo» y predice **al
+  planificar o sembrar** (pregunta U del responsable, pendiente). El
+  clima del ciclo solo entra en el Conjunto 2 declarado como techo.
+- El total de filas sigue cuadrando con la tarjeta «aptas para
+  entrenar» del dashboard (prueba 349): el WHERE no cambia.
 
 ## Semana 20: cambios
 
