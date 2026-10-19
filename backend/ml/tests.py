@@ -11,26 +11,33 @@ higiene final (notebooks sin salidas, 29 tablas y 25 triggers).
 Los datos de estas pruebas son de demostración: ninguna cifra que salga
 de aquí se presenta como resultado de la tesis.
 """
+import hashlib
+import io
 import json
+import os
 import tempfile
 from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 from django.test import TestCase
 from django.utils import timezone
 
+from auditoria.models import Auditoria
 from campanias.models import Campania
 from catalogos.models import Cultivo, Unidad, Variedad
 from productores.models import Comunidad, Distrito, Parcela, Productor, Provincia
 from usuarios.models import Rol, Usuario
 from usuarios.tests import _post_login
 
-from ml import catalogo, columnas
+from ml import catalogo, columnas, exportacion
 from ml.carga import ErrorCarga, cargar
 
 RUTA_VISTA = "vw_dataset_entrenamiento"
@@ -464,3 +471,215 @@ class CatalogoTests(CSVBase):
         ]
         self.assertNotIn("altitud_msnm", disponibles)
         self.assertIn("superficie_sembrada_ha", disponibles)
+
+
+# ---------------------------------------------------------------------- #
+# Fase 3: exportar_dataset con permisos, ficha y auditoría (346-348)
+# ---------------------------------------------------------------------- #
+class ExportarTests(MLBase):
+    """Pruebas 346-348: el comando exportar_dataset escribe el CSV con
+    su ficha técnica y deja un evento de auditoría sin contenido."""
+
+    def setUp(self):
+        super().setUp()
+        # Una sola campaña apta en la vista (cerrada y con producción)
+        p1 = self._productor(dni="96000001")
+        parcela = self._parcela(p1)
+        campania = self._campania(parcela)
+        self._producir(campania, "1.50", "300")
+        self._cerrar(campania)
+
+    def _exportar(self, *argumentos, carpeta):
+        with patch.dict(os.environ, {"ML_EXPORT_DIR": carpeta}):
+            salida = io.StringIO()
+            call_command(
+                "exportar_dataset",
+                "--usuario",
+                "admin_ml",
+                "--origen-datos",
+                "demostracion",
+                *argumentos,
+                stdout=salida,
+            )
+        return salida.getvalue()
+
+    def test_346_permisos_ruta_y_ensayo_sin_cambios(self):
+        with tempfile.TemporaryDirectory() as carpeta:
+            with patch.dict(os.environ, {"ML_EXPORT_DIR": carpeta}):
+                # Argumentos obligatorios
+                with self.assertRaises(CommandError) as ctx:
+                    call_command("exportar_dataset")
+                self.assertIn("Faltan", str(ctx.exception))
+
+                # Usuario inexistente
+                with self.assertRaises(CommandError) as ctx:
+                    call_command(
+                        "exportar_dataset",
+                        "--usuario",
+                        "fantasma",
+                        "--origen-datos",
+                        "real",
+                    )
+                self.assertIn("No existe", str(ctx.exception))
+
+                # Sin el permiso ml.entrenar (solo lo tiene Administrador)
+                with self.assertRaises(CommandError) as ctx:
+                    call_command(
+                        "exportar_dataset",
+                        "--usuario",
+                        "coord_ml",
+                        "--origen-datos",
+                        "real",
+                    )
+                self.assertIn("ml.entrenar", str(ctx.exception))
+
+                # Cuenta inactiva
+                inactivo = Usuario.objects.create_user(
+                    username="inactivo_ml",
+                    password="InactivoMl2026!",
+                    rol=Rol.objects.get(nombre="Administrador"),
+                    is_active=False,
+                )
+                with self.assertRaises(CommandError) as ctx:
+                    call_command(
+                        "exportar_dataset",
+                        "--usuario",
+                        inactivo.username,
+                        "--origen-datos",
+                        "real",
+                    )
+                self.assertIn("inactivo", str(ctx.exception))
+
+                # Sin carpeta de destino
+                with patch.dict(os.environ, {"ML_EXPORT_DIR": ""}):
+                    with self.assertRaises(CommandError) as ctx:
+                        call_command(
+                            "exportar_dataset",
+                            "--usuario",
+                            "admin_ml",
+                            "--origen-datos",
+                            "real",
+                        )
+                    self.assertIn("ML_EXPORT_DIR", str(ctx.exception))
+
+                # Carpeta DENTRO del repositorio: prohibida
+                dentro = Path(__file__).resolve().parent
+                with patch.dict(os.environ, {"ML_EXPORT_DIR": str(dentro)}):
+                    with self.assertRaises(CommandError) as ctx:
+                        call_command(
+                            "exportar_dataset",
+                            "--usuario",
+                            "admin_ml",
+                            "--origen-datos",
+                            "real",
+                        )
+                    self.assertIn("FUERA", str(ctx.exception))
+
+                # Ensayo: informa filas y columnas sin escribir ni auditar
+                salida = io.StringIO()
+                call_command(
+                    "exportar_dataset",
+                    "--usuario",
+                    "admin_ml",
+                    "--origen-datos",
+                    "demostracion",
+                    "--dry-run",
+                    stdout=salida,
+                )
+                texto = salida.getvalue()
+                self.assertIn("Dry-run", texto)
+                self.assertIn("filas", texto)
+                self.assertIn("columnas", texto)
+                self.assertEqual(list(Path(carpeta).iterdir()), [])
+                self.assertEqual(Auditoria.objects.count(), 0)
+                self.assertEqual(
+                    list(Path(dentro).glob("dataset_*.csv")), []
+                )
+
+    def test_347_ficha_tecnica_con_fecha_lima_y_huella(self):
+        with tempfile.TemporaryDirectory() as carpeta:
+            self._exportar(carpeta=carpeta)
+
+            csvs = list(Path(carpeta).glob("dataset_*.csv"))
+            fichas = list(Path(carpeta).glob("ficha_dataset_*.json"))
+            self.assertEqual(len(csvs), 1)
+            self.assertEqual(len(fichas), 1)
+
+            contenido = csvs[0].read_bytes()
+            ficha = json.loads(fichas[0].read_text(encoding="utf-8"))
+
+            # Filas = las de la vista, columnas = la lista fija en orden
+            filas_vista = len(self._filas_vista())
+            self.assertEqual(ficha["filas"], filas_vista)
+            self.assertEqual(
+                ficha["columnas"], list(columnas.COLUMNAS_EXPORTADAS)
+            )
+
+            # Huella = SHA-256 de los bytes exactos del archivo
+            self.assertEqual(
+                ficha["sha256"], hashlib.sha256(contenido).hexdigest()
+            )
+
+            # Fecha de Lima (UTC-5), origen declarado y semilla fija
+            self.assertTrue(ficha["fecha"].endswith("-05:00"))
+            self.assertEqual(ficha["origen_datos"], "demostracion")
+            self.assertEqual(ficha["semilla"], exportacion.SEMILLA)
+
+            # El CSV se abre con tildes y ñ, y trae encabezado + filas
+            texto = contenido.decode("utf-8-sig")
+            lineas = texto.strip().splitlines()
+            self.assertEqual(
+                lineas[0].split(",")[:3],
+                ["campania_id", "parcela_id", "productor_id"],
+            )
+            self.assertEqual(len(lineas), 1 + filas_vista)
+
+    def test_348_auditoria_sin_contenido_y_no_archivo_si_falla(self):
+        with tempfile.TemporaryDirectory() as carpeta:
+            self._exportar(carpeta=carpeta)
+
+            # Un solo evento: EXPORTAR del módulo Machine Learning
+            evento = Auditoria.objects.get(
+                accion="EXPORTAR", modulo="Machine Learning"
+            )
+            self.assertEqual(evento.usuario, self.admin)
+            self.assertIsNone(evento.tabla)
+
+            # Detalle: filas, origen y huella — nada de contenido del
+            # dataset (ni cultivo, ni valores, ni identificadores)
+            detalle = evento.detalle
+            self.assertEqual(
+                set(detalle), {"filas", "origen_datos", "sha256"}
+            )
+            self.assertEqual(
+                detalle["filas"], len(self._filas_vista())
+            )
+            self.assertEqual(detalle["origen_datos"], "demostracion")
+            texto = json.dumps(detalle)
+            for contenido_en_detalle in (
+                "Quinua",
+                "96000001",
+                "rendimiento",
+                "2026-2027",
+            ):
+                self.assertNotIn(contenido_en_detalle, texto)
+
+        # Si la auditoría FALLA, NO se escribe el archivo
+        with tempfile.TemporaryDirectory() as carpeta:
+            with patch.dict(os.environ, {"ML_EXPORT_DIR": carpeta}):
+                with patch(
+                    "sistema.management.commands.exportar_dataset."
+                    "registrar_evento",
+                    side_effect=RuntimeError("sin base"),
+                ):
+                    with self.assertRaises(CommandError) as ctx:
+                        call_command(
+                            "exportar_dataset",
+                            "--usuario",
+                            "admin_ml",
+                            "--origen-datos",
+                            "demostracion",
+                            stdout=io.StringIO(),
+                        )
+                self.assertIn("auditoría", str(ctx.exception))
+                self.assertEqual(list(Path(carpeta).iterdir()), [])
