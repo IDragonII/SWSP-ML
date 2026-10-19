@@ -1015,3 +1015,72 @@ class LineaBaseTests(TestCase):
             self.assertEqual(metricas["filas"], len(prueba))
             vistos += len(prueba)
         self.assertEqual(vistos, len(datos))
+
+
+# ---------------------------------------------------------------------- #
+# Fase 6: higiene final — esquema intacto y notebooks sin salidas (363-365)
+# ---------------------------------------------------------------------- #
+class HigieneTests(TestCase):
+    """Pruebas 363-365: la Semana 21 no mueve el esquema (29 tablas de
+    dominio, 25 triggers) y los notebooks se versionan limpios."""
+
+    def test_363_las_migraciones_siguen_creando_29_tablas_de_dominio(self):
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT count(*) FROM information_schema.tables"
+                " WHERE table_schema = 'public'"
+                " AND table_type = 'BASE TABLE'"
+                " AND table_name NOT LIKE 'auth\\_%'"
+                " AND table_name NOT LIKE 'django\\_%'"
+                " AND table_name NOT LIKE 'token\\_%'"
+            )
+            tablas = cursor.fetchone()[0]
+        self.assertEqual(
+            tablas,
+            29,
+            "las migraciones deben seguir creando 29 tablas de dominio",
+        )
+
+    def test_364_las_migraciones_siguen_creando_25_triggers(self):
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal"
+            )
+            triggers = cursor.fetchone()[0]
+        self.assertEqual(
+            triggers,
+            25,
+            "las migraciones deben seguir creando 25 triggers",
+        )
+
+    def test_365_notebooks_versionados_sin_salidas(self):
+        raiz = Path(__file__).resolve().parents[2]
+        carpeta = raiz / "notebooks"
+        gitignore = (raiz / ".gitignore").read_text(encoding="utf-8")
+        self.assertIn(".ipynb_checkpoints", gitignore)
+
+        for nombre in ("01_exploracion.ipynb", "02_preparacion.ipynb"):
+            ruta = carpeta / nombre
+            self.assertTrue(ruta.exists(), f"Falta el cuaderno {ruta}")
+            cuaderno = json.loads(ruta.read_text(encoding="utf-8"))
+            self.assertEqual(cuaderno["nbformat"], 4)
+
+            partes = []
+            for celda in cuaderno["cells"]:
+                partes.append("".join(celda.get("source", [])))
+                if celda["cell_type"] == "code":
+                    self.assertEqual(
+                        celda.get("outputs"), [],
+                        f"{nombre}: celda con salidas guardadas",
+                    )
+                    self.assertIsNone(
+                        celda.get("execution_count"),
+                        f"{nombre}: celda con contador de ejecución",
+                    )
+            texto = "\n".join(partes)
+
+            # Marca visible de datos de demostración
+            self.assertIn("demostración", texto.lower())
+            # Los datos salen de ML_EXPORT_DIR, nunca de una ruta del repo
+            self.assertIn("ML_EXPORT_DIR", texto)
+            self.assertNotIn("read_csv(", texto)

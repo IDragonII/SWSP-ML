@@ -12,6 +12,11 @@ __pycache__/
 *.pyc
 backend/db.sqlite3
 
+# Jupyter (Semana 21): los notebooks se versionan SIN salidas y los
+# checkpoints de Jupyter nunca entran (prueba 365)
+.ipynb_checkpoints/
+notebooks/.ipynb_checkpoints/
+
 # Frontend
 frontend/node_modules/
 frontend/dist/
