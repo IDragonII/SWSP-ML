@@ -15,6 +15,7 @@ import hashlib
 import io
 import json
 import os
+import statistics
 import tempfile
 from datetime import timedelta
 from decimal import Decimal
@@ -37,7 +38,15 @@ from productores.models import Comunidad, Distrito, Parcela, Productor, Provinci
 from usuarios.models import Rol, Usuario
 from usuarios.tests import _post_login
 
-from ml import catalogo, columnas, exportacion, limpieza, preparacion
+from ml import (
+    catalogo,
+    columnas,
+    exportacion,
+    linea_base,
+    limpieza,
+    preparacion,
+    validacion,
+)
 from ml.carga import ErrorCarga, cargar
 
 RUTA_VISTA = "vw_dataset_entrenamiento"
@@ -882,3 +891,127 @@ class PreparacionTests(TestCase):
         self.assertAlmostEqual(
             float(salida_train[:, i_altitud].mean()), 0.0, places=9
         )
+
+
+# ---------------------------------------------------------------------- #
+# Fase 5: validación agrupada y línea base (360-362)
+# ---------------------------------------------------------------------- #
+class ValidacionTests(TestCase):
+    """Pruebas 360-361: ningún productor se reparte entre entrenamiento
+    y prueba, y la semilla fija hace el corte reproducible."""
+
+    def _datos(self, n=12, n_productores=3):
+        filas = []
+        for i in range(n):
+            fila = fila_valida()
+            fila["productor_id"] = 100 + (i % n_productores)
+            fila["rendimiento_kg_ha"] = 100.0 + i
+            filas.append(fila)
+        return pd.DataFrame(filas)
+
+    def test_360_sin_productor_compartido_y_prueba_de_todos_una_vez(self):
+        datos = self._datos()
+        pliegues = validacion.particiones(datos, n_pliegues=3)
+        self.assertEqual(len(pliegues), 3)
+
+        pasadas_por_prueba = []
+        for entrenamiento, prueba in pliegues:
+            # Un productor entero en UN solo lado del corte
+            grupos_train = set(datos["productor_id"].iloc[entrenamiento])
+            grupos_test = set(datos["productor_id"].iloc[prueba])
+            self.assertTrue(grupos_train)
+            self.assertTrue(grupos_test)
+            self.assertEqual(grupos_train & grupos_test, set())
+
+            # Índices posicionales, disjuntos y dentro del rango
+            self.assertEqual(
+                sorted(set(entrenamiento) & set(prueba)), []
+            )
+            pasadas_por_prueba.extend(int(i) for i in prueba)
+
+        # Cada fila pasa por prueba exactamente una vez
+        self.assertEqual(
+            sorted(pasadas_por_prueba), list(range(len(datos)))
+        )
+
+    def test_361_misma_semilla_mismo_corte_y_grupos_suficientes(self):
+        datos = self._datos()
+        uno = validacion.particiones(datos, n_pliegues=3)
+        dos = validacion.particiones(datos, n_pliegues=3)
+
+        # Misma semilla → el mismo corte, fila por fila (reproducible)
+        for (train_a, test_a), (train_b, test_b) in zip(uno, dos):
+            self.assertTrue((train_a == train_b).all())
+            self.assertTrue((test_a == test_b).all())
+
+        # Ningún pliegue de prueba queda vacío
+        self.assertTrue(all(len(prueba) > 0 for _, prueba in uno))
+
+        # Pediendo más pliegues que productores, avisa en vez de fallar
+        with self.assertRaises(ValueError) as ctx:
+            validacion.particiones(datos, n_pliegues=10)
+        self.assertIn("productores", str(ctx.exception))
+
+        # Sin productor en los datos tampoco se presta a confusión
+        sin_grupo = datos.drop(columns=["productor_id"])
+        with self.assertRaises(ValueError) as ctx:
+            validacion.particiones(sin_grupo, n_pliegues=3)
+        self.assertIn("productor_id", str(ctx.exception))
+
+
+class LineaBaseTests(TestCase):
+    """Prueba 362: la línea base predice la media del ENTRENAMIENTO y
+    se evalúa en la escala del objetivo (kg/ha)."""
+
+    def _datos(self):
+        filas = []
+        for productor, rendimientos in (
+            (100, (100.0, 200.0)),
+            (101, (300.0, 400.0)),
+        ):
+            for rendimiento in rendimientos:
+                fila = fila_valida()
+                fila["productor_id"] = productor
+                fila["rendimiento_kg_ha"] = rendimiento
+                filas.append(fila)
+        return pd.DataFrame(filas)
+
+    def test_362_linea_base_predice_la_media_del_entrenamiento(self):
+        # La media del entrenamiento es la predicción, sin trampa
+        self.assertEqual(
+            linea_base.predecir_media([100.0, 200.0, 300.0]), 200.0
+        )
+        # Una constante en entrenamiento se predice tal cual, y el
+        # error frente a lo que sea en prueba sale de evaluar()
+        constante = linea_base.predecir_media([250.0, 250.0, 250.0])
+        self.assertEqual(constante, 250.0)
+        metricas = linea_base.evaluar([0.0, 999.0], [constante, constante])
+        self.assertEqual(metricas["mae"], 499.5)
+        self.assertEqual(metricas["filas"], 2)
+
+        # Errores conocidos: mae = rmse = 100 para [100, 300] vs 200
+        conocidas = linea_base.evaluar([100.0, 300.0], [200.0, 200.0])
+        self.assertEqual(conocidas["mae"], 100.0)
+        self.assertEqual(conocidas["rmse"], 100.0)
+
+        # Sin objetivo que predecir, el error es claro
+        with self.assertRaises(ValueError):
+            linea_base.predecir_media([])
+
+        # Por cada pliegue agrupado: la media SOLO del entrenamiento
+        # de ese pliegue (la prueba no decide la predicción)
+        datos = self._datos()
+        pliegues = validacion.particiones(datos, n_pliegues=2)
+        objetivos = datos["rendimiento_kg_ha"]
+        vistos = 0
+        for entrenamiento, prueba in pliegues:
+            y_train = objetivos.iloc[entrenamiento]
+            y_test = objetivos.iloc[prueba]
+            predicho = linea_base.predecir_media(y_train)
+            self.assertEqual(predicho, statistics.mean(y_train))
+            metricas = linea_base.evaluar(
+                y_test, [predicho] * len(y_test)
+            )
+            self.assertEqual(metricas["filas"], len(prueba))
+            vistos += len(prueba)
+        self.assertEqual(vistos, len(datos))
