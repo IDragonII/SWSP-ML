@@ -4,7 +4,7 @@
 SIGPA-GA (Sistema de Información y Gestión de la Producción Agropecuaria — Granos Andinos) es una aplicación web para el seguimiento de productores de granos andinos (quinua, cañihua, tarwi) en Puno, Perú, con módulo de Machine Learning para predicción de rendimiento.
 
 **Stack**: React (frontend) + Django REST Framework (backend) + PostgreSQL 17 (Docker).
-**Metodología**: Scrum, sprints de 2 semanas. Semana actual: **19 (Entrega 1)**.
+**Metodología**: Scrum, sprints de 2 semanas. Semana actual: **20**.
 
 ---
 
@@ -50,7 +50,7 @@ SIGPA-GA (Sistema de Información y Gestión de la Producción Agropecuaria — 
 - Colección Postman `coleccion_api_semana18.json` (tests `test` + `pm.environment.set`).
 - Verificación UI navegador (`docs/verificacion_ui_semana4.md`).
 
-### **Semana 19 — Entrega 1** (actual)
+### **Semana 19 — Entrega 1**
 **Objetivo**: pruebas E2E, seguridad, respaldo/restauración, rendimiento, docs, cierre.
 
 #### Pruebas nuevas (318–325)
@@ -104,6 +104,39 @@ SIGPA-GA (Sistema de Información y Gestión de la Producción Agropecuaria — 
 
 ---
 
+### **Semana 20** (actual)
+**Objetivo**: terminar la importación histórica (RF-49/RF-50) y el dataset (RF-51) con pruebas 326–345, docs y `.tex` v1.4. Cero UI.
+
+#### Pruebas nuevas (326–345 → total 345)
+| Nº | Prueba | Archivo/Clase |
+|----|--------|---------------|
+| 326–327 | Plantillas xlsx (encabezados, fila EJEMPLO) | `importaciones/tests.py` · `PlantillaTests` |
+| 328–329 | Lectura CSV/XLSX (delimitador, BOM, límites) | `LecturaTests` |
+| 330–331 | Normalización (fechas, DNI 7→8, mascarado) | `NormalizacionTests` |
+| 332–333 | Productores (creación, idempotencia, catálogos) | `ProductoresTests` |
+| 334 | Parcelas (`;`, coma decimal, trigger de código) | `ParcelasTests` |
+| 335–337 | Campañas (producción, atípica, recursos) | `CampaniasTests` |
+| 338–343 | Comando (permiso, dry-run, EN_PROCESO/--forzar, informe, auditoría, evaluar_todo) | `ComandoTests` |
+| 344–345 | Dataset (NULLs de importadas, ventana, WHERE) + end-to-end con `docs/ejemplos_importacion/` | `DatasetTests` |
+
+#### Comando nuevo
+- `importar_historico` → `--tipo/--archivo/--usuario` (+ `--dry-run`, `--forzar`, `--plantilla/--salida`); permiso `importacion.ejecutar`; informe CSV en `IMPORTACION_DIR` sin datos personales.
+
+#### Módulos nuevos
+- App `backend/importaciones/`: `plantillas.py`, `servicio.py`, `models.Importacion`, `management/commands/importar_historico.py`.
+- `campanias.origen` (SISTEMA/IMPORTADA) + `catalogos.0003` (4 recursos genéricos totales históricos).
+- Fix `productores.0005`: `fn_codigo_parcela`/`fn_codigo_productor` sin truncar (`lpad` recortaba códigos ≥1000).
+
+#### Documentos generados/actualizados
+- `docs/importacion_historica.md` — guía de uso del comando.
+- `docs/dataset.md` — `vw_dataset_entrenamiento` (fuentes, columnas, NULLs).
+- `docs/decisiones_semana20.md` — decisiones 117–163.
+- `docs/ejemplos_importacion/*.csv` — 3 archivos de ejemplo (los cubre la prueba 345).
+- `requerimientos.tex` v1.4 — versión + RF-50/RF-51 ajustados.
+- `CONTEXTO.md` — este archivo (actualizado Semana 20).
+
+---
+
 ## Archivos clave
 
 | Archivo | Descripción |
@@ -114,8 +147,12 @@ SIGPA-GA (Sistema de Información y Gestión de la Producción Agropecuaria — 
 | `backend/sistema/matriz_rutas.py` | Generación de matriz de rutas por rol. |
 | `backend/sistema/respaldo.py` | Núcleo de respaldo/restauración (Docker). |
 | `backend/sistema/management/commands/*.py` | `matriz_rutas`, `respaldo_bd`, `datos_volumen`, `datos_demostracion`. |
+| `backend/importaciones/` | App importación histórica: `plantillas.py`, `servicio.py`, `importar_historico`, `tests.py` (326–345), migraciones `0001`/`0002` (vista dataset). |
+| `docs/importacion_historica.md` | Guía de uso de `importar_historico`. |
+| `docs/dataset.md` | `vw_dataset_entrenamiento`: fuentes, columnas, NULLs de importadas. |
+| `docs/decisiones_semana20.md` | Decisiones 117–163. |
+| `D:\ProyectoJoseLuis\Documentos\Requerimeintos\requerimientos.tex` | v1.4 (Semana 20). |
 | `docs/matriz_reglas_calidad.md` | RN-01…RN-16 + agregados (§2) + huecos (§3) + alertas. |
-| `D:\ProyectoJoseLuis\Documentos\Requerimeintos\requerimientos.tex` | v1.3 (Entrega 1). |
 | `.env` | `SECRET_KEY`, `DB_*`, `RESPALDO_DIR`, `DB_DOCKER_CONTAINER`, `PRODUCCION`, `ADMIN_URL`. |
 | `docker exec sigpa_db …` | Vía real a `pg_dump`/`psql`/`createdb`/`dropdb` (contenedor `sigpa_db`, user `sigpa_user`). |
 
@@ -129,5 +166,5 @@ SIGPA-GA (Sistema de Información y Gestión de la Producción Agropecuaria — 
 4. **Todo tabla usa `Tabla`** (AGENTS.md §3): nunca `<table>` a mano; `scope="col"`, `data-rotulo`, `celda-acciones`.
 5. **Validación colección API** (decisión 40, Semana 16): solo `test` y `pm.environment.set`.
 6. **UI**: `Campo` wrapper, `useToast()` → `avisar`, `useSesion()` → `tienePermiso`.
-7. **Numeración pruebas**: Semana 18 = 317; Semana 19 = 318–325.
-8. **Commit único por semana** + tag al final (decisión 72).
+7. **Numeración pruebas**: Semana 18 = 317; Semana 19 = 318–325; Semana 20 = 326–345.
+8. **Commit único por semana** + tag al final (decisión 72); **excepción Semana 20**: commit por fase (3 en total, decisión 119).
