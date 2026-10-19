@@ -37,7 +37,7 @@ from productores.models import Comunidad, Distrito, Parcela, Productor, Provinci
 from usuarios.models import Rol, Usuario
 from usuarios.tests import _post_login
 
-from ml import catalogo, columnas, exportacion
+from ml import catalogo, columnas, exportacion, limpieza, preparacion
 from ml.carga import ErrorCarga, cargar
 
 RUTA_VISTA = "vw_dataset_entrenamiento"
@@ -683,3 +683,202 @@ class ExportarTests(MLBase):
                         )
                 self.assertIn("auditoría", str(ctx.exception))
                 self.assertEqual(list(Path(carpeta).iterdir()), [])
+
+
+# ---------------------------------------------------------------------- #
+# Fase 4: limpieza con tabla de exclusiones e imputación sin fuga (356-359)
+# ---------------------------------------------------------------------- #
+class LimpiezaTests(TestCase):
+    """Pruebas 356-357: la tabla de exclusiones está completa, excluye
+    lo que debe y su resumen solo lleva conteos."""
+
+    def test_356_tabla_de_exclusiones_completa_y_efectiva(self):
+        casos = {
+            "Sin identificadores": (
+                {
+                    "campania_id": None,
+                    "parcela_id": None,
+                    "productor_id": None,
+                },
+                {"campania_id": 1, "parcela_id": 2, "productor_id": 3},
+            ),
+            "Superficie sin sentido": (
+                {"superficie_sembrada_ha": 0},
+                {"superficie_sembrada_ha": 1.5},
+            ),
+            "Altitud fuera de rango": (
+                {"altitud_msnm": -50},
+                {"altitud_msnm": 3900},
+            ),
+            "Sin objetivo": (
+                {"rendimiento_kg_ha": 0.0},
+                {"rendimiento_kg_ha": 200.0},
+            ),
+        }
+        motivos = []
+        for regla in limpieza.EXCLUSIONES:
+            # La tabla está completa: motivo, condición, columnas y máscara
+            self.assertTrue(regla["motivo"].strip())
+            self.assertTrue(regla["condicion"].strip())
+            self.assertTrue(regla["columnas"])
+            self.assertTrue(callable(regla["mascara"]))
+
+            motivo = regla["motivo"]
+            motivos.append(motivo)
+            self.assertIn(motivo, casos)
+            mala, buena = casos[motivo]
+
+            # La fila que incumple ESA regla se excluye con SU motivo
+            limpio, resumen = limpieza.limpiar(pd.DataFrame([mala]))
+            self.assertEqual(len(limpio), 0)
+            self.assertEqual(resumen["por_motivo"], {motivo: 1})
+
+            # La fila conforme a esa regla sobrevive
+            limpio, resumen = limpieza.limpiar(pd.DataFrame([buena]))
+            self.assertEqual(len(limpio), 1)
+            self.assertEqual(resumen["por_motivo"], {})
+
+        # Motivos únicos: cada exclusión tiene su etiqueta propia
+        self.assertEqual(len(set(motivos)), len(motivos))
+
+        # Una altitud imposible por ARRIBA también se excluye
+        _, resumen = limpieza.limpiar(pd.DataFrame([{"altitud_msnm": 7000}]))
+        self.assertEqual(
+            resumen["por_motivo"], {"Altitud fuera de rango": 1}
+        )
+
+    def test_357_resumen_cuadra_y_no_llevar_contenido(self):
+        base = {
+            "campania_id": 1,
+            "parcela_id": 2,
+            "productor_id": 3,
+            "superficie_sembrada_ha": 1.5,
+            "altitud_msnm": 3900,
+            "rendimiento_kg_ha": 200.0,
+            "cultivo": "Quinua",
+        }
+        filas = [
+            dict(base),
+            {**base, "parcela_id": 4},
+            # Doble falta: gana la primera regla de la tabla (superficie)
+            {**base, "superficie_sembrada_ha": 0, "rendimiento_kg_ha": 0},
+            {**base, "altitud_msnm": -50},
+            {**base, "rendimiento_kg_ha": float("nan")},
+            {**base, "campania_id": None},
+        ]
+        limpio, resumen = limpieza.limpiar(pd.DataFrame(filas))
+
+        # Cuadra: entrada = salida + excluidas, y motivos = excluidas
+        self.assertEqual(resumen["filas_entrada"], 6)
+        self.assertEqual(resumen["filas_salida"], 2)
+        self.assertEqual(resumen["filas_excluidas"], 4)
+        self.assertEqual(
+            resumen["por_motivo"],
+            {
+                "Sin identificadores": 1,
+                "Superficie sin sentido": 1,
+                "Altitud fuera de rango": 1,
+                "Sin objetivo": 1,
+            },
+        )
+        self.assertEqual(
+            sum(resumen["por_motivo"].values()),
+            resumen["filas_excluidas"],
+        )
+
+        # Solo conteos: nada del contenido de las filas sale en el resumen
+        texto = json.dumps(resumen, ensure_ascii=False)
+        self.assertNotIn("Quinua", texto)
+        for valor in resumen["por_motivo"].values():
+            self.assertIsInstance(valor, int)
+
+        # Y lo que sobrevive son exactamente las dos filas válidas
+        self.assertEqual(len(limpio), 2)
+        self.assertTrue((limpio["rendimiento_kg_ha"] == 200.0).all())
+
+
+class PreparacionTests(TestCase):
+    """Pruebas 358-359: imputación y transformaciones dentro del
+    pipeline, con la mediana aprendida solo en el entrenamiento."""
+
+    def _datos(self, *sobrescrituras):
+        filas = []
+        for extra in sobrescrituras:
+            fila = fila_valida()
+            fila.update(extra)
+            filas.append(fila)
+        return pd.DataFrame(filas)
+
+    def test_358_imputacion_con_mediana_del_entrenamiento_sin_fuga(self):
+        datos = self._datos(
+            {"altitud_msnm": 3900},
+            {"altitud_msnm": 4000},
+            {"altitud_msnm": 4100},
+            {"altitud_msnm": None},
+            {"altitud_msnm": 5000},
+        )
+        X, y, pipeline, fuera = preparacion.preparar(
+            datos, catalogo.CONJUNTO_PLAN
+        )
+
+        # Sin descartes (1 vacío de 5 = 20 % < umbral del 40 %)
+        self.assertEqual(fuera, {})
+        # El objetivo se separa: se predice, no se imputa ni se usa
+        self.assertNotIn("rendimiento_kg_ha", X.columns)
+        self.assertEqual(
+            list(X.columns),
+            list(catalogo.columnas_conjunto(catalogo.CONJUNTO_PLAN)),
+        )
+        self.assertEqual(y.name, "rendimiento_kg_ha")
+
+        # Ajuste SOLO con las tres primeras filas (mediana y media 4000)
+        X_train, X_test = X.iloc[:3], X.iloc[3:]
+        pipeline.fit(X_train)
+        numericas, _ = preparacion.columnas_del_pipeline(list(X.columns))
+        pos = numericas.index("altitud_msnm")
+        pasos = pipeline.named_transformers_["numerico"].named_steps
+        self.assertEqual(float(pasos["imputar"].statistics_[pos]), 4000.0)
+        self.assertEqual(float(pasos["escalar"].mean_[pos]), 4000.0)
+
+        # El vacío de prueba se rellena con la mediana del ENTRENAMIENTO
+        # (si hubiera fuga, la mediana conjunta daría 4050)
+        salida = pipeline.transform(X_test)
+        self.assertFalse(bool(pd.isna(salida).any()))
+        self.assertEqual(float(salida[0, pos]), 0.0)
+
+    def test_359_categoria_desconocida_ignorada_y_objetivo_fuera(self):
+        datos = self._datos(
+            {"cultivo": "Quinua", "altitud_msnm": 3900},
+            {"cultivo": "Arroz", "altitud_msnm": 4000},
+            {"cultivo": "Quinua", "altitud_msnm": 4100},
+            {"cultivo": "Maiz", "altitud_msnm": 4200},
+        )
+        X, y, pipeline, fuera = preparacion.preparar(datos)
+        X_train, X_test = X.iloc[:3], X.iloc[3:]
+        pipeline.fit(X_train)
+        nombres = [str(n) for n in pipeline.get_feature_names_out()]
+
+        # El objetivo y los identificadores no se codifican
+        self.assertNotIn("rendimiento_kg_ha", nombres)
+        for identificador in ("campania_id", "parcela_id", "productor_id"):
+            self.assertNotIn(identificador, nombres)
+
+        # One-hot con las categorías vistas en ENTRENAMIENTO
+        self.assertIn("cultivo_Quinua", nombres)
+        self.assertIn("cultivo_Arroz", nombres)
+        self.assertNotIn("cultivo_Maiz", nombres)
+
+        salida = pipeline.transform(X_test)
+        self.assertFalse(bool(pd.isna(salida).any()))
+        cultivo = [
+            i for i, n in enumerate(nombres) if n.startswith("cultivo_")
+        ]
+        # «Maiz» es desconocida: sus columnas quedan en 0, no se inventa
+        self.assertEqual(float(salida[0, cultivo].sum()), 0.0)
+
+        # El escalado aprendió solo del entrenamiento: su media es 0
+        salida_train = pipeline.transform(X_train)
+        i_altitud = nombres.index("altitud_msnm")
+        self.assertAlmostEqual(
+            float(salida_train[:, i_altitud].mean()), 0.0, places=9
+        )
