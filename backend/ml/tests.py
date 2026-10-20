@@ -61,9 +61,12 @@ from ml import (
     linea_base,
     limpieza,
     preparacion,
+    registro,
     validacion,
 )
 from ml.carga import ErrorCarga, cargar
+from ml.models import EntrenamientoML, ModeloML
+from ml.registro import ErrorRegistro
 
 RUTA_VISTA = "vw_dataset_entrenamiento"
 
@@ -1296,6 +1299,351 @@ class Bloque1Tests(TestCase):
             joblib.dump(tubo, intruso)
             with self.assertRaises(guardado.ErrorManifiesto):
                 guardado.cargar_verificado(intruso, destino=tmp)
+
+
+# ---------------------------------------------------------------------- #
+# Fase F2b: registro y activación de modelos (369-371)
+# ---------------------------------------------------------------------- #
+class Bloque2bTests(MLBase):
+    """Pruebas 369-371: registrar_modelo da de alta 1 entrenamiento y 3
+    modelos con sus protecciones (30 campañas, demostración con bandera,
+    versión única, permisos), y la activación garantiza un solo modelo
+    activo con archivo, huella y predicción de prueba (decisiones
+    220-222)."""
+
+    def _metricas(self, version, n=48, origen="real",
+                  elegido="REGRESION_LINEAL"):
+        candidatos = {
+            "REGRESION_LINEAL": {
+                "mae": 4.5, "rmse": 5.48, "desvio_rmse": 1.24,
+                "r2": 0.94, "mape": 1.4,
+            },
+            "RANDOM_FOREST": {
+                "mae": 8.9, "rmse": 11.17, "desvio_rmse": 2.2,
+                "r2": 0.78, "mape": 2.8,
+            },
+            "GRADIENT_BOOSTING": {
+                "mae": 7.2, "rmse": 8.78, "desvio_rmse": 1.8,
+                "r2": 0.86, "mape": 2.2,
+            },
+        }
+        return {
+            "estrategia": {
+                "nombre": "cv_repetida", "pliegues": 5, "repeticiones": 5,
+                "holdout": None, "semilla": 42, "n_prueba": 0,
+                "n_entrenamiento": n,
+            },
+            "candidatos": candidatos,
+            "linea_base": {
+                "mae": 20.9, "rmse": 24.47, "desvio_rmse": 3.8,
+                "r2": -0.04, "mape": 6.6,
+            },
+            "fuera": {}, "excluidas": 0,
+            "n": n, "version": version, "origen_datos": origen,
+            "archivo_dataset": "dataset_prueba.csv",
+            "sha256_dataset": "a" * 64,
+            "criterio": {
+                "elegido": elegido,
+                "motivo": f"{elegido} gana con el menor RMSE",
+                "sigma": 1.24,
+            },
+        }
+
+    def _tubo_fuera(self, carpeta, version, algoritmo="REGRESION_LINEAL"):
+        tubo, _, _ = entrenamiento.entrenar_completo(
+            datos_sinteticos(), algoritmo
+        )
+        ruta = Path(carpeta) / f"entrenado_{version}.joblib"
+        joblib.dump(tubo, ruta)
+        return ruta
+
+    # ------------------------------------------------------------------ #
+    def test_369_registrar_modelo_crea_un_entrenamiento_y_tres_modelos(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            destino = Path(tmp) / "ml_models"
+            ruta = self._tubo_fuera(tmp, "t369")
+            resumen = registro.registrar(
+                usuario=self.admin,
+                resultados=self._metricas(version="t369"),
+                version="t369",
+                archivo=ruta,
+                destino=destino,
+            )
+
+            entrenamiento_ml = resumen["entrenamiento"]
+            self.assertEqual(entrenamiento_ml.n_registros, 48)
+            self.assertEqual(entrenamiento_ml.n_entrenamiento, 48)
+            self.assertEqual(entrenamiento_ml.n_prueba, 0)
+            self.assertEqual(entrenamiento_ml.ejecutado_por, self.admin)
+            self.assertEqual(
+                entrenamiento_ml.observaciones,
+                "REGRESION_LINEAL gana con el menor RMSE",
+            )
+            usadas = entrenamiento_ml.variables_usadas
+            self.assertEqual(
+                set(usadas),
+                {"variables", "conjunto", "origen_datos",
+                 "sha256_dataset", "semilla", "estrategia"},
+                "variables_usadas guarda lo de la decisión 223",
+            )
+            self.assertEqual(usadas["conjunto"], "plan")
+            self.assertEqual(usadas["semilla"], 42)
+            self.assertEqual(usadas["origen_datos"], "real")
+            self.assertIn("semilla_kg_ha", usadas["variables"])
+            self.assertIn("cultivo", usadas["variables"])
+
+            modelos = list(ModeloML.objects.order_by("algoritmo"))
+            self.assertEqual(len(modelos), 3, "los tres algoritmos")
+            self.assertFalse(
+                any(m.activo for m in modelos),
+                "sin --activar no queda nada activo",
+            )
+            elegido = ModeloML.objects.get(algoritmo="REGRESION_LINEAL")
+            self.assertEqual(elegido.version, "t369")
+            self.assertEqual(elegido.mae, Decimal("4.50"))
+            self.assertEqual(elegido.rmse, Decimal("5.48"))
+            self.assertEqual(elegido.r2, Decimal("0.9400"))
+            self.assertEqual(
+                elegido.archivo, "regresion_lineal_vt369.joblib"
+            )
+            otros = [m for m in modelos if m.algoritmo != "REGRESION_LINEAL"]
+            self.assertTrue(all(m.archivo is None for m in otros))
+
+            rf = ModeloML.objects.get(algoritmo="RANDOM_FOREST")
+            hiper = rf.hiperparametros
+            self.assertEqual(
+                set(hiper), {"hiperparametros", "linea_base", "validacion"}
+            )
+            self.assertEqual(hiper["hiperparametros"]["n_estimators"], 300)
+            self.assertEqual(hiper["linea_base"]["rmse"], 24.47)
+            self.assertIn("desvio_rmse", hiper["validacion"])
+
+            # El archivo vino de fuera: se copia y su huella entra al
+            # manifiesto (decisión 220)
+            final = destino / "regresion_lineal_vt369.joblib"
+            self.assertTrue(final.exists())
+            self.assertTrue(guardado.verificar(final, destino=destino))
+
+            # Auditoría CREAR, sin variables de entrada (234)
+            evento = Auditoria.objects.get(
+                accion="CREAR", modulo="Machine Learning"
+            )
+            self.assertEqual(evento.usuario, self.admin)
+            self.assertEqual(evento.detalle["version"], "t369")
+            self.assertEqual(evento.detalle["algoritmo"], "REGRESION_LINEAL")
+            self.assertEqual(evento.detalle["n_registros"], 48)
+            self.assertNotIn("variables", evento.detalle)
+
+    # ------------------------------------------------------------------ #
+    def test_370_el_registro_rechaza_lo_que_el_diseno_no_permite(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            destino = Path(tmp) / "ml_models"
+            ruta = self._tubo_fuera(tmp, "t370")
+
+            # a) menos de 30 campañas → rechazado (221)
+            with self.assertRaisesMessage(ErrorRegistro, "30"):
+                registro.registrar(
+                    usuario=self.admin,
+                    resultados=self._metricas(version="t370", n=13),
+                    version="t370",
+                    archivo=ruta,
+                    destino=destino,
+                )
+            self.assertFalse(ModeloML.objects.exists())
+
+            # b) demostración sin la bandera → rechazado; con ella, aceptado
+            with self.assertRaisesMessage(ErrorRegistro, "--desarrollo"):
+                registro.registrar(
+                    usuario=self.admin,
+                    resultados=self._metricas(
+                        version="t370", origen="demostración"
+                    ),
+                    version="t370",
+                    archivo=ruta,
+                    destino=destino,
+                )
+            resumen = registro.registrar(
+                usuario=self.admin,
+                resultados=self._metricas(
+                    version="t370", origen="demostración"
+                ),
+                version="t370",
+                archivo=ruta,
+                destino=destino,
+                desarrollo=True,
+            )
+            self.assertEqual(resumen["origen"], "demostración")
+            self.assertEqual(ModeloML.objects.filter(version="t370").count(), 3)
+
+            # c) versión repetida → rechazado (221)
+            with self.assertRaisesMessage(ErrorRegistro, "ya está registrada"):
+                registro.registrar(
+                    usuario=self.admin,
+                    resultados=self._metricas(version="t370"),
+                    version="t370",
+                    archivo=ruta,
+                    destino=destino,
+                )
+
+            # d) sin el permiso ml.entrenar → rechazado (Coordinador)
+            with self.assertRaisesMessage(ErrorRegistro, "ml.entrenar"):
+                registro.registrar(
+                    usuario=self.coordinador,
+                    resultados=self._metricas(version="t370d"),
+                    version="t370d",
+                    archivo=ruta,
+                    destino=destino,
+                )
+
+            # e) usuario inactivo → rechazado
+            self.admin.is_active = False
+            self.admin.save()
+            with self.assertRaisesMessage(ErrorRegistro, "activo"):
+                registro.registrar(
+                    usuario=self.admin,
+                    resultados=self._metricas(version="t370e"),
+                    version="t370e",
+                    archivo=ruta,
+                    destino=destino,
+                )
+            self.admin.is_active = True
+            self.admin.save()
+
+            # f) criterio sin elegido (nada gana a la línea base) → nada
+            metricas = self._metricas(version="t370f", elegido=None)
+            with self.assertRaisesMessage(ErrorRegistro, "criterio"):
+                registro.registrar(
+                    usuario=self.admin,
+                    resultados=metricas,
+                    version="t370f",
+                    archivo=ruta,
+                    destino=destino,
+                )
+
+            # g) archivo inexistente → rechazado
+            with self.assertRaisesMessage(ErrorRegistro, "No existe"):
+                registro.registrar(
+                    usuario=self.admin,
+                    resultados=self._metricas(version="t370g"),
+                    version="t370g",
+                    archivo=Path(tmp) / "no_existe.joblib",
+                    destino=destino,
+                )
+
+            # h) --dry-run del comando: valida y NO escribe (220)
+            ruta_metricas = Path(tmp) / "metricas_t370h.json"
+            ruta_metricas.write_text(
+                json.dumps(self._metricas(version="t370h")),
+                encoding="utf-8",
+            )
+            antes = ModeloML.objects.count()
+            salida = io.StringIO()
+            call_command(
+                "registrar_modelo",
+                "--usuario", "admin_ml",
+                "--metricas", str(ruta_metricas),
+                "--archivo", str(ruta),
+                "--version-modelo", "t370h",
+                "--dry-run",
+                stdout=salida,
+            )
+            self.assertEqual(ModeloML.objects.count(), antes)
+            self.assertIn("Dry-run", salida.getvalue())
+            self.assertIn("Sin cambios", salida.getvalue())
+
+    # ------------------------------------------------------------------ #
+    def test_371_la_activacion_garantiza_un_solo_modelo_activo(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            destino = Path(tmp) / "ml_models"
+            ruta_a = self._tubo_fuera(tmp, "t371a")
+            resumen_a = registro.registrar(
+                usuario=self.admin,
+                resultados=self._metricas(version="t371a"),
+                version="t371a",
+                archivo=ruta_a,
+                destino=destino,
+            )
+            elegido_a = resumen_a["activado"] or next(
+                m for m in resumen_a["modelos"]
+                if m.algoritmo == resumen_a["elegido"]
+            )
+
+            # a) sin permiso ml.activar_modelo → rechazado (Coordinador)
+            with self.assertRaisesMessage(ErrorRegistro, "ml.activar_modelo"):
+                registro.activar_modelo(elegido_a, self.coordinador,
+                                        destino=destino)
+
+            # b) modelo sin archivo (los no elegidos) → rechazado
+            sin_archivo = ModeloML.objects.get(
+                version="t371a", algoritmo="RANDOM_FOREST"
+            )
+            with self.assertRaisesMessage(ErrorRegistro, "no tiene archivo"):
+                registro.activar_modelo(sin_archivo, self.admin,
+                                        destino=destino)
+
+            # c) activación correcta: queda activo y deja evento ACTIVAR
+            registro.activar_modelo(elegido_a, self.admin, destino=destino)
+            self.assertTrue(
+                ModeloML.objects.get(pk=elegido_a.pk).activo
+            )
+            self.assertEqual(
+                ModeloML.objects.filter(activo=True).count(), 1
+            )
+            self.assertTrue(
+                Auditoria.objects.filter(
+                    accion="ACTIVAR", modulo="Machine Learning"
+                ).exists()
+            )
+
+            # d) un segundo modelo activo DESACTIVA al anterior (222)
+            ruta_b = self._tubo_fuera(tmp, "t371b")
+            resumen_b = registro.registrar(
+                usuario=self.admin,
+                resultados=self._metricas(version="t371b"),
+                version="t371b",
+                archivo=ruta_b,
+                destino=destino,
+            )
+            elegido_b = next(
+                m for m in resumen_b["modelos"]
+                if m.algoritmo == resumen_b["elegido"]
+            )
+            registro.activar_modelo(elegido_b, self.admin, destino=destino)
+            self.assertTrue(ModeloML.objects.get(pk=elegido_b.pk).activo)
+            self.assertFalse(ModeloML.objects.get(pk=elegido_a.pk).activo)
+            self.assertEqual(ModeloML.objects.filter(activo=True).count(), 1)
+            self.assertTrue(
+                Auditoria.objects.filter(
+                    accion="DESACTIVAR", modulo="Machine Learning"
+                ).exists()
+            )
+
+            # e) archivo alterado → la huella no coincide y NO se activa
+            final_b = destino / elegido_b.archivo
+            original = final_b.read_bytes()
+            final_b.write_bytes(original + b"\x00")
+            with self.assertRaisesMessage(ErrorRegistro, "huella"):
+                registro.activar_modelo(elegido_b, self.admin,
+                                        destino=destino)
+            self.assertTrue(
+                ModeloML.objects.get(pk=elegido_b.pk).activo,
+                "el intento fallido no cambia el modelo activo",
+            )
+            final_b.write_bytes(original)
+
+            # f) un archivo que carga pero no es el pipeline → la
+            #    predicción de prueba falla y NO se activa
+            import pickle
+
+            final_b.write_bytes(pickle.dumps({"no": "es un tubo"}))
+            guardado.registrar_archivo(
+                final_b, destino=destino,
+                algoritmo=elegido_b.algoritmo, version=elegido_b.version,
+            )
+            with self.assertRaisesMessage(ErrorRegistro, "pipeline"):
+                registro.activar_modelo(elegido_b, self.admin,
+                                        destino=destino)
+            self.assertEqual(ModeloML.objects.filter(activo=True).count(), 1)
 
 
 # ---------------------------------------------------------------------- #

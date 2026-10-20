@@ -40,24 +40,43 @@ from ml.preparacion import preparar
 
 NOMBRES = criterio.ORDEN_SIMPLICIDAD
 
+# Fábricas e hiperparámetros en una sola tabla: los hiperparámetros que
+# se guardan en modelos_ml.hiperparametros son los mismos con los que se
+# entrena, sin duplicarlos en dos sitios (decisión 223).
+_FABRICAS = (
+    ("REGRESION_LINEAL", LinearRegression, {}),
+    ("RANDOM_FOREST", RandomForestRegressor, {
+        "n_estimators": 300,
+        "min_samples_leaf": 3,
+        "random_state": SEMILLA,
+        "n_jobs": -1,
+    }),
+    ("GRADIENT_BOOSTING", GradientBoostingRegressor, {
+        "n_estimators": 200,
+        "learning_rate": 0.05,
+        "max_depth": 2,
+        "random_state": SEMILLA,
+    }),
+)
+
 
 def constructores():
     """{algoritmo: fábrica de estimador} con hiperparámetros fijos."""
+    def fabrica(clase, params):
+        return lambda: clase(**params)
+
     return {
-        "REGRESION_LINEAL": lambda: LinearRegression(),
-        "RANDOM_FOREST": lambda: RandomForestRegressor(
-            n_estimators=300,
-            min_samples_leaf=3,
-            random_state=SEMILLA,
-            n_jobs=-1,
-        ),
-        "GRADIENT_BOOSTING": lambda: GradientBoostingRegressor(
-            n_estimators=200,
-            learning_rate=0.05,
-            max_depth=2,
-            random_state=SEMILLA,
-        ),
+        nombre: fabrica(clase, params)
+        for nombre, clase, params in _FABRICAS
     }
+
+
+def hiperparametros_de(algoritmo):
+    """Hiperparámetros fijos del algoritmo (para modelos_ml)."""
+    for nombre, _, params in _FABRICAS:
+        if nombre == algoritmo:
+            return dict(params)
+    raise KeyError(f"Algoritmo desconocido: {algoritmo!r}")
 
 
 def estrategia_de(n):
