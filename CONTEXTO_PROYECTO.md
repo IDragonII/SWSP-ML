@@ -232,8 +232,24 @@
 - **`auditoria/filtros.py`:** fuente única de criterios (usuario/registro id numérico, fecha `AAAA-MM-DD`, módulo/acción/tabla/IP) compartida por la pantalla y el reporte — la pantalla sigue indulgente (sin rango ni tope; invertido = 0 filas) y el reporte exige el rango. Hallazgos corregidos en F5: la fecha con hora cruda pasaba `date.fromisoformat` → **500** (ahora 400 con mensaje estándar) y los detalles con `date` no serializaban → **503** en toda escritura (ahora `DjangoJSONEncoder` en `registrar.py`).
 - **Frontend:** `Reportes.jsx` con el catálogo en **`<select>`** (los tipos nuevos entran solos), **`<Chip>Datos sensibles</Chip>`** y Modal «Descargar reporte de auditoría»; `Auditoria.jsx` con **dos botones** (desviación del brief, que pedía UN botón — veto pendiente del responsable), aviso «Selecciona un rango de fechas (máximo 366 días) para exportar.» y Modal «Exportar estos resultados» con el aviso de confidencialidad; helper nuevo **`frontend/src/api/descargas.js`** (blob + errores blob legibles); `lint`/`build` en 0.
 - **Cierre (7/7 fases):** **317 pruebas** (18 nuevas: 300–301 en `backend/auditoria/tests.py`, 302–317 en `backend/reportes/tests.py`), `check` 0, `makemigrations --check` sin cambios; **F7 cerrada:** colección `coleccion_api_semana18.json` (**574**: 541–574 = 34 nuevas obligatorias; **572 obligatorias + 2 opcionales**) **validada 574/574 (1074/1074 aserciones)** con el pipeline propio (BD temporal `sigpa_ga_coleccion18`, servidor 8001 con `LOGIN_RATE_IP=120/min`, `validador/validar.js`; el rango de Lima se calcula dinámicamente en el item 541; BD borrada y servidor detenido); **`datos_demostracion` ampliado con V3** (6 actividades de ago–oct 2026 — una anulada, una sin horas, una sin responsable y una sobre campaña creada y cancelada después — más **8 eventos de bitácora** con `modulo="sesiones_demo"`; idempotente con marcadores propios: 1.ª ejecución «14 actividades y 8 eventos», 2.ª «ya existen»). **Fuera de alcance:** HU-123 (panel de calidad), otra vez por falta de holgura.
+### Semana 19 (8–14 feb): respaldos de la base de datos — F1..F6 entregadas (6/6; sin commitear)
+- **Documentación:** `decisiones_semana19.md`; comando **`respaldo_bd`** (`--lista`, `--crear`, `--restaurar`, `--verificar`, `--limpiar`) con `pg_dump`/`psql` dentro del contenedor `sigpa_db`, carpeta `RESPALDO_DIR` **fuera del repositorio** (patrón `IMPORTACION_DIR`), retención `RESPALDO_KEEP=10` y evento de auditoría por operación; **pruebas 318–325** (325 en total).
+
+### Semana 20 (15–21 feb): importación histórica y vista del dataset — F1..F5 entregadas (5/5; sin commitear)
+- **Documentación:** `decisiones_semana20.md` (decisiones 117–163), `importacion_historica.md`, `dataset.md` y **`requerimientos.tex` v1.4** (RF-50/RF-51 ajustados; el `.tex` volvió a ser editable decisión del responsable).
+- **App `backend/importaciones/`** (HU-165): tabla `importaciones`, comando **`importar_historico`** (`--tipo/--archivo/--usuario`, `--dry-run`, `--forzar`), validación fila a fila con los **mismos serializers** que la API, idempotencia por claves naturales, informe CSV sin datos personales y **vista `vw_dataset_entrenamiento` como migración**; CSV/`.xlsx` con openpyxl, límites 5 MB / 5000 filas. Bug corregido: `lpad` de los códigos `PROD-`/`PAR-` truncaba con secuencias ≥ 1000.
+- **Cierre:** **345 pruebas** (20 nuevas: 326–345), `check` 0, `makemigrations --check` sin cambios, 3 commits de fase.
+
+### Semana 21 (22–28 feb): preparación de datos para Machine Learning — 6/6 fases de código + docs + cierre (sin commitear)
+- **Documentación:** `decisiones_semana21.md` (decisiones **164–201** + **preguntas abiertas recopiladas en un solo mensaje**, letras A..V y las nuevas **U** = momento de predicción y **V** = error útil, con nota de colisión), `ml_preparacion.md`, `diccionario_variables.md` (espejo del catálogo), `dataset.md` §Semana 21 y `backend/ml/README.md`.
+- **Comando `exportar_dataset` (HU-166)** en `sistema/management/commands/`: exige usuario activo con **`ml.entrenar`** (solo Administrador), `--origen-datos {real,demostracion}` obligatorio y carpeta **`ML_EXPORT_DIR`** (`.env`, fuera del repositorio con guarda); escribe el CSV (lista fija de 28 columnas, UTF-8 con BOM) + **ficha técnica** JSON (fecha de Lima, filas, columnas, SHA-256, origen, **semilla 42**) y registra el evento `EXPORTAR` del módulo «Machine Learning» **antes de escribir el archivo y sin contenido** (si falla la auditoría, no hay archivo); `--dry-run` informa sin tocar nada.
+- **Paquete plano `backend/ml/`** (sin app ni tablas): `columnas.py` (lista fija, nunca `SELECT *`), `catalogo.py` (28 variables con rol y conjuntos `plan`/`plan_clima`, `dias_ciclo` = **fuga**, supuestos 80 %/40 %), `carga.py` (puerta de validación del CSV), `limpieza.py` (tabla de exclusiones declarativa), `preparacion.py` (pipeline con mediana/escalado **dentro del pliegue**, one-hot que ignora desconocidas, objetivo nunca imputado), `validacion.py` (**GroupKFold por `productor_id`**, semilla 42) y `linea_base.py` (media del entrenamiento, MAE/RMSE en kg/ha).
+- **Vista con identificadores:** migración `importaciones.0003` (+`parcela_id`, +`productor_id`), **reversible** a la de la Semana 20; `DB_sql/02` al día; **29 tablas de dominio y 25 triggers intactos** (pruebas 363–364).
+- **Notebooks** `notebooks/01_exploracion.ipynb` y `02_preparacion.ipynb`: leen de `ML_EXPORT_DIR`, con marca de **demostración** y versionados **sin salidas** (`.ipynb_checkpoints/` en `.gitignore`).
+- **Cierre:** **365 pruebas** (20 nuevas: 346–365 en `backend/ml/tests.py`), `check` 0, `makemigrations --check` sin cambios; dependencias de notebook en `backend/requirements-ml.txt` (jupyter, matplotlib) fuera del despliegue. **No se entrena ningún modelo** (Sprint 13).
+
 ### No hecho todavía
-- **Recursos e insumos (Semana 9), clima (Semana 10), incidencias (Semana 11), etapas/línea de tiempo + usuarios (Semana 12), auditoría + cambio de contraseña (Semana 13), alertas + productores en riesgo (Semana 15), panel de indicadores (Semana 16), reportes descargables (Semana 17) y reporte de actividades + reporte de auditoría con su exportación (Semana 18) ya implementados**; faltan el resto de tablas (`importaciones` y las 3 de ML) y la vista del dataset. `fn_produccion_post` está **parcial**: solo pasa la campaña a `COSECHADA`; la parte de `predicciones` (rendimiento real y error) entra en los **Sprints 13-14**.
+- **Ya están todas las tablas del diseño** (la Semana 20 cerró `importaciones` y la vista del dataset; la Semana 21 no añade tablas: el ML vive en el paquete plano `backend/ml/`). `fn_produccion_post` está **parcial**: solo pasa la campaña a `COSECHADA`; la parte de `predicciones` (rendimiento real y error) entra en los **Sprints 13-14**.
 - Pantallas React de los módulos que faltan (listado de **Producción** — la entrada del menú es placeholder — y Predicción; hoy: login, 403, 404, **Inicio con el panel de indicadores (Semana 16)**, **Reportes (Semanas 17–18, hoy con 4 reportes)**, productores, parcelas, catálogos, campañas, actividades, **parámetros**, **recursos**, **clima**, **incidencias**, **usuarios**, **auditoría** y **alertas + productores en riesgo** con producción, recursos, clima, incidencias, etapas y alertas dentro de las fichas).
 - **Recuperación de acceso**: el **cambio de contraseña por el propio usuario ya está** (Semana 13, HU-112/113); queda el **olvido de clave** (flujo de recuperación sin sesión).
 - Diagrama entidad-relación y modelo lógico para el Capítulo IV.
@@ -418,7 +434,7 @@ Están en `DB_sql/02_reglas_y_vista.sql`: **13 funciones y 25 triggers**. Existe
 
 | Grupo | Columnas |
 |---|---|
-| Identificación | `campania_id`, `periodo`, `anio_campania` |
+| Identificación | `parcela_id`, `productor_id`, `campania_id`, `periodo`, `anio_campania` |
 | Cultivo | `cultivo`, `variedad` |
 | Superficie y parcela | `superficie_sembrada_ha`, `altitud_msnm`, `tipo_suelo`, `pendiente`, `sistema_riego` |
 | Clima (siembra a cosecha) | `precipitacion_acum_mm`, `temp_prom_c`, `humedad_prom_pct`, `n_heladas`, `dias_con_clima` |
@@ -426,7 +442,7 @@ Están en `DB_sql/02_reglas_y_vista.sql`: **13 funciones y 25 triggers**. Existe
 | Manejo | `n_incidencias`, `severidad_max` (0–3), `n_aplicaciones` (fertilizaciones + controles fitosanitarios), `dias_ciclo` |
 | **Variable objetivo** | `rendimiento_kg_ha` |
 
-> **Advertencia (fuga de datos).** Esta vista resume el **ciclo completo**. Para predecir **durante** la campaña, el ML debe generar las mismas variables con una **fecha de corte**, para no usar información futura. `dias_con_clima` es solo un indicador de cobertura del clima, no un predictor.
+> **Advertencia (fuga de datos).** La vista resume el **ciclo completo**; para predecir antes de cosechar el ML debe generar las mismas variables con una **fecha de corte** y sin `dias_ciclo` (marcado como fuga en `ml/catalogo.py`). `dias_con_clima` es solo un indicador de cobertura del clima, no un predictor. La **Semana 21** añadió `parcela_id`/`productor_id` (migración `importaciones.0003`, reversible a la vista de la Semana 20) y documentó el flujo completo de limpieza/preparación en `docs/ml_preparacion.md`.
 
 ---
 
@@ -503,11 +519,12 @@ No son fallas del diseño: son tareas del backend y del frontend.
 
 - **Variable objetivo:** rendimiento en kg/ha.
 - **Unidad de entrenamiento:** una campaña cerrada (una fila de la vista).
+- **Preparación de datos (Semana 21, hecha):** comando `exportar_dataset` (HU-166) + paquete plano `backend/ml/` — catálogo de 28 columnas con roles y fugas (`dias_ciclo`), limpieza declarativa, pipeline con imputación/escalado **dentro del pliegue**, **GroupKFold por `productor_id`** con semilla 42 y línea base (media del entrenamiento, MAE/RMSE en kg/ha); flujo completo en `docs/ml_preparacion.md`. **Lo que queda (Sprint 13): entrenar, comparar con la línea base y decidir el error útil.**
 - **Modelos a comparar:** regresión lineal, Random Forest y Gradient Boosting. XGBoost solo si sobra tiempo y se justifica.
 - **Métricas:** MAE, RMSE y R² (MAPE solo si no hay valores reales en cero).
-- **Validación:** con pocos datos, usar validación cruzada en lugar de una sola división 80/20. Como referencia, con menos de 100 a 150 registros completos los resultados son frágiles.
-- **Momento de predicción:** durante la campaña, solo con datos registrados hasta ese punto. **Por confirmar con el responsable del proyecto.**
-- **Variables prohibidas como entrada:** producción, superficie cosechada, pérdida y fecha de cosecha (solo existen después de cosechar).
+- **Validación:** con pocos datos, usar validación cruzada en lugar de una sola división 80/20. Como referencia, con menos de 100 a 150 registros completos los resultados son frágiles. Implementado: `ml.validacion` (GroupKFold con `shuffle`, semilla 42).
+- **Momento de predicción:** propuesta de la Semana 21: **al planificar el ciclo** (plan de manejo), solo con datos registrados hasta ese punto y el clima histórico; **pendiente de confirmar con el responsable** (pregunta **U** de `docs/decisiones_semana21.md` §8; corregir en el `.tex` líneas 447/309 al confirmarse).
+- **Variables prohibidas como entrada:** producción, superficie cosechada, pérdida y fecha de cosecha (solo existen después de cosechar) y `dias_ciclo` (fuga: solo se conoce al cerrar la campaña).
 - **Un modelo único** con el cultivo como variable, salvo que los datos permitan uno por cultivo.
 - **Guardado:** archivo `.joblib` en una carpeta del proyecto (por ejemplo `ml_models/`). Usar la **misma versión de scikit-learn** para entrenar y predecir. Cargar solo modelos generados por el propio equipo, nunca archivos subidos por usuarios (joblib usa pickle).
 - **Render:** es solo la **hipótesis de despliegue** (aún no decidida, ver sección 2); hay que verificar sus características actuales antes de afirmarlas. Si se usa, su disco es temporal, así que un modelo reentrenado desde el sistema se perdería al reiniciar. Por eso se empieza entrenando fuera y subiendo el archivo con el código.
@@ -581,12 +598,13 @@ No son fallas del diseño: son tareas del backend y del frontend.
 2. ~~Modelo de usuario con rol (FK) y primera migración~~ (hecho: `usuarios.0001`–`0003`).
 3. ~~Endpoints de login y refresh, y vista con los permisos del usuario~~ (hecho en la Semana 2; ver `docs/api_autenticacion.md`).
 4. ~~Rate limit del login~~ (hecho en la Semana 2: throttle por IP + bloqueo por cuenta).
-5. Modelos de Django del resto de tablas, con triggers y vista como migraciones. ~~Los de ubicación, productores, parcelas, campañas, catálogos, actividades, recursos, clima, producción, sistema (parámetros), incidencias, `seguimiento_etapas`, `auditoria` y `alertas` ya están (25/25 triggers);~~ quedan `importaciones` y las 3 de ML.
+5. Modelos de Django del resto de tablas, con triggers y vista como migraciones. ~~Los de ubicación, productores, parcelas, campañas, catálogos, actividades, recursos, clima, producción, sistema (parámetros), incidencias, `seguimiento_etapas`, `auditoria` y `alertas` ya están (25/25 triggers);~~ ~~quedan `importaciones` y las 3 de ML~~ — **hecho:** `importaciones` con su vista está desde la Semana 20; la Semana 21 **no añade tablas** (el ML vive en el paquete plano `backend/ml/`). Las 3 tablas de ML (`entrenamientos`, `predicciones`, `prediccion_detalles`) entran en el **Sprint 13** con la parte de `predicciones` de `fn_produccion_post`.
 6. ~~Pantalla de login en React y rutas protegidas por permiso~~ (hecho en la Semana 2; el menú ya filtra por permiso).
 7. Pantallas de cada módulo desde React (quedan Producción y Predicción; **usuarios/roles ya está desde la Semana 12**, **auditoría + cambio de contraseña desde la Semana 13**, **alertas + productores en riesgo desde la Semana 15**, **panel de indicadores desde la Semana 16** y **reportes descargables desde la Semana 17** — queda el olvido de clave).
 8. Diagrama entidad-relación y modelo lógico (Capítulo IV, 4.3.2 y 4.3.3).
 
 ### Actualizar en el documento de requerimientos (`.tex`)
+- Corregir el **momento de predicción** en las líneas **447 y 309** (v1.4): pasar de «durante la campaña» a **«al planificar el ciclo (plan de manejo)»**, según la propuesta de la Semana 21 (pendiente de confirmar con el responsable).
 - Subir el **bloqueo por intentos fallidos** de «deseable» a **esencial**.
 - Ajustar el **CU-05**: las actividades se registran con la campaña `PLANIFICADA` o `EN_PRODUCCION`.
 - Agregar: densidad de siembra, unidad en la producción, catálogo de agentes, y **administración de roles y permisos** (nuevo requerimiento funcional).
@@ -598,7 +616,8 @@ No son fallas del diseño: son tareas del backend y del frontend.
 - **Entregar la lista real de provincias, distritos y comunidades** (la Semana 3 quedó con un CSV inventado en `datos/`; decisión 1).
 - **Confirmar la regla de enmascarado de DNI/teléfono por rol** (propuesta actual: Administrador y Técnico completos, Coordinador enmascarado; decisión 4).
 - ¿El productor que registra un técnico **se le asigna automáticamente**? (semana 4).
-- ¿Cuándo se hace la predicción dentro del ciclo del cultivo?
+- **¿Cuándo se hace la predicción dentro del ciclo del cultivo?** (pregunta histórica; en la Semana 21 recibió la letra **U**): propuesta de la Semana 21 = **al planificar el ciclo (plan de manejo)** con los datos hasta la siembra; pendiente de confirmar.
+- **Preguntas abiertas recopiladas en un solo mensaje** en `docs/decisiones_semana21.md` §8 (letras A..V, incluidas las nuevas **U** = momento de predicción y **V** = error útil con propuesta ±200 kg/ha, ambas con nota de colisión de letras).
 - ¿Qué cultivos tendrán datos? (supuesto: quinua y cañihua)
 - ¿Cuántas campañas históricas con rendimiento conocido existen y en qué formato están?
 - ¿Cuál es la fecha límite para sustentar, y cuándo necesita el sistema funcionando?
@@ -659,6 +678,12 @@ No son fallas del diseño: son tareas del backend y del frontend.
 | `backend/auditoria/` | App de la **Semana 13**: `models.py` (`Auditoria`, 15 acciones en CHECK, 4 índices), `registrar.py` (`registrar_evento`, `ip_de_request`), `mixins.py` (`AuditoriaMixin`), `serializers.py` (solo lectura), `views.py` (`AuditoriaViewSet`), `urls.py` (`/api/auditoria/`), 2 migraciones y `tests.py` (pruebas 198–210) |
 | `backend/alertas/` | App de la **Semana 15**: `models.py` (`Alerta`, 3 tipos, CHECKs y 2 únicos parciales), `servicio.py` (evaluación, gracia y cierres automáticos), `serializers.py`, `views.py` (`AlertasViewSet` con `atender`, `reabrir`, `evaluar`, `resumen`, `productores-en-riesgo` y `evaluacion`), `urls.py` (`/api/alertas/`), migración `0001_alertas.py`, `management/commands/evaluar_alertas.py` y `tests.py` (pruebas 242–262) |
 | `backend/dashboard/` | App de la **Semana 16** (HU-133..HU-140): **sin modelos ni migraciones**; `views.py` (`DashboardViewSet`: `resumen`, `campanias-estado`, `produccion`, `filtros` — 405 en escritura), `urls.py` (`/api/dashboard/`), permiso `dashboard.ver` (sembrado en la Semana 2) y `tests.py` (pruebas 263–279, presupuesto de consultas 12/4/5/8) |
+| `backend/reportes/` | App de las **Semanas 17–18** (HU-141..HU-156): **sin modelos**; catálogo y columnas en `catalogo.py`, `pdf.py` y `xlsx.py`, doble permiso (`reportes.*` + el `ver` del módulo), límites 20 000/1000 y 20/hora, evento `EXPORTAR` antes de entregar; 4 reportes (rendimientos por campaña/cultivo, resumen productivo, actividades, auditoría) y `tests.py` (pruebas 280–317) |
+| `backend/importaciones/` | App de la **Semana 20** (HU-165): tabla `importaciones`, comando **`importar_historico`** (CSV/XLSX, `--dry-run`, `--forzar`, idempotencia por claves naturales), informe CSV sin datos personales, migraciones `0001`–**`0003`** (la `0003` rehace `vw_dataset_entrenamiento` con `parcela_id`/`productor_id`, reversible) y `tests.py` (pruebas 326–345) |
+| `backend/ml/` | Paquete plano de la **Semana 21** (sin app ni tablas): `catalogo.py` (28 variables con rol, conjuntos `plan`/`plan_clima` y `dias_ciclo` = fuga), `columnas.py`, `carga.py`, `limpieza.py` (tabla de exclusiones declarativa), `preparacion.py` (pipeline dentro del pliegue), `validacion.py` (GroupKFold por `productor_id`, semilla 42), `linea_base.py` (MAE/RMSE en kg/ha) y `tests.py` (pruebas 346–365) |
+| `backend/sistema/management/commands/` | **`respaldo_bd`** (Semana 19: `--lista/--crear/--restaurar/--verificar/--limpiar` sobre `RESPALDO_DIR` fuera del repo) y **`exportar_dataset`** (Semana 21: CSV + ficha JSON con SHA-256 y semilla 42 a `ML_EXPORT_DIR`, permiso `ml.entrenar`, auditoría antes de escribir) |
+| `backend/requirements-ml.txt` | `jupyter` y `matplotlib` para los notebooks (Semana 21); **no** se instala en el despliegue |
+| `notebooks/` | `01_exploracion.ipynb` y `02_preparacion.ipynb` (Semana 21): leen de `ML_EXPORT_DIR`, con marca de demostración y versionados **sin salidas**; `.ipynb_checkpoints/` ignorado en Git |
 | `backend/usuarios/management/commands/crear_superusuario.py` | Crea el admin inicial desde `ADMIN_USERNAME`/`ADMIN_PASSWORD` del `.env` (idempotente) |
 | `backend/productores/models.py` | `Provincia`, `Distrito`, `Comunidad`, `Productor` (Semana 3, `db_table` del diseño) |
 | `backend/productores/migrations/` | `0001_initial` (4 tablas), `0002_funciones_y_triggers` (fechas, código `PROD-…`, reversible) |
@@ -698,13 +723,20 @@ No son fallas del diseño: son tareas del backend y del frontend.
 | `docs/decisiones_semana18.md` | 9 decisiones de la Semana 18 (reporte de actividades RF-68 y reporte de auditoría, HU-150..HU-156) + pregunta R con la nota de letras |
 | `docs/api_reportes.md` | Contrato de `/api/reportes/` con los **4 reportes**, filtros nuevos, rango de auditoría (366 días) y exportación desde `/auditoría` (actualizado en la Semana 18) |
 | `docs/verificacion_ui_semana18.md` | Checklist de navegador (Chrome/Edge/móvil) de `/reportes` con los tipos nuevos y de `/auditoría` con sus dos botones |
-| `docs/evidencias_capitulo4.md` | Evidencias del Capítulo IV actualizadas a la Semana 18 (suite 317/317, colección 574/574) |
+| `docs/evidencias_capitulo4.md` | Evidencias del Capítulo IV actualizadas a la Semana 21 (suite 365/365, colección 574/574) |
 | `docs/coleccion_api_semana18.json` | Colección de Postman: 574 peticiones (541–574 de la Semana 18) validadas 574/574 |
+| `docs/decisiones_semana19.md` | Decisiones de la Semana 19 (respaldos de la base de datos, HU-157..HU-164) |
+| `docs/decisiones_semana20.md` | 47 decisiones (117–163) de la Semana 20 (importación histórica + dataset, HU-165) |
+| `docs/importacion_historica.md` | Flujo, reglas y ejemplos de `importar_historico` |
+| `docs/dataset.md` | Qué es el dataset, la vista, la ficha técnica y cómo exportarlo (Semanas 20–21) |
+| `docs/decisiones_semana21.md` | 38 decisiones (164–201) de la Semana 21 (preparación ML, HU-166) + **preguntas abiertas A..V recopiladas en un solo mensaje** |
+| `docs/ml_preparacion.md` | Flujo completo de limpieza/preparación/validación, pipeline y tabla de exclusiones |
+| `docs/diccionario_variables.md` | Las 28 variables del catálogo con rol, conjunto y definición (espejo de `ml/catalogo.py`) |
 | `datos/ejemplo_ubicaciones.csv` | Datos de ubicación **inventados** (pruebas); se retira con la lista real |
 | `docker-compose.yml` | PostgreSQL 17 en Docker (en la raíz del proyecto) |
-| `.env` | Variables de entorno: `DB_*`, `SECRET_KEY`, `DEBUG`, `ALLOWED_HOSTS`, `CORS_*` y `ADMIN_*` (**no** se sube a Git) |
+| `.env` | Variables de entorno: `DB_*`, `SECRET_KEY`, `DEBUG`, `ALLOWED_HOSTS`, `CORS_*`, `ADMIN_*`, `ML_EXPORT_DIR` (Semana 21) y `RESPALDO_DIR` (Semana 19) (**no** se sube a Git) |
 | `.env.example` | Plantilla versionada de `.env` (sin secretos; sí va a Git) |
-| `.gitignore` | Ignora `.env`, `DB_sql/`, `venv/`, `node_modules/`, `dist/`, `__pycache__` y `db.sqlite3` |
+| `.gitignore` | Ignora `.env`, `DB_sql/`, `venv/`, `node_modules/`, `dist/`, `__pycache__`, `db.sqlite3` y `.ipynb_checkpoints/` |
 | `CONTEXTO_PROYECTO.md` | Este documento |
 
 ### Glosario

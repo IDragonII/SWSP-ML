@@ -4,7 +4,7 @@
 SIGPA-GA (Sistema de Información y Gestión de la Producción Agropecuaria — Granos Andinos) es una aplicación web para el seguimiento de productores de granos andinos (quinua, cañihua, tarwi) en Puno, Perú, con módulo de Machine Learning para predicción de rendimiento.
 
 **Stack**: React (frontend) + Django REST Framework (backend) + PostgreSQL 17 (Docker).
-**Metodología**: Scrum, sprints de 2 semanas. Semana actual: **20**.
+**Metodología**: Scrum, sprints de 2 semanas. Semana actual: **21**.
 
 ---
 
@@ -104,7 +104,7 @@ SIGPA-GA (Sistema de Información y Gestión de la Producción Agropecuaria — 
 
 ---
 
-### **Semana 20** (actual)
+### **Semana 20**
 **Objetivo**: terminar la importación histórica (RF-49/RF-50) y el dataset (RF-51) con pruebas 326–345, docs y `.tex` v1.4. Cero UI.
 
 #### Pruebas nuevas (326–345 → total 345)
@@ -137,6 +137,36 @@ SIGPA-GA (Sistema de Información y Gestión de la Producción Agropecuaria — 
 
 ---
 
+### **Semana 21** (actual)
+**Objetivo**: preparación de datos para Machine Learning (Sprint 12) — comando `exportar_dataset`, paquete `backend/ml/`, notebooks y docs; pruebas **346–365 (total 365)**. Sin API, UI, tablas nuevas ni entrenamiento.
+
+#### Pruebas nuevas (346–365 → total 365)
+| Nº | Prueba | Archivo/Clase |
+|----|--------|---------------|
+| 346–348 | Comando `exportar_dataset` (permiso `ml.entrenar`, dry-run, ficha con SHA-256) | `ml/tests.py` · `ExportarTests` |
+| 349 | Vista con `parcela_id`/`productor_id` reversible | `VistaTests` |
+| 350–351 | Columnas fijas sin datos personales; carga (faltantes/desconocidas/tipos) | `ColumnasTests` / `CargaTests` |
+| 352–355 | Catálogo de 28 variables, conjuntos sin fuga, supuestos 80 %/40 % | `CatalogoTests` |
+| 356–357 | Tabla de exclusiones y resumen del waterfall | `LimpiezaTests` |
+| 358–359 | Mediana dentro del pliegue; one-hot ignora desconocidas | `PreparacionTests` |
+| 360–361 | GroupKFold por `productor_id`, semilla 42, sin productor compartido | `ValidacionTests` |
+| 362 | Línea base = media del entrenamiento (MAE/RMSE kg/ha) | `LineaBaseTests` |
+| 363–365 | Higiene: 29 tablas de dominio, 25 triggers, notebooks sin salidas | `HigieneTests` |
+
+#### Comandos y módulos nuevos
+- `sistema/management/commands/exportar_dataset.py` → CSV + ficha JSON a `ML_EXPORT_DIR` (fuera del repo), auditoría `EXPORTAR` del módulo «Machine Learning» **antes** de escribir.
+- Paquete plano `backend/ml/`: `columnas`, `catalogo`, `carga`, `limpieza`, `preparacion`, `validacion`, `linea_base`, `exportacion` (semilla 42 única).
+- `importaciones.0003` → vista `vw_dataset_entrenamiento` con `parcela_id`/`productor_id` (reversible a la de Semana 20).
+- `notebooks/01_exploracion.ipynb` y `02_preparacion.ipynb` (sin salidas, marca demostración); `.ipynb_checkpoints/` en `.gitignore`.
+
+#### Documentos generados/actualizados
+- `docs/decisiones_semana21.md` — decisiones 164–201 + **preguntas abiertas A..V en un solo mensaje** (U = momento de predicción, V = error útil ±200 kg/ha).
+- `docs/ml_preparacion.md`, `docs/diccionario_variables.md` (espejo del catálogo), `docs/dataset.md` §Semana 21, `backend/ml/README.md`.
+- `docs/evidencias_capitulo4.md` — actualizadas a Semana 21 (365/365).
+- `backend/requirements-ml.txt` — jupyter + matplotlib (fuera del despliegue).
+
+---
+
 ## Archivos clave
 
 | Archivo | Descripción |
@@ -147,13 +177,18 @@ SIGPA-GA (Sistema de Información y Gestión de la Producción Agropecuaria — 
 | `backend/sistema/matriz_rutas.py` | Generación de matriz de rutas por rol. |
 | `backend/sistema/respaldo.py` | Núcleo de respaldo/restauración (Docker). |
 | `backend/sistema/management/commands/*.py` | `matriz_rutas`, `respaldo_bd`, `datos_volumen`, `datos_demostracion`. |
-| `backend/importaciones/` | App importación histórica: `plantillas.py`, `servicio.py`, `importar_historico`, `tests.py` (326–345), migraciones `0001`/`0002` (vista dataset). |
+| `backend/importaciones/` | App importación histórica: `plantillas.py`, `servicio.py`, `importar_historico`, `tests.py` (326–345), migraciones `0001`–`0003` (vista dataset con ids, Semana 21). |
+| `backend/ml/` | Paquete ML Semana 21: `catalogo.py`, `columnas.py`, `carga.py`, `limpieza.py`, `preparacion.py`, `validacion.py`, `linea_base.py`, `exportacion.py` (semilla 42), `tests.py` (346–365). |
+| `backend/sistema/management/commands/exportar_dataset.py` | Exporta el dataset a `ML_EXPORT_DIR` (CSV + ficha JSON + auditoría). |
+| `notebooks/` | `01_exploracion.ipynb` y `02_preparacion.ipynb` (Semana 21, sin salidas). |
+| `docs/decisiones_semana21.md` | Decisiones 164–201 + preguntas abiertas recopiladas. |
+| `docs/ml_preparacion.md` · `docs/diccionario_variables.md` | Flujo ML y diccionario de las 28 variables. |
 | `docs/importacion_historica.md` | Guía de uso de `importar_historico`. |
 | `docs/dataset.md` | `vw_dataset_entrenamiento`: fuentes, columnas, NULLs de importadas. |
 | `docs/decisiones_semana20.md` | Decisiones 117–163. |
 | `D:\ProyectoJoseLuis\Documentos\Requerimeintos\requerimientos.tex` | v1.4 (Semana 20). |
 | `docs/matriz_reglas_calidad.md` | RN-01…RN-16 + agregados (§2) + huecos (§3) + alertas. |
-| `.env` | `SECRET_KEY`, `DB_*`, `RESPALDO_DIR`, `DB_DOCKER_CONTAINER`, `PRODUCCION`, `ADMIN_URL`. |
+| `.env` | `SECRET_KEY`, `DB_*`, `RESPALDO_DIR`, `ML_EXPORT_DIR`, `DB_DOCKER_CONTAINER`, `PRODUCCION`, `ADMIN_URL`. |
 | `docker exec sigpa_db …` | Vía real a `pg_dump`/`psql`/`createdb`/`dropdb` (contenedor `sigpa_db`, user `sigpa_user`). |
 
 ---
@@ -166,5 +201,5 @@ SIGPA-GA (Sistema de Información y Gestión de la Producción Agropecuaria — 
 4. **Todo tabla usa `Tabla`** (AGENTS.md §3): nunca `<table>` a mano; `scope="col"`, `data-rotulo`, `celda-acciones`.
 5. **Validación colección API** (decisión 40, Semana 16): solo `test` y `pm.environment.set`.
 6. **UI**: `Campo` wrapper, `useToast()` → `avisar`, `useSesion()` → `tienePermiso`.
-7. **Numeración pruebas**: Semana 18 = 317; Semana 19 = 318–325; Semana 20 = 326–345.
-8. **Commit único por semana** + tag al final (decisión 72); **excepción Semana 20**: commit por fase (3 en total, decisión 119).
+7. **Numeración pruebas**: Semana 18 = 317; Semana 19 = 318–325; Semana 20 = 326–345; Semana 21 = 346–365.
+8. **Commit único por semana** + tag al final (decisión 72); **excepción Semana 20**: commit por fase (3 en total, decisión 119); **Semana 21**: commits por fase (6 de código + docs + cierre).

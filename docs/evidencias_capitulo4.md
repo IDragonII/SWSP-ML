@@ -3,10 +3,10 @@
 > Qué artefacto del repositorio respalda cada sección del Capítulo IV
 > (Diseño e implementación del sistema), cómo se regeneró y qué **sigue
 > pendiente**. Se actualiza al cierre de cada semana.
-> **Estado: Semana 18 (cuarta semana del Sprint 8) — F1..F7 cerradas
-> (7/7) — 317 pruebas verdes; colección de la Semana 18 validada en F7
-> (574/574: ítems 541–574, 1074/1074 aserciones); sin commitear (el
-> commit único —semanas 13–18— lo hace el responsable).**
+> **Estado: Semana 21 (primera semana del Sprint 12) — preparación de
+> datos para Machine Learning; **365 pruebas verdes**; commits por fase
+> (`docs/decisiones_semana21.md`); sin colección de Postman nueva desde
+> la Semana 18 (sigue validada 574/574).**
 
 Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
 
@@ -16,12 +16,14 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
   y los `Meta.db_table`/`related_name` de los modelos Django).
 - [x] Lista y descripción de las 33 tablas agrupadas por módulo →
   `CONTEXTO_PROYECTO.md` §5.
-- Nota: hasta la Semana 15 existen **28 tablas** en la BD real (4 de usuarios +
-  4 de ubicación/productores + `parcelas` y `asignaciones_tecnico` + las
-  **8 de catálogos** + `campanias` + `actividades` + `uso_recursos` +
-  `producciones` y `parametros_sistema` + `clima` + **`incidencias`** +
-  **`seguimiento_etapas`** + **`auditoria`** + **`alertas`**); el
-  diagrama completo se dibuja con el diseño completo.
+- Nota: hasta la Semana 21 existen **29 tablas de dominio** en la BD real
+  (prueba 363; el diseño completo prevé 33) y **25 triggers** (prueba 364):
+  4 de usuarios + 4 de ubicación/productores + `parcelas` y
+  `asignaciones_tecnico` + las **8 de catálogos** + `campanias` +
+  `actividades` + `uso_recursos` + `producciones` y
+  `parametros_sistema` + `clima` + `incidencias` + `seguimiento_etapas` +
+  `auditoria` + `alertas` + **`importaciones`** (Semana 20); el diagrama
+  completo se dibuja con el diseño completo.
 
 ## 4.3.3 Modelo lógico
 
@@ -120,17 +122,20 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
   **0 triggers nuevos**; verificado con `check`, `makemigrations --check`
   y `sqlmigrate` (las 21 pruebas de la semana, 242–262).
 - [x] **Migraciones propias:** `backend/usuarios/migrations/` (0001–**0004**),
-  `backend/productores/migrations/` (0001–0004, las dos últimas reversibles),
-  `backend/catalogos/migrations/` (0001–0002; `0002` reversible sin borrar lo
-  referenciado), `backend/campanias/migrations/` (0001–0003, todas
+  `backend/productores/migrations/` (0001–**0005**, las últimas reversibles),
+  `backend/catalogos/migrations/` (0001–**0003**; `0002` reversible sin borrar lo
+  referenciado), `backend/campanias/migrations/` (0001–**0004**, todas
   reversibles), `backend/seguimiento/migrations/` (0001–**0010**, todas
   reversibles), `backend/produccion/migrations/` (0001–0002, reversibles),
   `backend/sistema/migrations/` (0001–**0002**, reversibles),
-  `backend/auditoria/migrations/` (**0001–0002**, reversibles) y
-  `backend/alertas/migrations/` (**0001**, la Semana 15). La creación de la
-  BD de pruebas en cada `manage.py test` aplica las **60 migraciones** desde
-  cero (30 propias; verificado con
-  `manage.py showmigrations --plan | Measure-Object -Line`).
+  `backend/auditoria/migrations/` (**0001–0002**, reversibles),
+  `backend/alertas/migrations/` (**0001**, la Semana 15) y
+  `backend/importaciones/migrations/` (**0001–0003**: la `0003` rehace
+  `vw_dataset_entrenamiento` con `parcela_id`/`productor_id` y es
+  reversible a la vista de la Semana 20 — prueba 349). La creación de la
+  BD de pruebas en cada `manage.py test` aplica las **67 migraciones** desde
+  cero (36 propias; verificado con
+  `manage.py showmigrations --plan | Where-Object { $_.Trim() } | Measure-Object`).
 
 ## Reglas de negocio y triggers
 
@@ -547,6 +552,42 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
      sección «Alertas» en `CampaniaFicha` y `ProductorFicha`, y panel
      «Evaluación de alertas» (chip ATRASADA/AL DÍA) en `/parametros`.
 
+## Machine Learning — preparación de datos (Semana 21)
+
+- [x] **Vista del dataset con identificadores:** migración
+  `importaciones.0003_vista_dataset_ids` (+`parcela_id`, +`productor_id`
+  tras `campania_id`, sin DNI ni nombres) — **reversible** a la vista de
+  la Semana 20 → prueba **349**; `DB_sql/02_reglas_y_vista.sql` al día.
+- [x] **Exportación del dataset (HU-166):** comando
+  `manage.py exportar_dataset` (`--usuario` con `ml.entrenar`,
+  `--origen-datos {real,demostracion}`, `--dry-run`), carpeta
+  `ML_EXPORT_DIR` **fuera del repositorio** (guarda contra rutas dentro
+  de Git), CSV + **ficha técnica** JSON (fecha de Lima, filas, columnas,
+  SHA-256, origen y semilla 42) y evento `EXPORTAR` del módulo
+  «Machine Learning» **antes de escribir el archivo** y sin contenido →
+  pruebas **346–348**.
+- [x] **Catálogo de variables (RF-51):** 28 entradas con rol y conjuntos
+  (`plan` / `plan_clima`), `dias_ciclo` marcado como **fuga**, supuestos
+  80 % de cobertura de clima y 40 % de faltantes → pruebas **352–355**;
+  espejo en `docs/diccionario_variables.md`.
+- [x] **Carga, limpieza, pipeline, validación y línea base** del paquete
+  `backend/ml/` (tabla de exclusiones declarativa; mediana y escalado
+  aprendidos **dentro del pliegue**; `GroupKFold` por `productor_id` con
+  semilla 42; media del entrenamiento como barra con MAE/RMSE en kg/ha)
+  → pruebas **350–351, 356–362**.
+- [x] **Notebooks** `notebooks/01_exploracion.ipynb` y
+  `02_preparacion.ipynb`: datos desde `ML_EXPORT_DIR`, marca de
+  demostración, **sin salidas** ni checkpoints en Git → prueba **365**.
+- [x] **Higiene del esquema:** la semana no añade tablas ni triggers →
+  **29 tablas de dominio** y **25 triggers** → pruebas **363–364**.
+- [x] **Guías:** `docs/ml_preparacion.md` (flujo completo y tabla de
+  exclusiones), `docs/dataset.md` §Semana 21,
+  `docs/decisiones_semana21.md` (decisiones 164–201 + preguntas
+  abiertas) y `backend/ml/README.md`.
+- [ ] **Sprint 13:** entrenar modelos sobre estos pliegues, comparar con
+  la línea base y discutir el error útil (pregunta **V**) con el
+  responsable; API y pantalla de predicción.
+
 ## Usuarios, roles y permisos (evidencia funcional)
 
 - [x] Configuración inicial de los 3 roles y 55 permisos (101 asignaciones)
@@ -605,13 +646,24 @@ Leyenda: `[x]` disponible en el repositorio · `[ ]` pendiente.
    506/506), las **7 fases F1–F7 de la Semana 17** (HU-141..HU-149,
    **7/7**, 299 pruebas, colección 540/540) y las **7 fases F1–F7 de
    la Semana 18** (HU-150..HU-156, **7/7**, 317 pruebas, colección
-   574/574).
+   574/574); la **Semana 19** (respaldos de BD, HU-157..HU-164, 325
+   pruebas) y la **Semana 20** (importación histórica + dataset,
+   HU-165, 345 pruebas, 3 commits de fase) siguieron con commits por
+   fase, y la **Semana 21** (preparación de datos ML, HU-166, **365
+   pruebas**, 6 commits de fase + docs + cierre) cierra la primera
+   semana del Sprint 12 (`docs/decisiones_semana21.md`).
 - [x] Calendario y orden de sprints → `CONTEXTO_PROYECTO.md` §13.
 - [x] Contexto completo del proyecto (para que el responsable pueda defender
   cada decisión) → `CONTEXTO_PROYECTO.md` completo.
 
 ## Pendientes globales (para entregas posteriores)
 
+- [ ] **Sprint 13 — modelos:** entrenar sobre los pliegues de
+  `ml.validacion`, batir la línea base de `ml.linea_base` en cada
+  pliegue, decidir el error útil con el responsable y diseñar la API y
+  la pantalla de predicción.
+- [ ] Preguntas abiertas del responsable: recopiladas en un solo mensaje
+  en `docs/decisiones_semana21.md` §8 (letras A..V + nuevas U/V de ML).
 - [ ] Diagramas ER y modelo lógico (4.3.2 / 4.3.3).
 - [ ] Capturas de pantalla de pantallas y endpoints (incluye login de React).
 - [ ] Ejecutar los checklists de UI de las Semanas 4 a 18
