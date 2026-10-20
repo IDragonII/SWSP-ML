@@ -7,7 +7,8 @@ con identificadores, el catálogo de variables y su control de fuga, la
 carga del archivo, la limpieza con su tabla de exclusiones, la
 imputación y transformaciones dentro del pipeline, la validación
 agrupada y la línea base, y la higiene final (notebooks sin salidas,
-29 tablas y 25 triggers).
+32 tablas de dominio y 25 triggers: 29 al cerrar la S21, más las 3 de
+ML que añade la S22).
 
 Numeración Semana 22: 366-392 (27 pruebas → 392 en total; base real
 365). Cubren criterio de selección, entrenamiento reproducible,
@@ -1037,9 +1038,10 @@ class LineaBaseTests(TestCase):
 # ---------------------------------------------------------------------- #
 class HigieneTests(TestCase):
     """Pruebas 363-365: la Semana 21 no mueve el esquema (29 tablas de
-    dominio, 25 triggers) y los notebooks se versionan limpios."""
+    dominio entonces; 32 con las 3 de ML de la S22, 25 triggers) y los
+    notebooks se versionan limpios."""
 
-    def test_363_las_migraciones_siguen_creando_29_tablas_de_dominio(self):
+    def test_363_las_migraciones_siguen_creando_32_tablas_de_dominio(self):
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT count(*) FROM information_schema.tables"
@@ -1052,8 +1054,9 @@ class HigieneTests(TestCase):
             tablas = cursor.fetchone()[0]
         self.assertEqual(
             tablas,
-            29,
-            "las migraciones deben seguir creando 29 tablas de dominio",
+            32,
+            "las migraciones deben seguir creando 32 tablas de dominio "
+            "(29 de la S21 + 3 de ML de la S22)",
         )
 
     def test_364_las_migraciones_siguen_creando_25_triggers(self):
@@ -1293,3 +1296,119 @@ class Bloque1Tests(TestCase):
             joblib.dump(tubo, intruso)
             with self.assertRaises(guardado.ErrorManifiesto):
                 guardado.cargar_verificado(intruso, destino=tmp)
+
+
+# ---------------------------------------------------------------------- #
+# Fase F2a: app ml, 3 tablas del diseño y fn de producción completa (388)
+# ---------------------------------------------------------------------- #
+class EsquemaMLTests(TestCase):
+    """Prueba 388 (decisiones 216-218): las migraciones dejan 32 tablas
+    de dominio y 25 triggers, con las tres tablas de ML de
+    01_tablas.sql:385-431, sus restricciones, los índices del diseño y
+    fn_produccion_post completa."""
+
+    def test_388_las_tres_tablas_ml_con_32_tablas_y_25_triggers(self):
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT table_name FROM information_schema.tables"
+                " WHERE table_schema = 'public'"
+                " AND table_type = 'BASE TABLE'"
+            )
+            todas = {fila[0] for fila in cursor.fetchall()}
+            cursor.execute(
+                "SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal"
+            )
+            triggers = cursor.fetchone()[0]
+
+        dominio = {
+            t for t in todas
+            if not t.startswith(("auth_", "django_", "token_"))
+        }
+        self.assertEqual(
+            len(dominio),
+            32,
+            "las migraciones deben crear 32 tablas de dominio "
+            "(29 + entrenamientos_ml, modelos_ml y predicciones)",
+        )
+        self.assertEqual(triggers, 25, "los triggers siguen en 25")
+        self.assertLessEqual(
+            {"entrenamientos_ml", "modelos_ml", "predicciones"}, todas
+        )
+        # El resto de apps no debe crear tablas con ese nombre
+        self.assertEqual(
+            [t for t in todas if t.startswith("ml")], [],
+            "el prefijo de app no aparece en las tablas (db_table fijo)",
+        )
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT conname FROM pg_constraint "
+                "WHERE conrelid = 'modelos_ml'::regclass"
+            )
+            modelos = {fila[0] for fila in cursor.fetchall()}
+            cursor.execute(
+                "SELECT conname FROM pg_constraint "
+                "WHERE conrelid = 'predicciones'::regclass"
+            )
+            predicciones = {fila[0] for fila in cursor.fetchall()}
+            cursor.execute(
+                "SELECT conname FROM pg_constraint "
+                "WHERE conrelid = 'entrenamientos_ml'::regclass"
+            )
+            entrenamientos = {fila[0] for fila in cursor.fetchall()}
+            cursor.execute(
+                "SELECT indexname FROM pg_indexes "
+                "WHERE tablename IN ('modelos_ml', 'predicciones')"
+            )
+            indices = {fila[0] for fila in cursor.fetchall()}
+            cursor.execute(
+                "SELECT i.indisunique, i.indpred IS NOT NULL"
+                " FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid"
+                " WHERE c.relname = 'uq_modelo_activo'"
+            )
+            activo = cursor.fetchone()
+            cursor.execute(
+                "SELECT prosrc FROM pg_proc WHERE proname = 'fn_produccion_post'"
+            )
+            fn_post = cursor.fetchone()[0]
+
+        # Restricciones de modelos_ml (01_tablas.sql:396-411)
+        self.assertLessEqual(
+            {
+                "ck_modelo_algoritmo",
+                "ck_modelo_mae",
+                "ck_modelo_rmse",
+                "uq_modelo_entrenamiento",
+                "uq_modelo_version",
+            },
+            modelos,
+        )
+        # Índices de modelos_ml: el único parcial de modelo activo
+        # (01_tablas.sql:497-500) y los de predicciones (:523-524)
+        self.assertIn("uq_modelo_activo", indices)
+        self.assertLessEqual(
+            {"ix_predicciones_campania", "ix_predicciones_modelo"}, indices
+        )
+        # Restricciones de predicciones (01_tablas.sql:413-431)
+        self.assertLessEqual(
+            {"ck_prediccion_dias", "ck_prediccion_intervalo"},
+            predicciones,
+        )
+        # Restricciones de entrenamientos_ml (01_tablas.sql:385-394)
+        self.assertLessEqual(
+            {
+                "ck_entrenamiento_registros",
+                "ck_entrenamiento_entrenamiento",
+                "ck_entrenamiento_prueba",
+            },
+            entrenamientos,
+        )
+        # uq_modelo_activo: único y PARCIAL (solo las filas activas)
+        self.assertIsNotNone(activo, "falta el índice uq_modelo_activo")
+        self.assertTrue(activo[0], "uq_modelo_activo debe ser único")
+        self.assertTrue(activo[1], "uq_modelo_activo debe ser parcial")
+
+        # fn_produccion_post completa: comparación predicho vs. real
+        self.assertIn("predicciones", fn_post)
+        self.assertIn("error_abs", fn_post)
+        self.assertIn("error_pct", fn_post)

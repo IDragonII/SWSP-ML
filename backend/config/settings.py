@@ -75,6 +75,7 @@ INSTALLED_APPS = [
     'dashboard',
     'reportes',
     'importaciones',
+    'ml',
 ]
 
 # Modelo de usuario propio: DEBE declararse antes del primer migrate.

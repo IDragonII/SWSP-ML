@@ -151,6 +151,13 @@
   **demostración** (48 filas con patrón lineal inventado, semilla 42,
   marcado como origen «demostracion» en ficha y en el informe). Nunca se
   presenta como resultado de tesis.
+- **Decisión 248:** `fn_produccion_post` completa vive en una
+  migración **nueva `produccion/0003_fn_produccion_post_completa`**
+  (nunca se edita una migración ya aplicada, regla de la casa; el
+  precedente es `campanias/0003`). Al revertir restaura la versión
+  parcial de `0002` sin tocar `fn_set_actualizado_en`. `ml.0001` no
+  depende de ella: es al revés (`0003` depende de `ml.0001`), así el
+  revertido de las tablas ML va antes que la restauración de la función.
 - **Mapeo HU (11):** HU-169 entrenar y comparar · HU-170 criterio ·
   HU-171 registrar · HU-172 activar · HU-173 predecir · HU-174
   confiabilidad · HU-175 historial · HU-176 comparar con lo real ·

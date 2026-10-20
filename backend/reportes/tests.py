@@ -18,7 +18,7 @@ formato (400, sin truncar); la privacidad por diseño; la auditoría
 EXPORTAR y el 503 sin archivo; las 20 exportaciones por hora; las
 cabeceras y el nombre de archivo; la generación en memoria sin tocar
 disco; la fecha de Lima cerca de la medianoche; la migración del CHECK
-(reversible) con 29 tablas y 25 triggers; y el recorrido de rutas (405)
+(reversible) con 32 tablas y 25 triggers; y el recorrido de rutas (405)
 donde solo exportar registra eventos.
 
 Pruebas 302-317 (Semana 18): los reportes nuevos de actividades (RF-68)
@@ -881,9 +881,9 @@ class ReportesTests(ReportesBase):
         self.assertEqual(ahora_lima().utcoffset(), timedelta(hours=-5))
 
     # ------------------------------------------------------------------ #
-    # 298: migración del CHECK reversible, 29 tablas y 25 triggers
+    # 298: migración del CHECK reversible, 32 tablas y 25 triggers
     # ------------------------------------------------------------------ #
-    def test_298_migracion_check_29_tablas_y_25_triggers(self):
+    def test_298_migracion_check_32_tablas_y_25_triggers(self):
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT table_name FROM information_schema.tables"
@@ -897,7 +897,7 @@ class ReportesTests(ReportesBase):
             triggers = cursor.fetchone()[0]
         propias = todas - _TABLAS_DJANGO
         self.assertEqual(propias, _TABLAS_PROPIAS)
-        self.assertEqual(len(propias), 29)
+        self.assertEqual(len(propias), 32)
         self.assertEqual(triggers, 25)
         # La app de reportes no crea tablas ni migraciones
         self.assertEqual([t for t in todas if t.startswith("reportes")], [])

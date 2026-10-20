@@ -11,7 +11,7 @@ en el entorno del proceso (nunca en la línea de comandos).
 - La prueba 325 usa estas mismas funciones: vuelca la base de pruebas,
   la restaura en una base temporal y comprueba que los dos volcados
   coinciden byte a byte; la misma prueba afirma que las migraciones
-  desde cero dejan 29 tablas de dominio y 25 triggers.
+  desde cero dejan 32 tablas de dominio y 25 triggers.
 """
 import os
 import shutil

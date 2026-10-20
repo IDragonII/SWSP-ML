@@ -14,8 +14,9 @@ class Produccion(models.Model):
     rendimiento_kg_ha, requiere_revision y motivo_revision los calcula
     fn_validar_produccion (migración 0002): lo que mande el cliente se
     sobrescribe. Registrar la producción pasa la campaña de EN_PRODUCCION a
-    COSECHADA (fn_produccion_post, versión parcial: sin la parte de
-    predicciones hasta los Sprints 13-14). «Deshacer cosecha» es la única
+    COSECHADA y fn_produccion_post completa (migración 0003) compara lo
+    predicho con lo real en las predicciones de la campaña. «Deshacer
+    cosecha» es la única
     excepción al «nada se borra» (Semana 8): elimina la fila mientras la
     campaña no esté CERRADA.
 

@@ -931,6 +931,10 @@ class ProduccionApiTests(Semana8Base):
         self.assertIn("producciones", prosrc["fn_validar_campania"])
         self.assertIn("parametros_sistema", prosrc["fn_validar_produccion"])
         self.assertIn("'COSECHADA'", prosrc["fn_produccion_post"])
+        # fn_produccion_post COMPLETA (migración 0003): además del paso a
+        # COSECHADA, compara lo predicho con lo real (decisión 218)
+        self.assertIn("predicciones", prosrc["fn_produccion_post"])
+        self.assertIn("error_abs", prosrc["fn_produccion_post"])
 
         # Reversibilidad real: la reversión de 0003 restaura la versión
         # parcial y el avance vuelve a instalar la completa
@@ -977,3 +981,20 @@ class ProduccionApiTests(Semana8Base):
                 "trg_producciones_actualizado",
             },
         )
+        # Re-aplicar 0002 dejó la versión parcial de la función: la 0003
+        # vuelve a instalar la completa (y el revertir de 0003, la parcial)
+        mig_post = importlib.import_module(
+            "produccion.migrations.0003_fn_produccion_post_completa"
+        )
+        for consulta in mig_post.Migration.operations[0].reverse_sql:
+            self._sql(consulta)
+        parcial = self._consulta(
+            "SELECT prosrc FROM pg_proc WHERE proname = 'fn_produccion_post'"
+        )[0][0]
+        self.assertNotIn("predicciones", parcial)
+        for consulta in mig_post.Migration.operations[0].sql:
+            self._sql(consulta)
+        completa = self._consulta(
+            "SELECT prosrc FROM pg_proc WHERE proname = 'fn_produccion_post'"
+        )[0][0]
+        self.assertIn("predicciones", completa)

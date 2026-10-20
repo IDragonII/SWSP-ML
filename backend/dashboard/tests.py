@@ -10,7 +10,7 @@ PONDERADO, el alcance del Técnico en las cuatro lecturas, las marcas de
 provisional y pocos datos, el vacío sin datos (null, no cero), la
 consistencia con el listado de producciones, la hora de Lima, el número
 fijo de consultas, los 401/403/405 —incluido el portón de cambio
-obligatorio de contraseña—, el recuento de 29 tablas y 25 triggers, el
+obligatorio de contraseña—, el recuento de 32 tablas y 25 triggers, el
 recorrido de rutas del panel y los filtros con sus 400.
 """
 import json
@@ -45,13 +45,14 @@ _CONSULTAS_SERIE = 4
 _CONSULTAS_PRODUCCION = 5
 _CONSULTAS_FILTROS = 8
 
-# Tablas propias del diseño (29): las de DB_sql menos las de Django, más
-# la de la S20
+# Tablas propias del diseño (32): las de DB_sql menos las de Django, más
+# la de la S20 y las 3 de Machine Learning de la S22
 _TABLAS_PROPIAS = {
     "actividades", "agentes", "alertas", "asignaciones_tecnico", "auditoria",
     "campanias", "clima", "comunidades", "cultivos", "distritos",
-    "etapas_fenologicas", "importaciones", "incidencias", "parametros_sistema",
-    "parcelas", "permisos", "producciones", "productores", "provincias",
+    "entrenamientos_ml", "etapas_fenologicas", "importaciones", "incidencias",
+    "modelos_ml", "parametros_sistema", "parcelas", "permisos", "predicciones",
+    "producciones", "productores", "provincias",
     "recursos", "roles", "roles_permisos", "seguimiento_etapas",
     "tipos_actividad", "tipos_incidencia", "unidades", "uso_recursos",
     "usuarios", "variedades",
@@ -657,7 +658,7 @@ class AlcanceTests(DashboardBase):
                 self.assertEqual(respuesta.status_code, 405, f"{metodo} {url}")
 
     # ------------------------------------------------------------------ #
-    # 277: 29 tablas propias y 25 triggers, sin nada nuevo del panel
+    # 277: 32 tablas propias y 25 triggers, sin nada nuevo del panel
     # ------------------------------------------------------------------ #
     def test_277_recuento_de_tablas_propias_y_triggers(self):
         with connection.cursor() as cursor:
@@ -673,7 +674,7 @@ class AlcanceTests(DashboardBase):
             triggers = cursor.fetchone()[0]
         propias = todas - _TABLAS_DJANGO
         self.assertEqual(propias, _TABLAS_PROPIAS)
-        self.assertEqual(len(propias), 29)
+        self.assertEqual(len(propias), 32)
         self.assertEqual(triggers, 25)
         # La app del panel no crea tablas: sigue sin migraciones propias
         self.assertEqual(

@@ -586,7 +586,7 @@ class RespaldoTests(Entrega1Base):
         return "\n".join(lineas)
 
     # ------------------------------------------------------------------ #
-    # 325: migraciones desde cero (29 tablas / 25 triggers) y respaldo
+    # 325: migraciones desde cero (32 tablas / 25 triggers) y respaldo
     #      restaurado que coincide byte a byte con el original
     # ------------------------------------------------------------------ #
     def test_325_migraciones_desde_cero_respaldo_y_restauracion(self):
@@ -608,8 +608,8 @@ class RespaldoTests(Entrega1Base):
             )
             triggers = cursor.fetchone()[0]
         self.assertEqual(
-            tablas_dominio, 29,
-            "las migraciones desde cero deben crear 29 tablas de dominio",
+            tablas_dominio, 32,
+            "las migraciones desde cero deben crear 32 tablas de dominio",
         )
         self.assertEqual(
             triggers, 25,
@@ -632,7 +632,7 @@ class RespaldoTests(Entrega1Base):
                 "el volcado de la base restaurada no coincide con el original",
             )
             texto = volcado2.decode("utf-8", "replace")
-            self.assertEqual(texto.count("CREATE TABLE public."), 38)
+            self.assertEqual(texto.count("CREATE TABLE public."), 41)
             self.assertEqual(texto.count("CREATE TRIGGER "), 25)
         finally:
             respaldo.eliminar_bd(temporal)
