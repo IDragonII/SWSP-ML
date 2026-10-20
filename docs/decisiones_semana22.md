@@ -141,6 +141,16 @@
 
 ## 11. Notas de contexto
 
+- **Decisión 246:** la bandera `--version` choca con el `--version`
+  propio de Django (`BaseCommand`); los comandos usan
+  **`--version-modelo`** (`entrenar_modelos` y `registrar_modelo`).
+- **Decisión 247:** con las 13 filas reales de la BD de desarrollo el
+  criterio no elige ningún modelo (ninguno gana a la línea base). Para
+  poder demostrar el flujo completo en la entrega existe el comando
+  **`datos_ml_demostracion`**, que genera en `ML_EXPORT_DIR` un CSV de
+  **demostración** (48 filas con patrón lineal inventado, semilla 42,
+  marcado como origen «demostracion» en ficha y en el informe). Nunca se
+  presenta como resultado de tesis.
 - **Mapeo HU (11):** HU-169 entrenar y comparar · HU-170 criterio ·
   HU-171 registrar · HU-172 activar · HU-173 predecir · HU-174
   confiabilidad · HU-175 historial · HU-176 comparar con lo real ·

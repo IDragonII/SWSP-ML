@@ -1,12 +1,20 @@
-"""Pruebas de la Semana 21: preparación de datos para Machine Learning.
+"""Pruebas de Machine Learning: Semana 21 (346-365) y Semana 22 (366-392).
 
-Numeración 346-365 (20 pruebas → 365 en total; el repositorio cerró la
-Semana 20 en 345). Cubren la exportación del dataset (permisos, ficha
-técnica, auditoría, ruta y columnas), la vista con identificadores, el
-catálogo de variables y su control de fuga, la carga del archivo, la
-limpieza con su tabla de exclusiones, la imputación y transformaciones
-dentro del pipeline, la validación agrupada y la línea base, y la
-higiene final (notebooks sin salidas, 29 tablas y 25 triggers).
+Numeración Semana 21: 346-365 (20 pruebas → 365 en total; el
+repositorio cerró la Semana 20 en 345). Cubren la exportación del
+dataset (permisos, ficha técnica, auditoría, ruta y columnas), la vista
+con identificadores, el catálogo de variables y su control de fuga, la
+carga del archivo, la limpieza con su tabla de exclusiones, la
+imputación y transformaciones dentro del pipeline, la validación
+agrupada y la línea base, y la higiene final (notebooks sin salidas,
+29 tablas y 25 triggers).
+
+Numeración Semana 22: 366-392 (27 pruebas → 392 en total; base real
+365). Cubren criterio de selección, entrenamiento reproducible,
+serialización con manifiesto de huellas, registro/activación de
+modelos, servicio de predicción, API, comparación con lo real,
+permisos, migraciones (32 tablas / 25 triggers), recorrido completo y
+higiene de la entrega.
 
 Los datos de estas pruebas son de demostración: ninguna cifra que salga
 de aquí se presenta como resultado de la tesis.
@@ -16,12 +24,16 @@ import io
 import json
 import os
 import statistics
+import subprocess
+import sys
 import tempfile
 from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
 
+import joblib
+import numpy as np
 import pandas as pd
 
 from django.core.management import call_command
@@ -41,7 +53,10 @@ from usuarios.tests import _post_login
 from ml import (
     catalogo,
     columnas,
+    criterio,
+    entrenamiento,
     exportacion,
+    guardado,
     linea_base,
     limpieza,
     preparacion,
@@ -1084,3 +1099,197 @@ class HigieneTests(TestCase):
             # Los datos salen de ML_EXPORT_DIR, nunca de una ruta del repo
             self.assertIn("ML_EXPORT_DIR", texto)
             self.assertNotIn("read_csv(", texto)
+
+
+# ---------------------------------------------------------------------- #
+# Semana 22 — Fase 1: criterio, entrenamiento y modelo guardado (366-368)
+# ---------------------------------------------------------------------- #
+def datos_sinteticos(n=36, grupos=7):
+    """DataFrame inventado con productores agrupables (fila_valida)."""
+    filas = []
+    for i in range(n):
+        filas.append(
+            fila_valida(
+                campania_id=i + 1,
+                parcela_id=i + 1,
+                productor_id=(i % grupos) + 1,
+                cultivo="Quinua" if i % 3 else "Canihua",
+                semilla_kg_ha=30 + (i % 7) * 5,
+                fertilizante_kg_ha=80 + (i % 5) * 20,
+                jornales_ha=20 + (i % 4) * 6,
+                agua_m3_ha=150 + (i % 6) * 25,
+                altitud_msnm=3600 + (i % 9) * 50,
+                rendimiento_kg_ha=180 + (i % 11) * 22,
+            )
+        )
+    return pd.DataFrame(filas)
+
+
+class Bloque1Tests(TestCase):
+    """Pruebas 366-368: el entrenamiento es reproducible, el criterio
+    se aplica como está escrito y el modelo guardado se carga en un
+    proceso limpio con su huella verificada."""
+
+    def test_366_el_entrenamiento_es_reproducible_con_la_misma_semilla(self):
+        datos = datos_sinteticos()
+        plan = {
+            "nombre": "prueba",
+            "pliegues": 3,
+            "repeticiones": 1,
+            "holdout": None,
+        }
+        una = entrenamiento.evaluar(datos, estrategia=plan)
+        dos = entrenamiento.evaluar(datos, estrategia=plan)
+        for nombre in entrenamiento.NOMBRES:
+            self.assertEqual(
+                una["candidatos"][nombre]["rmse_pliegues"],
+                dos["candidatos"][nombre]["rmse_pliegues"],
+                f"{nombre}: la misma semilla debe dar el mismo RMSE por "
+                "pliegue",
+            )
+            self.assertAlmostEqual(
+                una["candidatos"][nombre]["rmse"],
+                dos["candidatos"][nombre]["rmse"],
+                places=8,
+            )
+        # Estrategia fijada de antemano según el tramo de datos
+        self.assertEqual(
+            entrenamiento.estrategia_de(13)["nombre"], "cv_agrupada"
+        )
+        self.assertEqual(
+            entrenamiento.estrategia_de(40)["nombre"], "cv_repetida"
+        )
+        self.assertEqual(
+            entrenamiento.estrategia_de(120)["nombre"],
+            "holdout_final_20",
+        )
+        # Los tres candidatos y la línea base comparten los mismos cortes
+        cortes = len(
+            una["candidatos"]["RANDOM_FOREST"]["rmse_pliegues"]
+        )
+        self.assertEqual(
+            cortes, len(una["linea_base"]["rmse_pliegues"])
+        )
+        self.assertEqual(cortes, 3)
+        self.assertIn("por_cultivo", una["candidatos"]["REGRESION_LINEAL"])
+        self.assertIn("Canihua", una["candidatos"]["REGRESION_LINEAL"]["por_cultivo"])
+
+    def test_367_el_criterio_se_aplica_como_esta_escrito(self):
+        # (a) gana el MENOR RMSE cuando la diferencia supera el desvío
+        resuelto = criterio.elegir(
+            {
+                "REGRESION_LINEAL": {"rmse": 140.0, "desvio": 0.0},
+                "RANDOM_FOREST": {"rmse": 90.0, "desvio": 5.0},
+                "GRADIENT_BOOSTING": {"rmse": 95.0, "desvio": 0.0},
+                criterio.LINEA_BASE: {"rmse": 120.0},
+            }
+        )
+        self.assertEqual(resuelto["elegido"], "RANDOM_FOREST")
+        self.assertIn("menor RMSE", resuelto["motivo"])
+
+        # (b) un desvío de más de 15 «repara» al lineal por simplicidad
+        desvio = criterio.elegir(
+            {
+                "REGRESION_LINEAL": {"rmse": 115.0},
+                "RANDOM_FOREST": {"rmse": 100.0, "desvio": 20.0},
+                "GRADIENT_BOOSTING": {"rmse": 130.0, "desvio": 0.0},
+                criterio.LINEA_BASE: {"rmse": 125.0},
+            }
+        )
+        self.assertEqual(desvio["elegido"], "REGRESION_LINEAL")
+        self.assertEqual(desvio["sigma"], 20.0)
+        self.assertIn("simplicidad", desvio["motivo"])
+
+        # (c) dentro del desvío, gana el más simple (RF antes que GB)
+        orden = criterio.elegir(
+            {
+                "REGRESION_LINEAL": {"rmse": 130.0, "desvio": 0.0},
+                "RANDOM_FOREST": {"rmse": 100.0, "desvio": 20.0},
+                "GRADIENT_BOOSTING": {"rmse": 99.0, "desvio": 10.0},
+                criterio.LINEA_BASE: {"rmse": 150.0},
+            }
+        )
+        self.assertEqual(orden["elegido"], "RANDOM_FOREST")
+
+        # (d) nadie mejora a la línea base → no se elige ninguno
+        base = criterio.elegir(
+            {
+                "REGRESION_LINEAL": {"rmse": 140.0, "desvio": 0.0},
+                "RANDOM_FOREST": {"rmse": 100.0, "desvio": 5.0},
+                "GRADIENT_BOOSTING": {"rmse": 110.0, "desvio": 0.0},
+                criterio.LINEA_BASE: {"rmse": 90.0},
+            }
+        )
+        self.assertIsNone(base["elegido"])
+        self.assertIn("línea base", base["motivo"])
+
+        # Faltan candidatos → error claro (nada se elige a ciegas)
+        with self.assertRaises(criterio.ErrorCriterio):
+            criterio.elegir({"RANDOM_FOREST": {"rmse": 1.0}})
+
+        # El criterio aplicado a una corrida real devuelve su resolución
+        corrida = entrenamiento.evaluar(
+            datos_sinteticos(),
+            estrategia={
+                "nombre": "prueba",
+                "pliegues": 3,
+                "repeticiones": 1,
+                "holdout": None,
+            },
+        )
+        resolucion = entrenamiento.aplicar_criterio(corrida)
+        self.assertIn("elegido", resolucion)
+        self.assertIn("motivo", resolucion)
+        if resolucion["elegido"]:
+            self.assertIn(resolucion["elegido"], entrenamiento.NOMBRES)
+
+    def test_368_el_modelo_guardado_se_carga_en_proceso_limpio(self):
+        datos = datos_sinteticos(n=21, grupos=7)
+        tubo, X, _ = entrenamiento.entrenar_completo(
+            datos, "RANDOM_FOREST"
+        )
+        pred_padre = tubo.predict(X)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ruta = guardado.guardar(
+                tubo, "RANDOM_FOREST", "t368", destino=tmp
+            )
+            huella = guardado.registrar_archivo(
+                ruta,
+                destino=tmp,
+                algoritmo="RANDOM_FOREST",
+                version="t368",
+            )
+            self.assertEqual(len(huella), 64)
+            self.assertTrue(guardado.verificar(ruta, destino=tmp))
+
+            # Proceso limpio: intérprete nuevo, fuera del ciclo de pruebas
+            ruta_entrada = Path(tmp) / "entrada.joblib"
+            joblib.dump(X, ruta_entrada)
+            codigo = (
+                "import sys, joblib\n"
+                "tubo = joblib.load(sys.argv[1])\n"
+                "X = joblib.load(sys.argv[2])\n"
+                "print(','.join('%.12g' % v for v in tubo.predict(X)))\n"
+            )
+            proceso = subprocess.run(
+                [sys.executable, "-c", codigo, str(ruta),
+                 str(ruta_entrada)],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            hijo = [float(v) for v in proceso.stdout.strip().split(",")]
+            np.testing.assert_allclose(hijo, pred_padre, rtol=1e-9)
+
+            # Archivo alterado → la huella no coincide y NO se carga
+            ruta.write_bytes(ruta.read_bytes() + b"\x00")
+            self.assertFalse(guardado.verificar(ruta, destino=tmp))
+            with self.assertRaises(guardado.ErrorManifiesto):
+                guardado.cargar_verificado(ruta, destino=tmp)
+
+            # Un archivo que nunca pasó por el manifiesto tampoco carga
+            intruso = Path(tmp) / "intruso.joblib"
+            joblib.dump(tubo, intruso)
+            with self.assertRaises(guardado.ErrorManifiesto):
+                guardado.cargar_verificado(intruso, destino=tmp)

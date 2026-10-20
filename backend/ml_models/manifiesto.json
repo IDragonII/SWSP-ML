@@ -1,0 +1,11 @@
+{
+  "regresion_lineal_v1.joblib": {
+    "algoritmo": "REGRESION_LINEAL",
+    "fecha_lima": "2026-10-19T23:09:54-05:00",
+    "n_registros": 48,
+    "origen_datos": "demostraciÃ³n",
+    "sha256": "198cb192f0bd6b73dab7615fb8e7ef61fb417f809a0f3ce4b177334e3ea52b7b",
+    "sha256_dataset": "e524aed3d2cf8ed595e4b6ca97b0a9b18dd63c22539769163e75efa328bfe87a",
+    "version": "1"
+  }
+}
