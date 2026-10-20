@@ -22,7 +22,8 @@ lo ajeno, el mismo que si no existiera; decisión 227) y no recibe
 quién predijo (233). El Coordinador consulta predicciones pero no
 predecir ni ver modelos (384). Predecir tiene límite de 30 por hora y
 usuario (232). No hay AuditoriaMixin: la auditoría CREAR la escriben
-registro y servicio (234).
+registro y servicio (234); el ViewSet declara `auditoria_modulo` para
+el recorrido de la prueba 233.
 """
 from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
@@ -76,6 +77,7 @@ class PrediccionViewSet(
 ):
     """Historial (lista y ficha) y predicción; sin update ni delete."""
 
+    auditoria_modulo = registro.MODULO_AUDITORIA
     throttle_classes = (ScopedRateThrottle,)
 
     def get_serializer_class(self):

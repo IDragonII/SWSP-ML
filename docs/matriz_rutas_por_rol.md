@@ -6,7 +6,7 @@
 > que las respuestas reales coinciden con esta tabla y la 320 que
 > el usuario anónimo no ve ninguna.
 
-- Rutas `api/`: **107** × 5 métodos = 535 filas.
+- Rutas `api/`: **113** × 5 métodos = 565 filas.
 - Permiten acceso sin token (/api/auth/login/, /api/auth/refresh/, /api/auth/logout/): 3 rutas, con su propia validación de credenciales.
 - Permisos por rol en la BD: Administrador: 55 · Coordinador: 14 · Técnico de campo: 32
 - El panel de Django (`/admin/`) queda fuera de esta matriz: ver `docs/seguridad_entrega1.md`.
@@ -270,6 +270,36 @@ Leyenda: `401` sin sesión · `403` sin permiso · `405` el método no existe en
 | /api/incidencias/999999/reactivar/ | PUT | 401 | 405 | 405 | 405 |
 | /api/incidencias/999999/reactivar/ | PATCH | 401 | 405 | 405 | 405 |
 | /api/incidencias/999999/reactivar/ | DELETE | 401 | 405 | 405 | 405 |
+| /api/ml/campanas-predecibles/ | GET | 401 | manejo | 403 | manejo |
+| /api/ml/campanas-predecibles/ | POST | 401 | 405 | 405 | 405 |
+| /api/ml/campanas-predecibles/ | PUT | 401 | 405 | 405 | 405 |
+| /api/ml/campanas-predecibles/ | PATCH | 401 | 405 | 405 | 405 |
+| /api/ml/campanas-predecibles/ | DELETE | 401 | 405 | 405 | 405 |
+| /api/ml/modelo-activo/ | GET | 401 | manejo | 403 | 403 |
+| /api/ml/modelo-activo/ | POST | 401 | 405 | 405 | 405 |
+| /api/ml/modelo-activo/ | PUT | 401 | 405 | 405 | 405 |
+| /api/ml/modelo-activo/ | PATCH | 401 | 405 | 405 | 405 |
+| /api/ml/modelo-activo/ | DELETE | 401 | 405 | 405 | 405 |
+| /api/ml/modelos/ | GET | 401 | manejo | 403 | 403 |
+| /api/ml/modelos/ | POST | 401 | 405 | 405 | 405 |
+| /api/ml/modelos/ | PUT | 401 | 405 | 405 | 405 |
+| /api/ml/modelos/ | PATCH | 401 | 405 | 405 | 405 |
+| /api/ml/modelos/ | DELETE | 401 | 405 | 405 | 405 |
+| /api/ml/modelos/999999/activar/ | GET | 401 | 405 | 405 | 405 |
+| /api/ml/modelos/999999/activar/ | POST | 401 | manejo | 403 | 403 |
+| /api/ml/modelos/999999/activar/ | PUT | 401 | 405 | 405 | 405 |
+| /api/ml/modelos/999999/activar/ | PATCH | 401 | 405 | 405 | 405 |
+| /api/ml/modelos/999999/activar/ | DELETE | 401 | 405 | 405 | 405 |
+| /api/ml/predicciones/ | GET | 401 | manejo | manejo | manejo |
+| /api/ml/predicciones/ | POST | 401 | manejo | 403 | manejo |
+| /api/ml/predicciones/ | PUT | 401 | 405 | 405 | 405 |
+| /api/ml/predicciones/ | PATCH | 401 | 405 | 405 | 405 |
+| /api/ml/predicciones/ | DELETE | 401 | 405 | 405 | 405 |
+| /api/ml/predicciones/999999/ | GET | 401 | manejo | manejo | manejo |
+| /api/ml/predicciones/999999/ | POST | 401 | 405 | 405 | 405 |
+| /api/ml/predicciones/999999/ | PUT | 401 | 405 | 405 | 405 |
+| /api/ml/predicciones/999999/ | PATCH | 401 | 405 | 405 | 405 |
+| /api/ml/predicciones/999999/ | DELETE | 401 | 405 | 405 | 405 |
 | /api/parametros/ | GET | 401 | manejo | 403 | 403 |
 | /api/parametros/ | POST | 401 | 405 | 403 | 403 |
 | /api/parametros/ | PUT | 401 | 405 | 403 | 403 |

@@ -24,6 +24,7 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import statistics
 import subprocess
 import sys
@@ -2557,3 +2558,264 @@ class EsquemaMLTests(TestCase):
         self.assertIn("predicciones", fn_post)
         self.assertIn("error_abs", fn_post)
         self.assertIn("error_pct", fn_post)
+
+
+# ---------------------------------------------------------------------- #
+# F4: recorrido completo y higiene de la entrega (389-392)
+# ---------------------------------------------------------------------- #
+class RecorridoCompletoTests(Bloque2Base):
+    """Prueba 389 (decisiones 242 y 208): el recorrido completo de punta
+    a punta — registrar y activar el modelo versionado del repo, predecir
+    por la API con un valor planificado, cosechar para comparar con lo
+    real, consultarlo en las tres pestañas del historial, deshacer la
+    cosecha y revisar la auditoría de módulo Machine Learning."""
+
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.addCleanup(servicio.limpiar_cache)
+        servicio.limpiar_cache()
+
+    def _conteo(self, comparacion):
+        respuesta = self._api(
+            "get", f"/api/ml/predicciones/?comparacion={comparacion}"
+        )
+        self.assertEqual(respuesta.status_code, 200)
+        return self._json(respuesta)["count"]
+
+    def test_389_del_registro_a_la_comparacion_y_el_deshacer_por_la_api(self):
+        # 1. Registrar y activar con el artefacto versionado (220/222)
+        registro.registrar(
+            usuario=self.admin,
+            resultados=guardado.leer_resultados("1"),
+            version="1",
+            desarrollo=True,
+            activar=True,
+        )
+        activo = registro.modelo_activo()
+        self.assertIsNotNone(activo, "queda un modelo activo")
+        self.assertEqual(activo.version, "1")
+        self.assertTrue(activo.activo)
+
+        # 2. Predecir por la API con un valor planificado (228/231)
+        self._entrar_admin()
+        blanca, _ = Variedad.objects.get_or_create(
+            cultivo=Cultivo.objects.get(nombre="Quinua"), nombre="Blanca"
+        )
+        productor = self._productor(dni="96000301", nombre="Recorrido")
+        campania = self._campania(
+            self._parcela(productor),
+            cultivo=blanca.cultivo,
+            variedad=blanca,
+        )
+        respuesta = self._api(
+            "post", "/api/ml/predicciones/",
+            {"campania": campania.pk, "semilla": 45},
+        )
+        self.assertEqual(respuesta.status_code, 201)
+        datos = self._json(respuesta)
+        self.assertTrue(datos["datos_demostracion"])
+        self.assertEqual(
+            datos["texto_estimacion"],
+            "Es una estimación basada en datos históricos, no una medición.",
+        )
+        self.assertIn("mae", datos["modelo"])
+
+        # 3. Historial: todo pendiente antes de cosechar (236/242)
+        self.assertEqual(self._conteo("pendiente"), 1)
+        self.assertEqual(self._conteo("comparada"), 0)
+        self.assertEqual(self._conteo("todas"), 1)
+
+        # 4. Cosechar: fn_produccion_post completa compara con lo real
+        self._producir(campania, "1.50", "2430")  # → 1620 kg/ha
+        self.assertEqual(self._conteo("pendiente"), 0)
+        self.assertEqual(self._conteo("comparada"), 1)
+        ficha = self._json(
+            self.client.get(f"/api/ml/predicciones/{datos['id']}/")
+        )
+        self.assertAlmostEqual(float(ficha["rendimiento_real"]), 1620.0)
+        self.assertIsNotNone(ficha["error_abs"])
+        self.assertIsNotNone(ficha["error_pct"])
+
+        # 5. Deshacer la cosecha: limpia en la MISMA transacción (236)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT id FROM producciones WHERE campania_id = %s",
+                [campania.pk],
+            )
+            produccion_id = cursor.fetchone()[0]
+        deshecho = self._api(
+            "post",
+            f"/api/producciones/{produccion_id}/deshacer-cosecha/",
+            {"motivo": "Prueba 389"},
+        )
+        self.assertEqual(deshecho.status_code, 200)
+        self.assertEqual(self._conteo("comparada"), 0)
+        self.assertEqual(self._conteo("pendiente"), 1)
+        campania.refresh_from_db()
+        self.assertEqual(campania.estado, Campania.ESTADO_EN_PRODUCCION)
+        ficha = self._json(
+            self.client.get(f"/api/ml/predicciones/{datos['id']}/")
+        )
+        self.assertIsNone(ficha["rendimiento_real"])
+        self.assertIsNone(ficha["error_pct"])
+
+        # 6. Auditoría: CREAR de predicciones SIN variables de entrada
+        #    y ACTIVAR del modelo (234)
+        evento = (
+            Auditoria.objects.filter(
+                accion="CREAR", modulo="Machine Learning"
+            )
+            .order_by("-id")
+            .first()
+        )
+        self.assertIsNotNone(evento, "falta el evento CREAR de predicciones")
+        self.assertEqual(evento.detalle["tabla"], "predicciones")
+        self.assertNotIn("semilla", evento.detalle)
+        self.assertNotIn("planificados", evento.detalle)
+        self.assertTrue(
+            Auditoria.objects.filter(
+                accion="ACTIVAR", modulo="Machine Learning"
+            ).exists()
+        )
+
+
+class HigieneEntregaTests(TestCase):
+    """Pruebas 390-392 (decisiones 242 y 214): la entrega queda sana —
+    sin migraciones pendientes y con las de ML reversibles (390), el
+    frontend pasa lint y build (391) y los archivos ML versionados en el
+    repo cuadran con manifiesto.json (392; ver también 368 y 371). La
+    propia suite ya arranca aplicando todas las migraciones desde cero en
+    la BD de prueba."""
+
+    @staticmethod
+    def _tablas():
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT count(*) FROM information_schema.tables"
+                " WHERE table_schema = 'public'"
+                " AND table_type = 'BASE TABLE'"
+                " AND table_name NOT LIKE 'auth\\_%'"
+                " AND table_name NOT LIKE 'django\\_%'"
+                " AND table_name NOT LIKE 'token\\_%'"
+            )
+            return cursor.fetchone()[0]
+
+    @staticmethod
+    def _triggers():
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal"
+            )
+            return cursor.fetchone()[0]
+
+    @staticmethod
+    def _fn_post():
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT prosrc FROM pg_proc WHERE proname = 'fn_produccion_post'"
+            )
+            return cursor.fetchone()[0]
+
+    def test_390_sin_migraciones_pendientes_y_las_de_ml_son_reversibles(self):
+        # Sin migraciones pendientes de escribir (242): el comando sale 0
+        backend = Path(__file__).resolve().parents[1]
+        proceso = subprocess.run(
+            [sys.executable, "manage.py", "makemigrations",
+             "--check", "--dry-run"],
+            cwd=backend,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            proceso.returncode, 0,
+            "hay migraciones sin generar:\n"
+            + proceso.stdout + proceso.stderr,
+        )
+
+        self.assertEqual(self._tablas(), 32)
+        self.assertEqual(self._triggers(), 25)
+
+        # Revertir: primero produccion/0003 (depende de ml/0001, 248)
+        executor = MigrationExecutor(connection)
+        executor.migrate([("produccion", "0002_funciones_y_triggers")])
+        executor = MigrationExecutor(connection)
+        executor.migrate([("ml", None)])
+        # 29 tablas de dominio (sin las 3 de ML) y la función vuelve a
+        # la versión parcial de 0002; los triggers no cambian porque
+        # 0003 solo reemplaza el cuerpo de la función (248)
+        self.assertEqual(self._tablas(), 29)
+        self.assertNotIn("predicciones", self._fn_post())
+        self.assertEqual(self._triggers(), 25)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT table_name FROM information_schema.tables"
+                " WHERE table_schema = 'public'"
+            )
+            tablas = {fila[0] for fila in cursor.fetchall()}
+        self.assertNotIn("entrenamientos_ml", tablas)
+
+        # Y al reaplicar todo vuelve como al inicio (32/25, completa)
+        executor = MigrationExecutor(connection)
+        executor.migrate([("ml", "0001_initial")])
+        executor = MigrationExecutor(connection)
+        executor.migrate(
+            [("produccion", "0003_fn_produccion_post_completa")]
+        )
+        self.assertEqual(self._tablas(), 32)
+        self.assertEqual(self._triggers(), 25)
+        fn_post = self._fn_post()
+        self.assertIn("predicciones", fn_post)
+        self.assertIn("error_abs", fn_post)
+
+    def test_391_el_frontend_pasa_el_lint_y_el_build(self):
+        raiz = Path(__file__).resolve().parents[2]
+        frontend = raiz / "frontend"
+        npm = shutil.which("npm")
+        if npm is None or not (frontend / "node_modules").exists():
+            self.skipTest("npm o frontend/node_modules no disponibles")
+        for orden in ("lint", "build"):
+            proceso = subprocess.run(
+                [npm, "run", orden],
+                cwd=frontend,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(
+                proceso.returncode, 0,
+                f"npm run {orden} falló:\n"
+                + proceso.stdout + proceso.stderr,
+            )
+
+    def test_392_los_archivos_ml_versionados_coinciden_con_el_manifiesto(self):
+        destino = guardado.carpeta()
+        manifiesto = guardado.manifiesto()
+        nombre = guardado.nombre_archivo("REGRESION_LINEAL", "1")
+        # Todo .joblib del repo está en el manifiesto y todo lo que el
+        # manifiesto nombra existe: ni huérfanos ni apuntadores rotos
+        self.assertEqual(
+            sorted(p.name for p in destino.glob("*.joblib")),
+            sorted(n for n in manifiesto if n.endswith(".joblib")),
+        )
+        for nombre_entrada in manifiesto:
+            self.assertTrue(
+                (destino / nombre_entrada).exists(),
+                f"el manifiesto apunta a {nombre_entrada} inexistente",
+            )
+
+        # La huella versionada coincide con los bytes del archivo (214)
+        ruta = destino / nombre
+        entrada = manifiesto[nombre]
+        self.assertEqual(entrada["sha256"], guardado.huella_de(ruta))
+        self.assertTrue(guardado.verificar(ruta))
+        self.assertEqual(entrada["version"], "1")
+        self.assertEqual(entrada["origen_datos"], "demostración")
+        tubo = guardado.cargar_verificado(ruta)
+        self.assertIsNotNone(tubo, "el modelo versionado sí carga")
+
+        # Las métricas versionadas son las con que se registró la 1
+        resultados = guardado.leer_resultados("1")
+        self.assertEqual(resultados["version"], "1")
+        self.assertEqual(resultados["origen_datos"], "demostración")
+        self.assertEqual(resultados["criterio"]["elegido"], "REGRESION_LINEAL")
