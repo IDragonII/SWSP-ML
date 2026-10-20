@@ -248,12 +248,20 @@
 - **Notebooks** `notebooks/01_exploracion.ipynb` y `02_preparacion.ipynb`: leen de `ML_EXPORT_DIR`, con marca de **demostración** y versionados **sin salidas** (`.ipynb_checkpoints/` en `.gitignore`).
 - **Cierre:** **365 pruebas** (20 nuevas: 346–365 en `backend/ml/tests.py`), `check` 0, `makemigrations --check` sin cambios; dependencias de notebook en `backend/requirements-ml.txt` (jupyter, matplotlib) fuera del despliegue. **No se entrena ningún modelo** (Sprint 13).
 
+### Semana 22 (29 feb–6 mar, variante de 1 semana / 36 h): Machine Learning end-to-end — F0..F6 (commits por fase)
+- **Documentación:** `decisiones_semana22.md` (decisiones **202–248** + preguntas **U/V/I/J/K/L/M/T** y la nota de la colisión «Nueva V»), `api_ml.md` (contrato), `criterio_seleccion.md` (**escrito antes de entrenar**: el modelo activo debe mejorar a la línea base en MAE), `informe_resultados_ml.md` (lo genera `entrenar_modelos`), `manual_usuario.md` (por rol) y `manual_tecnico.md` (HU-179), `limitaciones_conocidas.md` §5 (límites del ML) y **`requerimientos.tex` v1.5** (externo: RF-52..RF-61, corrección del momento de predicción y control de cambios; los cambios se documentan en `docs/`).
+- **App `backend/ml/`** (HU-169..HU-178; antes era paquete plano): migración `0001` con **`entrenamientos_ml`, `modelos_ml` y `predicciones`** (reversible con `migrate ml zero`), `criterio.py`, `entrenamiento.py` (3 candidatos con la **misma** validación de la Semana 21), `guardado.py` (`.joblib` + huella en `manifiesto.json`), `prediccion.py` (servicio con cache, imputación con su origen, avisos y confiabilidad) y `registro.py` (`registrar_modelo`: 1 entrenamiento + 3 modelos, verificación de huella y predicción de prueba **antes** de tocar la BD; activación con un solo modelo activo y auditoría `ACTIVAR`/`DESACTIVAR`).
+- **API** (`docs/api_ml.md`): `GET /api/modelos/`, `GET /api/modelos/activo/` y acciones de activación/desactivación (solo Administrador); `POST /api/predicciones/` (30/hora por usuario; estados PLANIFICADA/EN_PRODUCCION; campaña ajena del Técnico → «No encontrado.»), listado con pestañas/filtros y ficha; al cosechar, `fn_produccion_post` **completa** (nueva `produccion/0003`) guarda rendimiento real, error absoluto y % en la predicción pendiente — «deshacer cosecha» la limpia. Permisos **`ml.*`** (entrenar, registrar, ver/predecir, historial, activar modelo) bajo la puerta de permisos; en la BD regenerada: Administrador **55**, Coordinador **14**, Técnico **32**.
+- **Pantallas React:** **`/predicción`** (selector de campaña, 4 campos con teclado numérico, resultado grande con rendimiento predicho, producción estimada, confiabilidad, MAE y avisos), **`/predicciones`** (historial con pestañas Pendientes/Comparadas/Todas y comparación predicho vs real) y **`/modelos`** (tabla con métricas y activar/desactivar con confirmación). Las tres muestran **banner «DATOS DE DEMOSTRACIÓN»** mientras el modelo activo sea de demostración (decisión 240).
+- **Datos de demostración:** con las 13 campañas reales aptas (tramo «< 30») el criterio no elige ningún modelo; el comando **`datos_ml_demostracion`** genera un CSV de 48 filas con patrón lineal **inventado** (semilla 42, origen «demostracion») para poder demostrar el flujo completo sin presentar cifras de tesis; `--desarrollo` es obligatorio al registrar ese modelo.
+- **Cierre:** **392 pruebas** (27 nuevas: 366–392 en `backend/ml/tests.py`), `check` 0, `makemigrations --check` sin cambios, `matriz_rutas_por_rol.md` regenerada (**55 permisos en la BD, 32 tablas de dominio y 25 triggers**), frontend `lint`/`build` en 0 y **colección final `coleccion_api_semana22.json`: 598/598 peticiones (596 obligatorias + 2 opcionales) con 1125/1125 aserciones**, validada end-to-end en la BD temporal `sigpa_ga_coleccion22` (borrada al terminar).
+
 ### No hecho todavía
-- **Ya están todas las tablas del diseño** (la Semana 20 cerró `importaciones` y la vista del dataset; la Semana 21 no añade tablas: el ML vive en el paquete plano `backend/ml/`). `fn_produccion_post` está **parcial**: solo pasa la campaña a `COSECHADA`; la parte de `predicciones` (rendimiento real y error) entra en los **Sprints 13-14**.
-- Pantallas React de los módulos que faltan (listado de **Producción** — la entrada del menú es placeholder — y Predicción; hoy: login, 403, 404, **Inicio con el panel de indicadores (Semana 16)**, **Reportes (Semanas 17–18, hoy con 4 reportes)**, productores, parcelas, catálogos, campañas, actividades, **parámetros**, **recursos**, **clima**, **incidencias**, **usuarios**, **auditoría** y **alertas + productores en riesgo** con producción, recursos, clima, incidencias, etapas y alertas dentro de las fichas).
+- **Tablas del diseño completas:** la Semana 22 cerró las tablas ML (**32 de dominio**, la 33.ª del diseño original se materializa como las 3 de `ml/0001`). `fn_produccion_post` **ya está completa** (`produccion/0003`: al cosechar guarda rendimiento real y error en la predicción pendiente).
+- Pantalla del listado de **Producción** (la entrada del menú sigue siendo placeholder; el registro vive en la ficha de campaña desde la Semana 8). Todas las demás pantallas están: login, 403, 404, **Inicio con el panel (S16)**, **Reportes (S17–18)**, productores, parcelas, catálogos, campañas, actividades, **parámetros**, **recursos**, **clima**, **incidencias**, **usuarios**, **auditoría + cambiar clave**, **alertas + productores en riesgo** y **predicción + historial + modelos (S22)**.
 - **Recuperación de acceso**: el **cambio de contraseña por el propio usuario ya está** (Semana 13, HU-112/113); queda el **olvido de clave** (flujo de recuperación sin sesión).
-- Diagrama entidad-relación y modelo lógico para el Capítulo IV.
-- Ejecutar los checklists de UI de las Semanas 4 a 18 en navegador.
+- Diagrama entidad-relación y modelo lógico para el Capítulo IV; capturas de pantalla; checklists de UI en navegador.
+- **Fuera de alcance declarado** (decisiones 243–244, en `limitaciones_conocidas.md` §5): intervalo de predicción, hiperparámetros, clima integrado al modelo, reentrenar desde la interfaz, reportes de ML en Excel/PDF, despliegue en la nube y escenarios sin campaña.
 
 ### Ojo: cosas que quedaron superadas
 - Antes se propuso un modelo `Usuario` con un campo de texto `rol` (ADMIN/TECNICO/COORDINADOR). **Está descartado.** El diseño vigente usa `rol_id` → tabla `roles` con permisos (secciones 5.C y 8).
@@ -519,11 +527,13 @@ No son fallas del diseño: son tareas del backend y del frontend.
 
 - **Variable objetivo:** rendimiento en kg/ha.
 - **Unidad de entrenamiento:** una campaña cerrada (una fila de la vista).
-- **Preparación de datos (Semana 21, hecha):** comando `exportar_dataset` (HU-166) + paquete plano `backend/ml/` — catálogo de 28 columnas con roles y fugas (`dias_ciclo`), limpieza declarativa, pipeline con imputación/escalado **dentro del pliegue**, **GroupKFold por `productor_id`** con semilla 42 y línea base (media del entrenamiento, MAE/RMSE en kg/ha); flujo completo en `docs/ml_preparacion.md`. **Lo que queda (Sprint 13): entrenar, comparar con la línea base y decidir el error útil.**
+- **Preparación de datos (Semana 21, hecha):** comando `exportar_dataset` (HU-166) + paquete plano `backend/ml/` — catálogo de 28 columnas con roles y fugas (`dias_ciclo`), limpieza declarativa, pipeline con imputación/escalado **dentro del pliegue**, **GroupKFold por `productor_id`** con semilla 42 y línea base (media del entrenamiento, MAE/RMSE en kg/ha); flujo completo en `docs/ml_preparacion.md`.
+- **Entrenamiento y criterio (Semana 22, hechos):** comando `entrenar_modelos` evalúa los 3 candidatos y la línea base con la **misma** validación agrupada y aplica el criterio escrito de `docs/criterio_seleccion.md` (**solo se activa un modelo que mejora el MAE de la línea base**); `informe_resultados_ml.md` lo genera el comando. Con las 13 filas reales de la BD de desarrollo **ningún modelo pasa el criterio**; para demostrar el flujo existe `datos_ml_demostracion` (CSV inventado, marca de demostración, nunca como resultado de tesis).
+- **Registro y activación (Semana 22, hechos):** `registrar_modelo` (HU-171/172) crea 1 entrenamiento + 3 modelos, verifica la huella SHA-256 del `.joblib` y hace una predicción de prueba antes de tocar la BD; la activación garantiza **un solo modelo activo** con auditoría (HU-172). La API y las pantallas están en `docs/api_ml.md` y en el resumen de la Semana 22.
 - **Modelos a comparar:** regresión lineal, Random Forest y Gradient Boosting. XGBoost solo si sobra tiempo y se justifica.
 - **Métricas:** MAE, RMSE y R² (MAPE solo si no hay valores reales en cero).
 - **Validación:** con pocos datos, usar validación cruzada en lugar de una sola división 80/20. Como referencia, con menos de 100 a 150 registros completos los resultados son frágiles. Implementado: `ml.validacion` (GroupKFold con `shuffle`, semilla 42).
-- **Momento de predicción:** propuesta de la Semana 21: **al planificar el ciclo** (plan de manejo), solo con datos registrados hasta ese punto y el clima histórico; **pendiente de confirmar con el responsable** (pregunta **U** de `docs/decisiones_semana21.md` §8; corregir en el `.tex` líneas 447/309 al confirmarse).
+- **Momento de predicción:** **al planificar el ciclo** (plan de manejo), solo con datos registrados hasta ese punto; el clima del ciclo **no entra** al modelo (limitación declarada en `limitaciones_conocidas.md` §5). Decisión **U** de la Semana 22, corregida en `.tex` **v1.5** (líneas 447/309).
 - **Variables prohibidas como entrada:** producción, superficie cosechada, pérdida y fecha de cosecha (solo existen después de cosechar) y `dias_ciclo` (fuga: solo se conoce al cerrar la campaña).
 - **Un modelo único** con el cultivo como variable, salvo que los datos permitan uno por cultivo.
 - **Guardado:** archivo `.joblib` en una carpeta del proyecto (por ejemplo `ml_models/`). Usar la **misma versión de scikit-learn** para entrenar y predecir. Cargar solo modelos generados por el propio equipo, nunca archivos subidos por usuarios (joblib usa pickle).
@@ -616,8 +626,8 @@ No son fallas del diseño: son tareas del backend y del frontend.
 - **Entregar la lista real de provincias, distritos y comunidades** (la Semana 3 quedó con un CSV inventado en `datos/`; decisión 1).
 - **Confirmar la regla de enmascarado de DNI/teléfono por rol** (propuesta actual: Administrador y Técnico completos, Coordinador enmascarado; decisión 4).
 - ¿El productor que registra un técnico **se le asigna automáticamente**? (semana 4).
-- **¿Cuándo se hace la predicción dentro del ciclo del cultivo?** (pregunta histórica; en la Semana 21 recibió la letra **U**): propuesta de la Semana 21 = **al planificar el ciclo (plan de manejo)** con los datos hasta la siembra; pendiente de confirmar.
-- **Preguntas abiertas recopiladas en un solo mensaje** en `docs/decisiones_semana21.md` §8 (letras A..V, incluidas las nuevas **U** = momento de predicción y **V** = error útil con propuesta ±200 kg/ha, ambas con nota de colisión de letras).
+- **¿Cuándo se hace la predicción dentro del ciclo del cultivo?** (pregunta histórica, letra **U**): **respondida por el desarrollador en la Semana 22** (decisión U de `decisiones_semana22.md`): **al planificar el ciclo (plan de manejo)**; el clima del ciclo no entra al modelo. Sigue sin respuesta del responsable.
+- **Preguntas abiertas recopiladas en un solo mensaje** en `docs/decisiones_semana21.md` §8 (letras A..V) y actualizadas en `docs/decisiones_semana22.md` §10 (letras U/V/I/J/K/L/M/T/Nueva V; **V** = error útil con propuesta ±200 kg/ha, **J** = 13 campañas aptas: tramo «< 30»).
 - ¿Qué cultivos tendrán datos? (supuesto: quinua y cañihua)
 - ¿Cuántas campañas históricas con rendimiento conocido existen y en qué formato están?
 - ¿Cuál es la fecha límite para sustentar, y cuándo necesita el sistema funcionando?
@@ -723,7 +733,7 @@ No son fallas del diseño: son tareas del backend y del frontend.
 | `docs/decisiones_semana18.md` | 9 decisiones de la Semana 18 (reporte de actividades RF-68 y reporte de auditoría, HU-150..HU-156) + pregunta R con la nota de letras |
 | `docs/api_reportes.md` | Contrato de `/api/reportes/` con los **4 reportes**, filtros nuevos, rango de auditoría (366 días) y exportación desde `/auditoría` (actualizado en la Semana 18) |
 | `docs/verificacion_ui_semana18.md` | Checklist de navegador (Chrome/Edge/móvil) de `/reportes` con los tipos nuevos y de `/auditoría` con sus dos botones |
-| `docs/evidencias_capitulo4.md` | Evidencias del Capítulo IV actualizadas a la Semana 21 (suite 365/365, colección 574/574) |
+| `docs/evidencias_capitulo4.md` | Evidencias del Capítulo IV actualizadas a la Semana 22 (suite 392/392, colección 598/598) |
 | `docs/coleccion_api_semana18.json` | Colección de Postman: 574 peticiones (541–574 de la Semana 18) validadas 574/574 |
 | `docs/decisiones_semana19.md` | Decisiones de la Semana 19 (respaldos de la base de datos, HU-157..HU-164) |
 | `docs/decisiones_semana20.md` | 47 decisiones (117–163) de la Semana 20 (importación histórica + dataset, HU-165) |
@@ -732,6 +742,12 @@ No son fallas del diseño: son tareas del backend y del frontend.
 | `docs/decisiones_semana21.md` | 38 decisiones (164–201) de la Semana 21 (preparación ML, HU-166) + **preguntas abiertas A..V recopiladas en un solo mensaje** |
 | `docs/ml_preparacion.md` | Flujo completo de limpieza/preparación/validación, pipeline y tabla de exclusiones |
 | `docs/diccionario_variables.md` | Las 28 variables del catálogo con rol, conjunto y definición (espejo de `ml/catalogo.py`) |
+| `docs/decisiones_semana22.md` | 47 decisiones (202–248) de la Semana 22 (Machine Learning end-to-end, HU-169..HU-179) + preguntas U/V/I/J/K/L/M/T |
+| `docs/api_ml.md` | Contrato de `/api/modelos/` y `/api/predicciones/` (permisos, límites, ficha, comparación) |
+| `docs/criterio_seleccion.md` | Criterio escrito **antes** de entrenar: solo se activa un modelo que mejora a la línea base |
+| `docs/informe_resultados_ml.md` | Informe de resultados generado por `entrenar_modelos` (versión 1, origen demostración) |
+| `docs/manual_usuario.md` · `docs/manual_tecnico.md` | Manual por rol y manual de instalación/operación (HU-179) |
+| `docs/coleccion_api_semana22.json` | Colección final: 598 peticiones (574 S18 + 24 ML) validadas 598/598 con 1125/1125 aserciones |
 | `datos/ejemplo_ubicaciones.csv` | Datos de ubicación **inventados** (pruebas); se retira con la lista real |
 | `docker-compose.yml` | PostgreSQL 17 en Docker (en la raíz del proyecto) |
 | `.env` | Variables de entorno: `DB_*`, `SECRET_KEY`, `DEBUG`, `ALLOWED_HOSTS`, `CORS_*`, `ADMIN_*`, `ML_EXPORT_DIR` (Semana 21) y `RESPALDO_DIR` (Semana 19) (**no** se sube a Git) |

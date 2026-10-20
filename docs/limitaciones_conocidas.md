@@ -1,10 +1,11 @@
-# Limitaciones conocidas — Entrega 1 (Semana 19)
+# Limitaciones conocidas — Entrega 1 (Semana 19 → 22)
 
 Este documento declara, para transparencia y trazabilidad, las brechas de
 cobertura donde una regla de negocio vive **solo en una capa** (API o base
 de datos) o carece de defensa en BD. Se basa en la *Matriz de reglas de
-calidad* (§3) y complementa `requerimientos.tex` v1.3 (sección
-«Limitaciones conocidas»).
+calidad* (§3) y complementa `requerimientos.tex` **v1.5** (sección
+«Limitaciones conocidas»); la §5 añade los límites del Machine Learning
+de la Semana 22 (decisiones 243-244).
 
 ---
 
@@ -55,9 +56,31 @@ y al menos una prueba automatizada que la dispara. La matriz de calidad
 
 ---
 
-## 5. Referencias cruzadas
+## 5. Machine Learning (Semana 22) — límites declarados
+
+| Limitación | Detalle | Dónde se declara |
+|---|---|---|
+| **Momento de la predicción** | La predicción es **al planificar el ciclo** (plan de manejo): solo entra lo registrado hasta ese momento. El clima del ciclo (monitoreo) **no alimenta al modelo**, aunque el seguimiento esté implementado. | `decisiones_semana22.md` U, `.tex` v1.5 |
+| **Sin intervalo de confianza** | Se devuelve un punto (kg/ha) con MAE, sin intervalo inferior/superior; los campos existen pero quedan `null`. | `decisiones_semana22.md` 231 |
+| **Tamaño de los datos** | 13 campañas aptas en la BD de desarrollo: por debajo del tramo «≥ 30» del criterio, la confiabilidad es **BAJA**. Con datos reales escasos el criterio puede no elegir ningún modelo (no se activa nada). | `decisiones_semana22.md` 207, J |
+| **Origen de los datos de la demo** | El modelo activo de la demostración se entrenó con **datos inventados** (semilla 42, `datos_ml_demostracion`): banner «DATOS DE DEMOSTRACIÓN» en API y pantallas, marca `datos_demostracion` en la ficha. **Ninguna cifra es un resultado de tesis.** | `decisiones_semana22.md` 247, 231, 240 |
+| **Modelo estático** | El modelo es un archivo `.joblib` versionado: se reentrena con comandos (`entrenar_modelos`, `registrar_modelo`), **no desde la interfaz**. No hay reentrenamiento automático ni vigencia temporal. | `manual_tecnico.md` §6 |
+| **Despliegue pendiente** | El barrido de alertas depende de un cron/worker (§2); no hay despliegue en la nube ni proceso programado de reentrenamiento. | §2, `decisiones_semana22.md` 244 |
+
+### Fuera de alcance (mejoras futuras — decisión 244)
+
+Búsqueda de hiperparámetros · logaritmo del rendimiento · segundo
+conjunto de entrenamiento con clima integrado · intervalo de
+predicción · reportes de ML en Excel/PDF · alerta de rendimiento bajo
+· tarjeta del dashboard · reentrenar desde la interfaz · despliegue en
+la nube · predicciones en escenarios sin campaña · mapa de parcelas.
+
+---
+
+## 6. Referencias cruzadas
 
 - `docs/matriz_reglas_calidad.md` — §3 (huecos) y §2 (agregados).
-- `requerimientos.tex` v1.3 — secciones «Reglas adicionales implementadas» y «Limitaciones conocidas».
+- `requerimientos.tex` v1.5 — secciones «Reglas adicionales implementadas» y «Limitaciones conocidas».
 - `docs/decisiones_semana15.md` §1.1 — decisión de no triggers en alertas.
+- `docs/decisiones_semana22.md` — decisiones 202-248 (Machine Learning).
 - `backend/sistema/tests_calidad.py` — pruebas M236–M241 (matriz de calidad).

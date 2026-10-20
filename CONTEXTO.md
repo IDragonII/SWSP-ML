@@ -137,8 +137,8 @@ SIGPA-GA (Sistema de Información y Gestión de la Producción Agropecuaria — 
 
 ---
 
-### **Semana 21** (actual)
-**Objetivo**: preparación de datos para Machine Learning (Sprint 12) — comando `exportar_dataset`, paquete `backend/ml/`, notebooks y docs; pruebas **346–365 (total 365)**. Sin API, UI, tablas nuevas ni entrenamiento.
+### **Semana 21**
+**Objetivo**: preparación de datos para Machine Learning (Sprint 12) — comando `exportar_dataset`, paquete `backend/ml/`, notebooks y docs; pruebas **346–365**. Sin API, UI, tablas nuevas ni entrenamiento.
 
 #### Pruebas nuevas (346–365 → total 365)
 | Nº | Prueba | Archivo/Clase |
@@ -167,6 +167,33 @@ SIGPA-GA (Sistema de Información y Gestión de la Producción Agropecuaria — 
 
 ---
 
+### **Semana 22** (actual)
+**Objetivo**: cerrar el sistema con Machine Learning (Sprint 12, variante 1 semana / 36 h) — modelos con criterio escrito, servicio + API + pantallas React, pruebas **366–392 (total 392)**, colección **598/598 (1125/1125 aserciones)**, manuales y limitaciones. HU-169..HU-179; decisiones 202–248 (`docs/decisiones_semana22.md`).
+
+#### Pruebas nuevas (366–392 → total 392)
+| Nº | Prueba | Archivo/Clase |
+|----|--------|---------------|
+| 366–368 | Entrenamiento reproducible, criterio escrito, `.joblib` recargable | `ml/tests.py` · `EntrenamientoTests` |
+| 369–371 | `registrar_modelo`: 1 entrenamiento + 3 modelos, validaciones, un solo activo | `RegistroTests` |
+| 372–380 | Servicio: variables de la vista, huella y recarga, estados válidos, prioridad del plan, avisos, resultado, comparación al cosechar/deshacer, confiabilidad BAJA, marca de demostración | `ServicioTests` |
+| 381–387 | API: permisos/escrituras rechazadas, ficha sin DNI, alcance del Técnico, Coordinador, límite 30/hora, contrato de activo/campañas, activar por API | `ApiTests` |
+| 388 | Migraciones: 3 tablas ML, **32 tablas de dominio** y 25 triggers | `MigracionesTests` |
+| 389 | Recorrido completo punta a punta (registro → predicción → comparación → deshacer) | `RecorridoTests` |
+| 390–392 | Entrega sana: migraciones reversibles sin cambios, lint/build del frontend, manifiesto de archivos ML | `EntregaTests` |
+
+#### Comandos y módulos nuevos
+- App Django **`backend/ml/`** (antes paquete plano): modelos `entrenamientos_ml`, `modelos_ml`, `predicciones`; servicio `prediccion.py`; API `ModeloViewSet`, `PrediccionViewSet` (con auditoría) y comparación al cosechar.
+- Comandos: **`entrenar_modelos`** (3 candidatos + criterio → `ml_models/`), **`registrar_modelo`** (`--version-modelo`, `--desarrollo`, `--activar`; huella SHA-256 y predicción de prueba antes de tocar la BD), **`datos_ml_demostracion`** (CSV inventado con marca; 48 filas, semilla 42).
+- `produccion/0003` → `fn_produccion_post` completa: al cosechar guarda rendimiento real y error (absoluto y %) en la predicción pendiente; reversible.
+- Pantallas React: **`/predicción`** (`Prediccion.jsx`), **`/predicciones`** (historial con pestañas y comparación) y **`/modelos`** (`ModelosMl.jsx`), con banner de demostración y MAE junto al resultado.
+
+#### Documentos generados/actualizados
+- `docs/decisiones_semana22.md` — decisiones 202–248 + preguntas U/V/I/J/K/L/M/T/Nueva V.
+- `docs/api_ml.md`, `docs/criterio_seleccion.md` (criterio **antes** de entrenar), `docs/informe_resultados_ml.md` (lo genera `entrenar_modelos`), `docs/coleccion_api_semana22.json` (598).
+- `docs/manual_usuario.md` (por rol) y `docs/manual_tecnico.md` (HU-179); `docs/limitaciones_conocidas.md` ampliado (§5 ML); `docs/matriz_rutas_por_rol.md` regenerada; `docs/evidencias_capitulo4.md` — actualizadas a Semana 22 (392/392, 598/598). `requerimientos.tex` **v1.5** (externo, cambios documentados en decisiones).
+
+---
+
 ## Archivos clave
 
 | Archivo | Descripción |
@@ -176,17 +203,23 @@ SIGPA-GA (Sistema de Información y Gestión de la Producción Agropecuaria — 
 | `backend/sistema/tests_entrega1.py` | Pruebas 318–325 (base `Entrega1Base`). |
 | `backend/sistema/matriz_rutas.py` | Generación de matriz de rutas por rol. |
 | `backend/sistema/respaldo.py` | Núcleo de respaldo/restauración (Docker). |
-| `backend/sistema/management/commands/*.py` | `matriz_rutas`, `respaldo_bd`, `datos_volumen`, `datos_demostracion`. |
+| `backend/sistema/management/commands/*.py` | `matriz_rutas`, `respaldo_bd`, `datos_volumen`, `datos_demostracion`, `exportar_dataset`, `entrenar_modelos`, `registrar_modelo`, `datos_ml_demostracion`. |
 | `backend/importaciones/` | App importación histórica: `plantillas.py`, `servicio.py`, `importar_historico`, `tests.py` (326–345), migraciones `0001`–`0003` (vista dataset con ids, Semana 21). |
-| `backend/ml/` | Paquete ML Semana 21: `catalogo.py`, `columnas.py`, `carga.py`, `limpieza.py`, `preparacion.py`, `validacion.py`, `linea_base.py`, `exportacion.py` (semilla 42), `tests.py` (346–365). |
+| `backend/ml/` | App ML (Semana 21 paquete plano → Semana 22 app): `catalogo.py`, `columnas.py`, `carga.py`, `limpieza.py`, `preparacion.py`, `validacion.py`, `linea_base.py`, `exportacion.py`, `criterio.py`, `entrenamiento.py`, `guardado.py`, `prediccion.py`, `registro.py`, `models.py`/`views.py`/`serializers.py` (API), `tests.py` (346–392), migración `0001` (3 tablas). |
+| `backend/ml_models/` | Artefactos versionados: `<algoritmo>_v<N>.joblib` elegido, `resultados_v<N>.json`, `manifiesto.json` (SHA-256). |
+| `frontend/src/pages/` | `Prediccion.jsx`, `PrediccionHistorial.jsx`, `ModelosMl.jsx` (Semana 22). |
 | `backend/sistema/management/commands/exportar_dataset.py` | Exporta el dataset a `ML_EXPORT_DIR` (CSV + ficha JSON + auditoría). |
 | `notebooks/` | `01_exploracion.ipynb` y `02_preparacion.ipynb` (Semana 21, sin salidas). |
 | `docs/decisiones_semana21.md` | Decisiones 164–201 + preguntas abiertas recopiladas. |
+| `docs/decisiones_semana22.md` | Decisiones 202–248 (ML end-to-end, HU-169..179). |
+| `docs/api_ml.md` · `docs/criterio_seleccion.md` · `docs/informe_resultados_ml.md` | Contrato de la API de ML, criterio escrito antes de entrenar e informe generado. |
+| `docs/manual_usuario.md` · `docs/manual_tecnico.md` | Manual por rol y manual de instalación/operación (HU-179). |
 | `docs/ml_preparacion.md` · `docs/diccionario_variables.md` | Flujo ML y diccionario de las 28 variables. |
+| `docs/coleccion_api_semana22.json` | Colección final: 598 peticiones (574 S18 + 24 ML), validada 598/598. |
 | `docs/importacion_historica.md` | Guía de uso de `importar_historico`. |
 | `docs/dataset.md` | `vw_dataset_entrenamiento`: fuentes, columnas, NULLs de importadas. |
 | `docs/decisiones_semana20.md` | Decisiones 117–163. |
-| `D:\ProyectoJoseLuis\Documentos\Requerimeintos\requerimientos.tex` | v1.4 (Semana 20). |
+| `D:\ProyectoJoseLuis\Documentos\Requerimeintos\requerimientos.tex` | v1.5 (Semana 22: RF-52..RF-61, momento de predicción, control de cambios). |
 | `docs/matriz_reglas_calidad.md` | RN-01…RN-16 + agregados (§2) + huecos (§3) + alertas. |
 | `.env` | `SECRET_KEY`, `DB_*`, `RESPALDO_DIR`, `ML_EXPORT_DIR`, `DB_DOCKER_CONTAINER`, `PRODUCCION`, `ADMIN_URL`. |
 | `docker exec sigpa_db …` | Vía real a `pg_dump`/`psql`/`createdb`/`dropdb` (contenedor `sigpa_db`, user `sigpa_user`). |
@@ -201,5 +234,5 @@ SIGPA-GA (Sistema de Información y Gestión de la Producción Agropecuaria — 
 4. **Todo tabla usa `Tabla`** (AGENTS.md §3): nunca `<table>` a mano; `scope="col"`, `data-rotulo`, `celda-acciones`.
 5. **Validación colección API** (decisión 40, Semana 16): solo `test` y `pm.environment.set`.
 6. **UI**: `Campo` wrapper, `useToast()` → `avisar`, `useSesion()` → `tienePermiso`.
-7. **Numeración pruebas**: Semana 18 = 317; Semana 19 = 318–325; Semana 20 = 326–345; Semana 21 = 346–365.
-8. **Commit único por semana** + tag al final (decisión 72); **excepción Semana 20**: commit por fase (3 en total, decisión 119); **Semana 21**: commits por fase (6 de código + docs + cierre).
+7. **Numeración pruebas**: Semana 18 = 317; Semana 19 = 318–325; Semana 20 = 326–345; Semana 21 = 346–365; Semana 22 = 366–392.
+8. **Commit único por semana** + tag al final (decisión 72); **excepción Semana 20**: commit por fase (3 en total, decisión 119); **Semana 21**: commits por fase (6 de código + docs + cierre); **Semana 22**: commits por fase (F0–F6).

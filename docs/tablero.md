@@ -1,13 +1,62 @@
-# Tablero SIGPA-GA — Semana 18: reporte de actividades, reporte de auditoría y exportación desde la bitácora
+# Tablero SIGPA-GA — Semana 22: Machine Learning end-to-end (Sprint 12, variante de 1 semana / 36 h)
 
-> Tablero de la semana del **1 al 7 de febrero** (calendario
-> referencial; sin feriados).
+> Tablero semanal (calendario referencial; sin feriados).
 > Sustituye mientras tanto a Trello/GitHub Projects (decisión de metodología:
 > se confirmará con el responsable qué herramienta usa él).
 > Los textos originales de las historias de usuario **no están en este
 > repositorio**: las descripciones siguientes son el **mapeo propuesto**
 > (igual que en semanas anteriores), anclado a los RF/RN del documento de
 > requerimientos.
+> Las Semanas 19-21 no actualizaron este tablero: su estado está en
+> `decisiones_semana19.md` (325 pruebas), `decisiones_semana20.md`
+> (345) y `decisiones_semana21.md` (365); el histórico de la Semana 18
+> sigue abajo.
+
+## Semana 22 — F0..F5 terminadas (6/6; commits por fase)
+
+El tema «Machine Learning end-to-end» (cierre del **Sprint 12**, variante
+de 1 semana / 36 h) corresponde al **mapeo HU-169 a HU-179** (RF-52..RF-61
+del `.tex` v1.5); se ejecutó **por fases F0-F5** con commits propios:
+**F0** plan/migración `ml/0001` (3 tablas) + `produccion/0003`;
+**F1** criterio, entrenamiento y guardado (`entrenar_modelos`);
+**F2a-c** registro/activación, servicio de predicción y comparación al
+cosechar; **F2d** API + frontend (3 pantallas React); **F3** pruebas
+381-387; **F4** pruebas 389-392, auditoría de predicciones y matriz de
+rutas; **F5** colección **598/598**. Cierre: **suite 392/392** (792 s),
+`check` 0, `makemigrations --check` sin cambios, lint/build del frontend
+en 0, **32 tablas de dominio y 25 triggers** intactos,
+`matriz_rutas_por_rol.md` regenerada (permisos por rol: Administrador 55,
+Coordinador 14, Técnico 32 — con los 5 nuevos `ml.*`), manuales
+`manual_usuario.md`/`manual_tecnico.md` y `limitaciones_conocidas.md` §5.
+
+| HU | Descripción (propuesta) | Estado | Evidencia |
+|---|---|---|---|
+| **HU-169** | Entrenar 3 algoritmos con la validación agrupada de la S21 y comparar con la línea base | ✓ Hecha | `ml/entrenamiento.py`, `entrenar_modelos` · pruebas 366-368 |
+| **HU-170** | Criterio escrito **antes** de entrenar: solo se activa un modelo que mejora el MAE de la línea base | ✓ Hecha | `docs/criterio_seleccion.md`, `ml/criterio.py` · prueba 367 |
+| **HU-171** | Registrar un modelo (1 entrenamiento + 3 modelos, huella SHA-256, predicción de prueba) | ✓ Hecha | `registrar_modelo`, `ml/registro.py` · pruebas 369-370 |
+| **HU-172** | Activar un modelo (un solo activo, auditoría ACTIVAR/DESACTIVAR) | ✓ Hecha | `ml/views.py`, `ModelosMl.jsx` · pruebas 371, 387 |
+| **HU-173** | Predecir al planificar (4 valores del plan → rendimiento kg/ha + producción estimada) | ✓ Hecha | `ml/prediccion.py`, `POST /api/predicciones/`, `Prediccion.jsx` · pruebas 372-377, 381-385 |
+| **HU-174** | Confiabilidad y avisos (BAJA con 2+ faltantes, fuera de rango, marca de demostración + MAE) | ✓ Hecha | `ml/prediccion.py` · pruebas 376, 379, 380 |
+| **HU-175** | Historial de predicciones (pendientes/comparadas/todas, filtros, ficha) | ✓ Hecha | `PrediccionHistorial.jsx` · pruebas 382-384, 386 |
+| **HU-176** | Comparar predicho vs real al cosechar (error absoluto y %; deshacer limpia) | ✓ Hecha | `produccion/0003` (`fn_produccion_post` completa) · pruebas 378, 389 |
+| **HU-177** | Ver los resultados (3 pantallas con banner de demostración) | ✓ Hecha | `frontend/src/pages/{Prediccion,PrediccionHistorial,ModelosMl}.jsx` · prueba 391 |
+| **HU-178** | Alcance del Técnico (solo sus asignados y sus predicciones; sin ver quién predijo) | ✓ Hecha | `ml/views.py` · prueba 383 |
+| **HU-179** | Entregar (suite 392, colección 598, manuales y limitaciones) | ✓ Hecha | `manual_usuario.md`, `manual_tecnico.md`, `limitaciones_conocidas.md` §5 · suite 392/392, colección 598/598 |
+
+> **Nota:** el mapeo HU-169..HU-179 es el **mapeo propuesto** de la
+> semana (los textos originales no están en el repositorio); los
+> RF-52..RF-61 se leyeron del `requerimientos.tex` **v1.5** (externo,
+> versión del responsable). Las decisiones 202-248 están en
+> `docs/decisiones_semana22.md`.
+
+## Semanas 19-21 (resumen; sin sección propia en este tablero)
+
+- **Semana 19** (HU-157..HU-164): respaldos de la base de datos
+  (`respaldo_bd`, 8 pruebas → 325).
+- **Semana 20** (HU-165): importación histórica (`importar_historico`),
+  tabla `importaciones` y `vw_dataset_entrenamiento` (20 pruebas → 345).
+- **Semana 21** (HU-166): preparación de datos ML (`exportar_dataset`,
+  paquete `backend/ml/`, notebooks; 20 pruebas → 365).
 
 ## Semana 18 — F1..F7 terminadas (7/7)
 
