@@ -3,8 +3,10 @@
 Listar, ver detalle, crear, editar, revisar y deshacer cosecha. SIN borrado
 general: DELETE responde 405; la única excepción al «nada se borra» es la
 acción deshacer-cosecha, que elimina la fila mientras la campaña no esté
-CERRADA y la devuelve a EN_PRODUCCION. Registrar la producción pasa la
-campaña a COSECHADA (fn_produccion_post); los campos calculados (kg,
+CERRADA, la devuelve a EN_PRODUCCION y limpia el comparativo predicho vs
+real de las predicciones en la misma transacción (S22, decisión 236).
+Registrar la producción pasa la campaña a COSECHADA (fn_produccion_post,
+que también completa ese comparativo); los campos calculados (kg,
 rendimiento, marca de revisión) los llena la base y aquí se releen antes
 de responder.
 
@@ -37,6 +39,7 @@ from productores.views import (
 
 from auditoria.mixins import AuditoriaMixin
 from alertas.servicio import tras_confirmar
+from ml.servicio import limpiar_comparacion
 
 from .models import Produccion
 from .serializers import (
@@ -313,6 +316,10 @@ class ProduccionViewSet(
             campania.save(update_fields=("estado",))
             produccion_pk = produccion.pk
             produccion.delete()
+            # El trigger no corre al borrar: el comparativo predicho vs
+            # real lo limpia el servicio en la MISMA transacción (S22,
+            # decisión 236).
+            limpiar_comparacion(campania)
             self._registrar_auditoria(
                 "ELIMINAR",
                 registro_id=produccion_pk,

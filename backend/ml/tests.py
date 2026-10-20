@@ -46,8 +46,9 @@ from django.utils import timezone
 
 from auditoria.models import Auditoria
 from campanias.models import Campania
-from catalogos.models import Cultivo, Unidad, Variedad
+from catalogos.models import Cultivo, Recurso, Unidad, Variedad
 from productores.models import Comunidad, Distrito, Parcela, Productor, Provincia
+from seguimiento.models import UsoRecurso
 from usuarios.models import Rol, Usuario
 from usuarios.tests import _post_login
 
@@ -62,11 +63,13 @@ from ml import (
     limpieza,
     preparacion,
     registro,
+    servicio,
     validacion,
 )
 from ml.carga import ErrorCarga, cargar
-from ml.models import EntrenamientoML, ModeloML
+from ml.models import EntrenamientoML, ModeloML, Prediccion
 from ml.registro import ErrorRegistro
+from ml.servicio import ErrorModelo, ErrorSinModelo, ErrorVariables
 
 RUTA_VISTA = "vw_dataset_entrenamiento"
 
@@ -1304,12 +1307,10 @@ class Bloque1Tests(TestCase):
 # ---------------------------------------------------------------------- #
 # Fase F2b: registro y activación de modelos (369-371)
 # ---------------------------------------------------------------------- #
-class Bloque2bTests(MLBase):
-    """Pruebas 369-371: registrar_modelo da de alta 1 entrenamiento y 3
-    modelos con sus protecciones (30 campañas, demostración con bandera,
-    versión única, permisos), y la activación garantiza un solo modelo
-    activo con archivo, huella y predicción de prueba (decisiones
-    220-222)."""
+class Bloque2Base(MLBase):
+    """Helpers compartidos de F2b y F2c (369-380): métricas de prueba
+    válidas para registrar (candidatos, línea base y criterio) y tubos
+    .joblib entrenados fuera del destino."""
 
     def _metricas(self, version, n=48, origen="real",
                   elegido="REGRESION_LINEAL"):
@@ -1356,6 +1357,14 @@ class Bloque2bTests(MLBase):
         ruta = Path(carpeta) / f"entrenado_{version}.joblib"
         joblib.dump(tubo, ruta)
         return ruta
+
+
+class Bloque2bTests(Bloque2Base):
+    """Pruebas 369-371: registrar_modelo da de alta 1 entrenamiento y 3
+    modelos con sus protecciones (30 campañas, demostración con bandera,
+    versión única, permisos), y la activación garantiza un solo modelo
+    activo con archivo, huella y predicción de prueba (decisiones
+    220-222)."""
 
     # ------------------------------------------------------------------ #
     def test_369_registrar_modelo_crea_un_entrenamiento_y_tres_modelos(self):
@@ -1644,6 +1653,438 @@ class Bloque2bTests(MLBase):
                 registro.activar_modelo(elegido_b, self.admin,
                                         destino=destino)
             self.assertEqual(ModeloML.objects.filter(activo=True).count(), 1)
+
+
+# ---------------------------------------------------------------------- #
+# Fase F2c: servicio de predicción (372-380)
+# ---------------------------------------------------------------------- #
+class Bloque2cTests(Bloque2Base):
+    """Pruebas 372-380: el servicio usa las variables de la vista (225),
+    carga el modelo activo con su huella y lo recarga si cambia (226),
+    solo predice en estados elegibles y guarda lo enviado (227, 238),
+    los valores planificados tienen prioridad y guardan su origen (228),
+    los avisos declaran faltantes, categorías nuevas y fuera de rango con
+    la confiabilidad (229), el resultado es kg/ha + producción estimada
+    sin intervalo y un negativo va a cero con marca (230), la respuesta
+    lleva la marca de demostración con el texto y el MAE (231) y el
+    comparativo con lo real se completa al cosechar y se limpia al
+    deshacer (236, 237)."""
+
+    def setUp(self):
+        super().setUp()
+        self._carpeta = tempfile.TemporaryDirectory()
+        self.addCleanup(self._carpeta.cleanup)
+        self.destino = Path(self._carpeta.name) / "ml_models"
+        self.addCleanup(servicio.limpiar_cache)
+        servicio.limpiar_cache()
+        self.blanca, _ = Variedad.objects.get_or_create(
+            cultivo=Cultivo.objects.get(nombre="Quinua"), nombre="Blanca"
+        )
+        self._n = 0
+
+    # ------------------------------------------------------------------ #
+    # helpers
+    # ------------------------------------------------------------------ #
+    def _activo(self, version, datos=None, origen="demostración"):
+        """Registra y activa un modelo con un tubo entrenado aquí."""
+        tubo, _, _ = entrenamiento.entrenar_completo(
+            datos if datos is not None else datos_sinteticos(),
+            "REGRESION_LINEAL",
+        )
+        ruta = Path(self._carpeta.name) / f"entrenado_{version}.joblib"
+        joblib.dump(tubo, ruta)
+        resumen = registro.registrar(
+            usuario=self.admin,
+            resultados=self._metricas(version=version, origen=origen),
+            version=version,
+            archivo=ruta,
+            destino=self.destino,
+            desarrollo=True,
+            activar=True,
+        )
+        servicio.limpiar_cache()
+        return resumen
+
+    def _camp(self, **extra):
+        """Campaña EN_PRODUCCION con cultivo/variedad vistos en el tubo."""
+        self._n += 1
+        productor = self._productor(
+            dni=f"960001{self._n:02d}", nombre=f"P{self._n}"
+        )
+        parcela = self._parcela(productor)
+        datos = {"cultivo": self.blanca.cultivo, "variedad": self.blanca}
+        datos.update(extra)
+        return self._campania(parcela, **datos)
+
+    def _usos(self, campania, **totales):
+        recursos = {
+            "semilla": ("Semilla (total histórico)", "Kilogramo"),
+            "fertilizante": ("Fertilizante (total histórico)", "Kilogramo"),
+            "jornales": ("Mano de obra (total histórico)", "Jornal"),
+            "agua": ("Agua (total histórico)", "Metro cúbico"),
+        }
+        for clave, valor in totales.items():
+            if valor is None:
+                continue
+            nombre, unidad = recursos[clave]
+            UsoRecurso.objects.create(
+                campania=campania,
+                recurso=Recurso.objects.get(nombre=nombre),
+                fecha=campania.fecha_inicio + timedelta(days=5),
+                cantidad=Decimal(str(valor)),
+                unidad=Unidad.objects.get(nombre=unidad),
+                cantidad_base=Decimal("0"),
+                registrado_por=self.admin,
+            )
+
+    # ------------------------------------------------------------------ #
+    def test_372_las_variables_del_servicio_coinciden_con_la_fila_de_la_vista(self):
+        campania = self._camp()
+        self._usos(campania, semilla="67.5", fertilizante="180",
+                   jornales="45", agua="300")
+        self._producir(campania, "1.50", "300")
+        self._cerrar(campania)
+
+        fila, origenes = servicio.fila_de_campania(campania)
+        self.assertEqual(set(fila), set(catalogo.columnas_conjunto("plan")))
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT * FROM vw_dataset_entrenamiento WHERE campania_id = %s",
+                [campania.pk],
+            )
+            nombres = [columna.name for columna in cursor.description]
+            vista = dict(zip(nombres, cursor.fetchone()))
+        for columna in catalogo.columnas_conjunto("plan"):
+            self.assertEqual(fila[columna], vista[columna], columna)
+
+        # El origen de cada valor queda declarado (228)
+        self.assertEqual(origenes["semilla_kg_ha"], "registrado")
+        self.assertEqual(origenes["cultivo"], "campaña")
+        self.assertEqual(origenes["altitud_msnm"], "parcela")
+
+    # ------------------------------------------------------------------ #
+    def test_373_el_modelo_se_carga_con_su_huella_y_se_recarga_si_cambia(self):
+        campania = self._camp()
+        self._usos(campania, semilla="67.5", fertilizante="180",
+                   jornales="45", agua="300")
+        self._activo("373a")
+        primera = servicio.predecir(campania, self.admin, destino=self.destino)
+        self.assertEqual(primera["modelo"]["version"], "373a")
+
+        # Caché: el mismo tubo mientras la huella no cambie (226)
+        _, tubo1 = servicio.cargar_modelo(destino=self.destino)
+        _, tubo2 = servicio.cargar_modelo(destino=self.destino)
+        self.assertIs(tubo1, tubo2)
+
+        # Otro activo (entrenado con la mitad del rendimiento) → se
+        # recarga y el resultado cambia
+        mitad = datos_sinteticos()
+        mitad["rendimiento_kg_ha"] = mitad["rendimiento_kg_ha"] / 2
+        self._activo("373b", datos=mitad)
+        segunda = servicio.predecir(campania, self.admin, destino=self.destino)
+        self.assertEqual(segunda["modelo"]["version"], "373b")
+        self.assertNotEqual(
+            segunda["rendimiento_predicho"], primera["rendimiento_predicho"]
+        )
+
+        # Archivo alterado → la huella no coincide y NO predice (226)
+        ruta = self.destino / "regresion_lineal_v373b.joblib"
+        original = ruta.read_bytes()
+        ruta.write_bytes(original + b"\x00")
+        with self.assertRaises(ErrorModelo):
+            servicio.predecir(campania, self.admin, destino=self.destino)
+        ruta.write_bytes(original)
+        tercera = servicio.predecir(campania, self.admin, destino=self.destino)
+        self.assertEqual(tercera["modelo"]["version"], "373b")
+
+    # ------------------------------------------------------------------ #
+    def test_374_solo_se_predice_en_estados_validos_y_con_modelo_activo(self):
+        self._activo("374")
+        activo = ModeloML.objects.get(activo=True)
+        campania = self._camp()
+
+        # Sin modelo activo → ErrorSinModelo (la API responde 409)
+        ModeloML.objects.filter(activo=True).update(activo=False)
+        with self.assertRaises(ErrorSinModelo):
+            servicio.predecir(campania, self.admin, destino=self.destino)
+        activo.activo = True
+        activo.save(update_fields=["activo"])
+
+        # Estados que rechazan (227)
+        cosechada = self._camp()
+        self._producir(cosechada, "1.50", "300")
+        cerrada = self._camp()
+        self._producir(cerrada, "1.50", "300")
+        self._cerrar(cerrada)
+        cancelada = self._camp()
+        self._sql(
+            "UPDATE campanias SET estado = 'CANCELADA' WHERE id = %s",
+            [cancelada.pk],
+        )
+        cancelada.refresh_from_db()
+        for campania_mala in (cosechada, cerrada, cancelada):
+            with self.assertRaisesMessage(
+                servicio.ErrorEstado, campania_mala.estado
+            ):
+                servicio.predecir(campania_mala, self.admin,
+                                  destino=self.destino)
+
+        # PLANIFICADA sí es elegible (227)
+        planificada = self._camp(estado=Campania.ESTADO_PLANIFICADA)
+        respuesta_plan = servicio.predecir(
+            planificada, self.admin, destino=self.destino
+        )
+        self.assertIsNotNone(respuesta_plan["prediccion"].pk)
+
+        # Guardar y consultar: campos propios, sin intervalo y varias
+        # por campaña (230, 232)
+        respuesta = servicio.predecir(campania, self.admin,
+                                      destino=self.destino)
+        prediccion = respuesta["prediccion"]
+        self.assertEqual(prediccion.campania, campania)
+        self.assertEqual(prediccion.modelo, activo)
+        self.assertEqual(prediccion.creado_por, self.admin)
+        self.assertEqual(
+            prediccion.rendimiento_predicho, respuesta["rendimiento_predicho"]
+        )
+        self.assertEqual(
+            prediccion.produccion_estimada_kg,
+            (prediccion.rendimiento_predicho * Decimal("1.50")).quantize(
+                Decimal("0.01")
+            ),
+        )
+        self.assertIsNone(prediccion.intervalo_inferior)
+        self.assertIsNone(prediccion.intervalo_superior)
+        self.assertIsNone(prediccion.dias_ciclo)  # sin siembra (238)
+        self.assertEqual(campania.predicciones.count(), 1)
+        servicio.predecir(campania, self.admin, destino=self.destino)
+        self.assertEqual(campania.predicciones.count(), 2)
+
+        # Auditoría CREAR sin variables de entrada (234)
+        evento = Auditoria.objects.filter(
+            accion="CREAR", modulo="Machine Learning"
+        ).order_by("-id").first()
+        self.assertEqual(evento.detalle["tabla"], "predicciones")
+        self.assertEqual(evento.detalle["campania"], campania.pk)
+        self.assertNotIn("variables", evento.detalle)
+
+        # Con fecha de siembra, dias_ciclo cuenta desde la siembra (238)
+        con_siembra = self._camp(
+            fecha_siembra=self.hoy - timedelta(days=30)
+        )
+        respuesta_siembra = servicio.predecir(
+            con_siembra, self.admin, destino=self.destino
+        )
+        self.assertEqual(respuesta_siembra["dias_ciclo"], 30)
+
+    # ------------------------------------------------------------------ #
+    def test_375_los_valores_planificados_tienen_prioridad_y_guardan_su_origen(self):
+        self._activo("375")
+        campania = self._camp()
+        self._usos(campania, semilla="67.5", fertilizante="180",
+                   jornales="45", agua="300")
+
+        respuesta = servicio.predecir(
+            campania, self.admin, destino=self.destino,
+            planificados={"semilla": 50, "agua": 100},
+        )
+        guardadas = respuesta["prediccion"].variables_entrada
+        self.assertEqual(guardadas["planificados"], {"semilla": 50.0, "agua": 100.0})
+        self.assertEqual(guardadas["origenes"]["semilla_kg_ha"], "planificado")
+        self.assertEqual(guardadas["origenes"]["agua_m3_ha"], "planificado")
+        self.assertEqual(guardadas["origenes"]["fertilizante_kg_ha"], "registrado")
+        self.assertEqual(guardadas["origenes"]["jornales_ha"], "registrado")
+        # La copia exacta de lo enviado al modelo lleva el planificado
+        self.assertEqual(guardadas["valores"]["semilla_kg_ha"], 50.0)
+        self.assertEqual(guardadas["valores"]["fertilizante_kg_ha"], 120.0)
+
+        # Sin registrados, el planificado también deja constancia
+        otra = self._camp()
+        sin_registrados = servicio.predecir(
+            otra, self.admin, destino=self.destino,
+            planificados={"fertilizante": 120},
+        )
+        origenes = sin_registrados["prediccion"].variables_entrada["origenes"]
+        self.assertEqual(origenes["fertilizante_kg_ha"], "planificado")
+        self.assertEqual(origenes["semilla_kg_ha"], "imputada")
+
+        # Validaciones de lo planificado (228)
+        with self.assertRaisesMessage(ErrorVariables, "negativo"):
+            servicio.predecir(campania, self.admin, destino=self.destino,
+                              planificados={"semilla": -1})
+        with self.assertRaisesMessage(ErrorVariables, "desconocida"):
+            servicio.predecir(campania, self.admin, destino=self.destino,
+                              planificados={"siembra": 5})
+        with self.assertRaisesMessage(ErrorVariables, "número"):
+            servicio.predecir(campania, self.admin, destino=self.destino,
+                              planificados={"semilla": "x"})
+
+    # ------------------------------------------------------------------ #
+    def test_376_los_avisos_declaran_faltantes_categorias_y_fuera_de_rango(self):
+        self._activo("376")
+        # Cultivo y variedad que el tubo nunca vio («Quinua S21»)
+        campania = self._camp(cultivo=self.cultivo, variedad=self.variedad)
+        respuesta = servicio.predecir(
+            campania, self.admin, destino=self.destino,
+            planificados={"semilla": 5000},
+        )
+        guardadas = respuesta["prediccion"].variables_entrada
+        avisos = "\n".join(guardadas["avisos"])
+        self.assertIn("mediana", avisos)  # fertilizante/jornales/agua
+        self.assertIn("no se vio en el entrenamiento", avisos)
+        self.assertIn("Quinua S21", avisos)
+        self.assertIn("fuera del rango", avisos)  # 5000 fuera de 30-60
+        self.assertEqual(guardadas["origenes"]["semilla_kg_ha"], "planificado")
+        self.assertEqual(guardadas["origenes"]["fertilizante_kg_ha"], "imputada")
+        # Los avisos también viajan en la respuesta
+        self.assertEqual(len(respuesta["avisos"]), len(guardadas["avisos"]))
+
+    # ------------------------------------------------------------------ #
+    def test_377_el_resultado_es_rendimiento_mas_produccion_sin_intervalo_y_negativo_en_cero(self):
+        self._activo("377")
+        campania = self._camp()  # superficie 1.50
+        self._usos(campania, semilla="67.5", fertilizante="180",
+                   jornales="45", agua="300")
+        respuesta = servicio.predecir(campania, self.admin,
+                                      destino=self.destino)
+        rendimiento = respuesta["rendimiento_predicho"]
+        self.assertIsInstance(rendimiento, Decimal)
+        self.assertFalse(respuesta["negativo_ajustado"])
+        esperada = (rendimiento * Decimal("1.50")).quantize(Decimal("0.01"))
+        self.assertEqual(respuesta["produccion_estimada_kg"], esperada)
+        self.assertIsNone(respuesta["intervalo_inferior"])
+        self.assertIsNone(respuesta["intervalo_superior"])
+        guardada = respuesta["prediccion"]
+        self.assertIsNone(guardada.intervalo_inferior)
+        self.assertIsNone(guardada.intervalo_superior)
+        self.assertEqual(guardada.produccion_estimada_kg, esperada)
+
+        # Un modelo que predice negativo va a 0 con la marca (230)
+        datos = datos_sinteticos()
+        datos["rendimiento_kg_ha"] = -datos["rendimiento_kg_ha"]
+        self._activo("377n", datos=datos)
+        negativa = servicio.predecir(campania, self.admin,
+                                     destino=self.destino)
+        self.assertTrue(negativa["negativo_ajustado"])
+        self.assertEqual(negativa["rendimiento_predicho"], Decimal("0.00"))
+        self.assertEqual(negativa["produccion_estimada_kg"], Decimal("0.00"))
+        self.assertEqual(
+            negativa["prediccion"].rendimiento_predicho, Decimal("0.00")
+        )
+
+    # ------------------------------------------------------------------ #
+    def test_378_al_cosechar_se_compara_predicho_vs_real_y_al_deshacer_se_limpia(self):
+        self._activo("378")
+        campania = self._camp()
+        respuesta = servicio.predecir(campania, self.admin,
+                                      destino=self.destino)
+        prediccion = respuesta["prediccion"]
+        # Con el ejemplo de la decisión 236: 1580 predicho vs 1620 real
+        prediccion.rendimiento_predicho = Decimal("1580.00")
+        prediccion.save(update_fields=["rendimiento_predicho"])
+
+        # Registrar la producción completa el comparativo (fn; 236)
+        self._producir(campania, "1.50", "2430")  # → 1620 kg/ha
+        prediccion.refresh_from_db()
+        self.assertEqual(prediccion.rendimiento_real, Decimal("1620.00"))
+        self.assertEqual(prediccion.error_abs, Decimal("40.00"))
+        self.assertEqual(prediccion.error_pct, Decimal("2.47"))
+
+        # 237: borrada por SQL directo, el comparativo NO se limpia
+        self._sql(
+            "DELETE FROM producciones WHERE campania_id = %s",
+            [campania.pk],
+        )
+        prediccion.refresh_from_db()
+        self.assertEqual(prediccion.error_abs, Decimal("40.00"))
+        self.assertEqual(servicio.limpiar_comparacion(campania), 1)
+        prediccion.refresh_from_db()
+        self.assertIsNone(prediccion.rendimiento_real)
+        self.assertIsNone(prediccion.error_abs)
+        self.assertIsNone(prediccion.error_pct)
+
+        # Vía API: deshacer-cosecha limpia en la MISMA transacción (236)
+        self._sql(
+            "UPDATE campanias SET estado = 'EN_PRODUCCION' WHERE id = %s",
+            [campania.pk],
+        )
+        self._producir(campania, "1.50", "2430")
+        prediccion.refresh_from_db()
+        self.assertEqual(prediccion.error_abs, Decimal("40.00"))
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT id FROM producciones WHERE campania_id = %s",
+                [campania.pk],
+            )
+            produccion_id = cursor.fetchone()[0]
+        self._entrar_admin()
+        respuesta_deshacer = self._api(
+            "post",
+            f"/api/producciones/{produccion_id}/deshacer-cosecha/",
+            {"motivo": "Prueba 378"},
+        )
+        self.assertEqual(respuesta_deshacer.status_code, 200)
+        prediccion.refresh_from_db()
+        self.assertIsNone(prediccion.rendimiento_real)
+        self.assertIsNone(prediccion.error_abs)
+        self.assertIsNone(prediccion.error_pct)
+
+    # ------------------------------------------------------------------ #
+    def test_379_la_confiabilidad_es_baja_con_dos_variables_de_manejo_ausentes(self):
+        self._activo("379")
+
+        # 4 ausentes → BAJA (229)
+        sin_nada = self._camp()
+        r1 = servicio.predecir(sin_nada, self.admin, destino=self.destino)
+        self.assertEqual(r1["confiabilidad"], "BAJA")
+        self.assertEqual(
+            r1["prediccion"].variables_entrada["confiabilidad"], "BAJA"
+        )
+
+        # Exactamente 2 de 4 ausentes → BAJA
+        dos = self._camp()
+        r2 = servicio.predecir(
+            dos, self.admin, destino=self.destino,
+            planificados={"semilla": 45, "fertilizante": 120},
+        )
+        self.assertEqual(r2["confiabilidad"], "BAJA")
+
+        # 1 ausente → todavía ALTA
+        una = self._camp()
+        r3 = servicio.predecir(
+            una, self.admin, destino=self.destino,
+            planificados={"semilla": 45, "fertilizante": 120,
+                          "mano_de_obra": 30},
+        )
+        self.assertEqual(r3["confiabilidad"], "ALTA")
+
+        # Completas → ALTA
+        completa = self._camp()
+        self._usos(completa, semilla="67.5", fertilizante="180",
+                   jornales="45", agua="300")
+        r4 = servicio.predecir(completa, self.admin, destino=self.destino)
+        self.assertEqual(r4["confiabilidad"], "ALTA")
+
+    # ------------------------------------------------------------------ #
+    def test_380_la_respuesta_lleva_la_marca_de_demostracion_el_texto_y_el_mae(self):
+        texto = "Es una estimación basada en datos históricos, no una medición."
+        self._activo("380d", origen="demostración")
+        campania = self._camp()
+        respuesta = servicio.predecir(campania, self.admin,
+                                      destino=self.destino)
+        self.assertTrue(respuesta["datos_demostracion"])
+        self.assertEqual(respuesta["texto_estimacion"], texto)
+        self.assertEqual(respuesta["modelo"]["mae"], "4.50")
+
+        # Un modelo de datos reales no lleva la marca, pero sí el
+        # texto y el MAE junto al resultado (231)
+        self._activo("380r", origen="real")
+        respuesta_real = servicio.predecir(campania, self.admin,
+                                           destino=self.destino)
+        self.assertFalse(respuesta_real["datos_demostracion"])
+        self.assertEqual(respuesta_real["texto_estimacion"], texto)
+        self.assertEqual(respuesta_real["modelo"]["mae"], "4.50")
 
 
 # ---------------------------------------------------------------------- #

@@ -34,6 +34,7 @@ from sklearn.model_selection import GroupShuffleSplit
 from sklearn.pipeline import Pipeline
 
 from ml import criterio, linea_base, validacion
+from ml.carga import COLUMNAS_NUMERICAS
 from ml.catalogo import CONJUNTO_PLAN
 from ml.exportacion import SEMILLA
 from ml.preparacion import preparar
@@ -115,6 +116,20 @@ def entrenar_completo(datos, algoritmo, conjunto=CONJUNTO_PLAN):
     X, y, prep, _ = preparar(datos, conjunto=conjunto)
     tubo = _tubo(prep, constructores()[algoritmo])
     tubo.fit(X, y)
+    # Rango visto en el entrenamiento: el servicio avisa si una
+    # predición cae fuera de él (decisión 229, «si se alcanzó»). Viaja
+    # serializado dentro del propio .joblib.
+    rangos = {}
+    for columna in X.columns:
+        if columna not in COLUMNAS_NUMERICAS:
+            continue
+        vista = X[columna].dropna()
+        if len(vista):
+            rangos[columna] = {
+                "min": float(vista.min()),
+                "max": float(vista.max()),
+            }
+    tubo.rangos_entrenamiento_ = rangos
     return tubo, X, y
 
 
