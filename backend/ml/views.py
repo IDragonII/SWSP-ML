@@ -46,6 +46,16 @@ from .serializers import (
 _ORDEN_PREDICCIONES = ("-fecha", "id")
 _ORDEN_MODELOS = ("-creado_en", "id")
 
+# Filtro del historial (HU-177): pendientes son las predicciones sin
+# comparación aún; el valor vacío o «todas» no filtra.
+COMPARACIONES = {
+    None: {},
+    "": {},
+    "todas": {},
+    "pendiente": {"rendimiento_real__isnull": True},
+    "comparada": {"rendimiento_real__isnull": False},
+}
+
 
 class PermisosML(PermisosPorAccion):
     """ml.* sembrados en usuarios.0002: Técnico de campo (predecir y
@@ -76,11 +86,18 @@ class PrediccionViewSet(
         return PrediccionListaSerializer
 
     def get_queryset(self):
+        comparacion = self.request.query_params.get("comparacion")
+        if comparacion not in COMPARACIONES:
+            raise ValidationError(
+                {"comparacion": "Use pendiente, comparada o todas."}
+            )
         base = Prediccion.objects.select_related(
             "campania", "campania__parcela", "campania__parcela__productor",
             "campania__cultivo", "campania__variedad",
             "modelo", "modelo__entrenamiento", "creado_por",
-        ).order_by(*_ORDEN_PREDICCIONES)
+        ).order_by(*_ORDEN_PREDICCIONES).filter(
+            **COMPARACIONES[comparacion]
+        )
         return filtrar_asignados(
             base, self.request.user, campo="campania__parcela__productor_id"
         )

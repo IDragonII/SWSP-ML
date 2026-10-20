@@ -11,10 +11,13 @@ import Climas from './pages/Climas.jsx'
 import Incidencias from './pages/Incidencias.jsx'
 import Inicio from './pages/Inicio.jsx'
 import Login from './pages/Login.jsx'
+import ModelosMl from './pages/ModelosMl.jsx'
 import Modulo from './pages/Modulo.jsx'
 import NoEncontrado from './pages/NoEncontrado.jsx'
 import Parametros from './pages/Parametros.jsx'
 import Parcelas from './pages/Parcelas.jsx'
+import Prediccion from './pages/Prediccion.jsx'
+import PrediccionHistorial from './pages/PrediccionHistorial.jsx'
 import Productores from './pages/Productores.jsx'
 import ProductoresRiesgo from './pages/ProductoresRiesgo.jsx'
 import Recursos from './pages/Recursos.jsx'
@@ -43,6 +46,9 @@ const rutasConPantalla = new Set([
   '/roles',
   '/auditoria',
   '/reportes',
+  '/prediccion',
+  '/predicciones',
+  '/modelos',
 ])
 const modulos = opcionesMenu.filter(
   (opcion) => !rutasConPantalla.has(opcion.ruta),
@@ -203,6 +209,33 @@ export default function App() {
             element={
               <RutaProtegida permiso="reportes.ver">
                 <Reportes />
+              </RutaProtegida>
+            }
+          />
+
+          <Route
+            path="/prediccion"
+            element={
+              <RutaProtegida permiso="ml.ver_predicciones">
+                <Prediccion />
+              </RutaProtegida>
+            }
+          />
+
+          <Route
+            path="/predicciones"
+            element={
+              <RutaProtegida permiso="ml.ver_predicciones">
+                <PrediccionHistorial />
+              </RutaProtegida>
+            }
+          />
+
+          <Route
+            path="/modelos"
+            element={
+              <RutaProtegida permiso="ml.ver_modelos">
+                <ModelosMl />
               </RutaProtegida>
             }
           />

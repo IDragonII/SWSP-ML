@@ -2195,6 +2195,30 @@ class Bloque2dTests(Bloque2Base):
         self.assertEqual(
             lista["results"][0]["modelo"]["algoritmo"], "REGRESION_LINEAL"
         )
+        # Filtro de comparación del historial (HU-177): por defecto las
+        # pendientes, y el valor inválido responde 400 en español
+        self.assertEqual(
+            self._json(
+                self.client.get("/api/ml/predicciones/?comparacion=pendiente")
+            )["count"],
+            1,
+        )
+        self.assertEqual(
+            self._json(
+                self.client.get("/api/ml/predicciones/?comparacion=comparada")
+            )["count"],
+            0,
+        )
+        self.assertEqual(
+            self._json(
+                self.client.get("/api/ml/predicciones/?comparacion=todas")
+            )["count"],
+            1,
+        )
+        mala = self._json(
+            self.client.get("/api/ml/predicciones/?comparacion=rara")
+        )
+        self.assertEqual(mala["comparacion"], "Use pendiente, comparada o todas.")
         # Sin PUT/PATCH/DELETE: 405 en el detalle (232)
         url = f"/api/ml/predicciones/{prediccion.pk}/"
         self.assertEqual(self._api("put", url, {}).status_code, 405)

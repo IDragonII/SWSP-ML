@@ -71,6 +71,11 @@ con cabecera `Retry-After: 3600` (429).
 
 Fila del historial (sin `variables_entrada`; llega en la ficha):
 
+| Parámetro | Valores | Efecto |
+|---|---|---|
+| `comparacion` | `pendiente`, `comparada`, `todas` | Filtra por la comparación con lo real (HU-177); por defecto, sin filtro. Otro valor → `400 {"comparacion": "Use pendiente, comparada o todas."}` |
+| `page` | número | Paginación (20 por página) |
+
 ```json
 {
   "id": 3,

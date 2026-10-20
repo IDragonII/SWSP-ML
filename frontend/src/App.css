@@ -1336,3 +1336,26 @@
     height: 200px;
   }
 }
+
+/* Predicción de ML (S22, HU-173): el resultado grande y su pie */
+.resultado-prediccion {
+  margin: 0.25rem 0 0;
+  font-size: clamp(2.25rem, 6vw, 3.25rem);
+  font-weight: 700;
+  line-height: 1.05;
+  color: var(--bosque);
+}
+
+.resultado-unidad {
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--apagado);
+}
+
+.resultado-datos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  margin-top: 0.5rem;
+  color: var(--tinta);
+}

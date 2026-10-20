@@ -17,6 +17,12 @@ export const opcionesMenu = [
     permiso: 'alertas.ver',
   },
   { ruta: '/prediccion', nombre: 'Predicción', permiso: 'ml.ver_predicciones' },
+  {
+    ruta: '/predicciones',
+    nombre: 'Historial de predicciones',
+    permiso: 'ml.ver_predicciones',
+  },
+  { ruta: '/modelos', nombre: 'Modelos ML', permiso: 'ml.ver_modelos' },
   { ruta: '/reportes', nombre: 'Reportes', permiso: 'reportes.ver' },
   { ruta: '/usuarios', nombre: 'Usuarios', permiso: 'usuarios.ver' },
   { ruta: '/roles', nombre: 'Roles y permisos', permiso: 'roles.gestionar' },
