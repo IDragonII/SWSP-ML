@@ -352,6 +352,8 @@ def predecir(campania, usuario, *, planificados=None, destino=None):
         raise ErrorModelo("El modelo devolvió un valor no finito.")
     negativo = bruto < 0
     rendimiento = _dos(max(bruto, 0.0))
+    if negativo:
+        avisos.append("El rendimiento predicho era negativo: se ajustó a 0.")
     superficie = campania.superficie_sembrada_ha
     produccion = (
         (rendimiento * Decimal(superficie)).quantize(Decimal("0.01"))
@@ -365,9 +367,14 @@ def predecir(campania, usuario, *, planificados=None, destino=None):
     variables_entrada = {
         "valores": entrada.iloc[0].to_dict(),
         "origenes": origenes,
-        "planificados": dict(planificados or {}),
+        # Validados y en float: el JSON del modelo no admite Decimal
+        "planificados": {
+            clave: float(valor)
+            for clave, valor in _validar_planificados(planificados).items()
+        },
         "avisos": avisos,
         "confiabilidad": confiabilidad,
+        "negativo_ajustado": negativo,
     }
     with transaction.atomic():
         prediccion = Prediccion.objects.create(

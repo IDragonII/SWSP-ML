@@ -37,6 +37,7 @@ import joblib
 import numpy as np
 import pandas as pd
 
+from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import connection
@@ -44,10 +45,19 @@ from django.db.migrations.executor import MigrationExecutor
 from django.test import TestCase
 from django.utils import timezone
 
+from rest_framework.throttling import ScopedRateThrottle
+
 from auditoria.models import Auditoria
 from campanias.models import Campania
 from catalogos.models import Cultivo, Recurso, Unidad, Variedad
-from productores.models import Comunidad, Distrito, Parcela, Productor, Provincia
+from productores.models import (
+    AsignacionTecnico,
+    Comunidad,
+    Distrito,
+    Parcela,
+    Productor,
+    Provincia,
+)
 from seguimiento.models import UsoRecurso
 from usuarios.models import Rol, Usuario
 from usuarios.tests import _post_login
@@ -2085,6 +2095,328 @@ class Bloque2cTests(Bloque2Base):
         self.assertFalse(respuesta_real["datos_demostracion"])
         self.assertEqual(respuesta_real["texto_estimacion"], texto)
         self.assertEqual(respuesta_real["modelo"]["mae"], "4.50")
+
+
+# ---------------------------------------------------------------------- #
+# F2d: API de Machine Learning (381-387)
+# ---------------------------------------------------------------------- #
+class Bloque2dTests(Bloque2Base):
+    """Pruebas 381-387: la API de la decisión 235 — la colección exige
+    permiso, ignora campos protegidos y no admite escrituras (381), la
+    ficha trae avisos, marca de demostración y MAE sin datos personales
+    (382), el Técnico solo ve sus asignados y sin creado_por (383), el
+    Coordinador consulta sin predecir ni ver modelos (384), predecir
+    tiene límite de 30 por hora y usuario (385), modelo-activo y
+    campañas predecibles siguen el contrato (386) y activar por la API
+    usa los mismos controles que el comando (387, decisión 222)."""
+
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.addCleanup(servicio.limpiar_cache)
+        servicio.limpiar_cache()
+        # La API siempre usa el destino real (ml_models/): se registra
+        # aquí el modelo versionado en el repo (S22 F1, datos demo, 231)
+        registro.registrar(
+            usuario=self.admin,
+            resultados=guardado.leer_resultados("1"),
+            version="1",
+            desarrollo=True,
+            activar=True,
+        )
+        self.blanca, _ = Variedad.objects.get_or_create(
+            cultivo=Cultivo.objects.get(nombre="Quinua"), nombre="Blanca"
+        )
+        self._n = 0
+
+    # ------------------------------------------------------------------ #
+    # helpers
+    # ------------------------------------------------------------------ #
+    def _camp(self, **extra):
+        """Campaña EN_PRODUCCION (o la que se pida) con cultivo/variedad
+        comunes; la fila sin usos es válida: el servicio imputa."""
+        self._n += 1
+        productor = self._productor(
+            dni=f"960002{self._n:02d}", nombre=f"A{self._n}"
+        )
+        parcela = self._parcela(productor)
+        datos = {"cultivo": self.blanca.cultivo, "variedad": self.blanca}
+        datos.update(extra)
+        return self._campania(parcela, **datos)
+
+    def _predecir(self, campania, **planificados):
+        return self._api(
+            "post", "/api/ml/predicciones/",
+            {"campania": campania.pk, **planificados},
+        )
+
+    def _tecnico(self):
+        return Usuario.objects.create_user(
+            username="tec_ml",
+            password="TecMl2026!",
+            rol=Rol.objects.get(nombre="Técnico de campo"),
+        )
+
+    # ------------------------------------------------------------------ #
+    def test_381_la_coleccion_exige_permiso_ignora_lo_protegido_y_rechaza_escrituras(self):
+        campania = self._camp()
+        # El endpoint nace cerrado (401 sin sesión)
+        self.assertEqual(
+            self.client.get("/api/ml/predicciones/").status_code, 401
+        )
+        self._entrar_admin()
+        # Campos protegidos que el cliente intenta inyectar (232)
+        respuesta = self._predecir(
+            campania,
+            semilla=45,
+            rendimiento_predicho="999.00",
+            modelo=999,
+            error_abs="1.00",
+            creado_por=self.coordinador.pk,
+        )
+        self.assertEqual(respuesta.status_code, 201)
+        datos = self._json(respuesta)
+        prediccion = Prediccion.objects.get(pk=datos["id"])
+        self.assertEqual(
+            prediccion.modelo,
+            ModeloML.objects.get(activo=True),
+            "el modelo lo elige el servidor, no el cliente",
+        )
+        self.assertEqual(prediccion.creado_por, self.admin)
+        self.assertEqual(datos["creado_por"], "admin_ml")
+        self.assertIsNone(prediccion.error_abs)
+        self.assertNotEqual(datos["rendimiento_predicho"], 999)
+        # La lista trae la predicción con su campaña y su modelo
+        lista = self._json(self.client.get("/api/ml/predicciones/"))
+        self.assertEqual(lista["count"], 1)
+        self.assertEqual(lista["results"][0]["id"], prediccion.pk)
+        self.assertEqual(lista["results"][0]["campania"]["id"], campania.pk)
+        self.assertEqual(
+            lista["results"][0]["modelo"]["algoritmo"], "REGRESION_LINEAL"
+        )
+        # Sin PUT/PATCH/DELETE: 405 en el detalle (232)
+        url = f"/api/ml/predicciones/{prediccion.pk}/"
+        self.assertEqual(self._api("put", url, {}).status_code, 405)
+        self.assertEqual(self._api("patch", url, {}).status_code, 405)
+        self.assertEqual(self._api("delete", url).status_code, 405)
+
+    # ------------------------------------------------------------------ #
+    def test_382_la_ficha_trae_variables_avisos_demostracion_y_mae_sin_dni(self):
+        campania = self._camp()
+        self._entrar_admin()
+        creada = self._json(self._predecir(campania, semilla=45))
+        url = f"/api/ml/predicciones/{creada['id']}/"
+        ficha = self._json(self.client.get(url))
+        self.assertIn("variables_entrada", ficha)
+        self.assertEqual(
+            ficha["confiabilidad"],
+            ficha["variables_entrada"]["confiabilidad"],
+        )
+        self.assertEqual(ficha["avisos"], ficha["variables_entrada"]["avisos"])
+        self.assertIn("origenes", ficha["variables_entrada"])
+        self.assertEqual(
+            ficha["variables_entrada"]["origenes"]["semilla_kg_ha"],
+            "planificado",
+        )
+        # La marca de demostración con el texto fijo y el MAE (231)
+        self.assertTrue(ficha["datos_demostracion"])
+        self.assertEqual(
+            ficha["texto_estimacion"],
+            "Es una estimación basada en datos históricos, no una medición.",
+        )
+        self.assertIsInstance(ficha["modelo"]["mae"], str)
+        self.assertEqual(ficha["modelo"]["version"], "1")
+        self.assertTrue(ficha["modelo"]["activo"])
+        self.assertEqual(ficha["creado_por"], "admin_ml")
+        # Sin datos personales del productor (233)
+        crudo = self.client.get(url).content.decode("utf-8").lower()
+        self.assertNotIn('"dni"', crudo)
+        self.assertNotIn("telefono", crudo)
+        # Un id que no existe responde el 404 genérico (decisión 11, S4)
+        perdido = self.client.get("/api/ml/predicciones/999999/")
+        self.assertEqual(perdido.status_code, 404)
+        self.assertEqual(self._json(perdido)["detail"], "No encontrado.")
+
+    # ------------------------------------------------------------------ #
+    def test_383_el_tecnico_solo_ve_sus_asignados_y_no_recibe_quien_predijo(self):
+        tecnico = self._tecnico()
+        p1 = self._productor(dni="96000231", nombre="Tres")
+        p2 = self._productor(dni="96000232", nombre="Cuatro")
+        AsignacionTecnico.objects.create(tecnico=tecnico, productor=p1)
+        propia = self._campania(
+            self._parcela(p1),
+            cultivo=self.blanca.cultivo,
+            variedad=self.blanca,
+        )
+        ajena = self._campania(
+            self._parcela(p2),
+            cultivo=self.blanca.cultivo,
+            variedad=self.blanca,
+        )
+        self._entrar_admin()
+        self.assertEqual(self._predecir(propia).status_code, 201)
+        self.assertEqual(self._predecir(ajena).status_code, 201)
+
+        self._entrar("tec_ml", "TecMl2026!")
+        lista = self._json(self.client.get("/api/ml/predicciones/"))
+        self.assertEqual(lista["count"], 1)
+        fila = lista["results"][0]
+        self.assertEqual(fila["campania"]["id"], propia.pk)
+        self.assertNotIn("creado_por", fila)
+        ficha = self._json(
+            self.client.get(f"/api/ml/predicciones/{fila['id']}/")
+        )
+        self.assertNotIn("creado_por", ficha)
+
+        # La ajena responde 404, el mismo que si no existiera (227)
+        ajena_id = Prediccion.objects.get(campania=ajena).pk
+        perdida = self.client.get(f"/api/ml/predicciones/{ajena_id}/")
+        self.assertEqual(perdida.status_code, 404)
+        self.assertEqual(self._json(perdida)["detail"], "No encontrado.")
+        # Predecir una campaña ajena también es 404 (227)
+        self.assertEqual(self._predecir(ajena).status_code, 404)
+        # Y la propia sí: el Técnico tiene ml.predecir
+        self.assertEqual(self._predecir(propia).status_code, 201)
+
+    # ------------------------------------------------------------------ #
+    def test_384_el_coordinador_consulta_sin_predecir_ni_ver_modelos(self):
+        campania = self._camp()
+        self._entrar_admin()
+        self.assertEqual(self._predecir(campania).status_code, 201)
+
+        self._entrar("coord_ml", "CoordMl2026!")
+        self.assertEqual(
+            self.client.get("/api/ml/predicciones/").status_code, 200
+        )
+        self.assertEqual(self._predecir(campania).status_code, 403)
+        self.assertEqual(self.client.get("/api/ml/modelos/").status_code, 403)
+        self.assertEqual(
+            self.client.get("/api/ml/modelo-activo/").status_code, 403
+        )
+        self.assertEqual(
+            self.client.get("/api/ml/campanas-predecibles/").status_code, 403
+        )
+
+        # El Administrador sí ve los tres modelos con sus métricas (223)
+        self._entrar_admin()
+        modelos = self._json(self.client.get("/api/ml/modelos/"))
+        self.assertEqual(modelos["count"], 3)
+        elegido = next(m for m in modelos["results"] if m["activo"])
+        self.assertEqual(elegido["algoritmo"], "REGRESION_LINEAL")
+        self.assertEqual(elegido["version"], "1")
+        self.assertEqual(
+            elegido["entrenamiento"]["origen_datos"], "demostración"
+        )
+        self.assertTrue(elegido["datos_demostracion"])
+
+    # ------------------------------------------------------------------ #
+    def test_385_predecir_tiene_limite_de_30_por_hora_y_por_usuario(self):
+        campania = self._camp()
+        tecnico = self._tecnico()
+        p = self._productor(dni="96000251", nombre="Cinco")
+        AsignacionTecnico.objects.create(tecnico=tecnico, productor=p)
+        propia = self._campania(
+            self._parcela(p),
+            cultivo=self.blanca.cultivo,
+            variedad=self.blanca,
+        )
+        self._entrar_admin()
+        # DRF fija las tasas al importar (THROTTLE_RATES de la clase):
+        # se parcha el diccionario y se restaura solo al salir
+        with patch.dict(
+            ScopedRateThrottle.THROTTLE_RATES, {"ml_prediccion": "3/hour"}
+        ):
+            for _ in range(3):
+                self.assertEqual(self._predecir(campania).status_code, 201)
+            bloqueo = self._predecir(campania)
+            self.assertEqual(bloqueo.status_code, 429)
+            datos = self._json(bloqueo)
+            self.assertIn("Demasiadas solicitudes", datos["detail"])
+            self.assertGreaterEqual(datos["retry_after"], 1)
+            self.assertEqual(bloqueo["Retry-After"], str(datos["retry_after"]))
+            # Cada usuario tiene su propia ventana (232)
+            self._entrar("tec_ml", "TecMl2026!")
+            self.assertEqual(self._predecir(propia).status_code, 201)
+            # Solo el POST está limitado: el listado sigue respondiendo
+            self._entrar_admin()
+            self.assertEqual(
+                self.client.get("/api/ml/predicciones/").status_code, 200
+            )
+
+    # ------------------------------------------------------------------ #
+    def test_386_modelo_activo_y_campanas_predecibles_sigue_el_contrato(self):
+        self._entrar_admin()
+        activo = self._json(self.client.get("/api/ml/modelo-activo/"))
+        self.assertEqual(activo["algoritmo"], "REGRESION_LINEAL")
+        self.assertEqual(activo["version"], "1")
+        self.assertTrue(activo["activo"])
+        self.assertTrue(activo["datos_demostracion"])
+
+        # Solo campañas elegibles para predecir (227)
+        planificada = self._camp(estado=Campania.ESTADO_PLANIFICADA)
+        en_produccion = self._camp()
+        cosechada = self._camp()
+        self._producir(cosechada, "1.50", "300")
+        lista = self._json(self.client.get("/api/ml/campanas-predecibles/"))
+        self.assertEqual(lista["count"], 2)
+        estados = {c["id"]: c["estado"] for c in lista["results"]}
+        self.assertEqual(
+            estados,
+            {
+                planificada.pk: Campania.ESTADO_PLANIFICADA,
+                en_produccion.pk: Campania.ESTADO_EN_PRODUCCION,
+            },
+        )
+        # Sin modelo activo el recurso responde 404 (no un banner vacío)
+        ModeloML.objects.filter(activo=True).update(activo=False)
+        perdido = self.client.get("/api/ml/modelo-activo/")
+        self.assertEqual(perdido.status_code, 404)
+        self.assertIn("modelo activo", self._json(perdido)["detail"])
+
+    # ------------------------------------------------------------------ #
+    def test_387_activar_por_la_api_con_los_mismos_controles(self):
+        modelo = ModeloML.objects.get(
+            version="1", algoritmo="REGRESION_LINEAL"
+        )
+        rf = ModeloML.objects.get(version="1", algoritmo="RANDOM_FOREST")
+        self._entrar_admin()
+        # La acción es solo POST: GET responde 405
+        self.assertEqual(
+            self._api("get", f"/api/ml/modelos/{modelo.pk}/activar/").status_code,
+            405,
+        )
+        # Sin ml.activar_modelo: 403
+        self._entrar("coord_ml", "CoordMl2026!")
+        self.assertEqual(
+            self._api(
+                "post", f"/api/ml/modelos/{modelo.pk}/activar/", {}
+            ).status_code,
+            403,
+        )
+        # El Administrador lo desactiva y vuelve a activarlo (222)
+        self._entrar_admin()
+        modelo.activo = False
+        modelo.save(update_fields=["activo"])
+        activada = self._api(
+            "post", f"/api/ml/modelos/{modelo.pk}/activar/", {}
+        )
+        self.assertEqual(activada.status_code, 200)
+        self.assertTrue(self._json(activada)["activo"])
+        modelo.refresh_from_db()
+        self.assertTrue(modelo.activo)
+        self.assertEqual(ModeloML.objects.filter(activo=True).count(), 1)
+        self.assertTrue(
+            Auditoria.objects.filter(
+                accion="ACTIVAR", modulo="Machine Learning"
+            ).exists()
+        )
+        # Un modelo sin archivo no se puede activar: 400 con detalle (222)
+        sin_archivo = self._api(
+            "post", f"/api/ml/modelos/{rf.pk}/activar/", {}
+        )
+        self.assertEqual(sin_archivo.status_code, 400)
+        self.assertIn("no tiene archivo", self._json(sin_archivo)["detail"])
 
 
 # ---------------------------------------------------------------------- #

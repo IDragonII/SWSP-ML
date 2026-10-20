@@ -118,6 +118,8 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_RATES': {
         'login': os.getenv('LOGIN_RATE_IP', '30/min'),
         'clima_consulta': os.getenv('CLIMA_CONSULTA_RATE', '10/hour'),
+        # Predicciones de ML por usuario y hora (S22, decisión 232)
+        'ml_prediccion': os.getenv('ML_PREDICCION_RATE', '30/hour'),
     },
     'EXCEPTION_HANDLER': 'usuarios.excepciones.manejar_excepciones',
     # Listados paginados (Semana 3): 20 por página, configurable en el .env

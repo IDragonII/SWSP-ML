@@ -6,7 +6,7 @@
 ## Datos
 
 - Archivo: `dataset_demostracion_ml_20261019_230939.csv`
-- Origen declarado: **demostraciÃ³n**
+- Origen declarado: **demostración**
 - Filas usadas: **48** (tramo: 30 a 99 reales)
 - Estrategia: cv_repetida (5 pliegues × 5 repetición(es), semilla 42, agrupado por productor)
 

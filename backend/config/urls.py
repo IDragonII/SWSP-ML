@@ -37,4 +37,5 @@ urlpatterns = [
     path('api/', include('alertas.urls')),
     path('api/', include('dashboard.urls')),
     path('api/', include('reportes.urls')),
+    path('api/', include('ml.urls')),
 ]

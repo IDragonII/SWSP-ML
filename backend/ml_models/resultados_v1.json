@@ -201,7 +201,7 @@
   "fecha_lima": "2026-10-19T23:09:54-05:00",
   "archivo_dataset": "dataset_demostracion_ml_20261019_230939.csv",
   "sha256_dataset": "e524aed3d2cf8ed595e4b6ca97b0a9b18dd63c22539769163e75efa328bfe87a",
-  "origen_datos": "demostraciÃ³n",
+  "origen_datos": "demostración",
   "excluidas": null,
   "criterio": {
     "elegido": "REGRESION_LINEAL",
