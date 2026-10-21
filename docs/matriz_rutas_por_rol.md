@@ -6,7 +6,7 @@
 > que las respuestas reales coinciden con esta tabla y la 320 que
 > el usuario anónimo no ve ninguna.
 
-- Rutas `api/`: **113** × 5 métodos = 565 filas.
+- Rutas `api/`: **118** × 5 métodos = 590 filas.
 - Permiten acceso sin token (/api/auth/login/, /api/auth/refresh/, /api/auth/logout/): 3 rutas, con su propia validación de credenciales.
 - Permisos por rol en la BD: Administrador: 55 · Coordinador: 14 · Técnico de campo: 32
 - El panel de Django (`/admin/`) queda fuera de esta matriz: ver `docs/seguridad_entrega1.md`.
@@ -275,6 +275,31 @@ Leyenda: `401` sin sesión · `403` sin permiso · `405` el método no existe en
 | /api/ml/campanas-predecibles/ | PUT | 401 | 405 | 405 | 405 |
 | /api/ml/campanas-predecibles/ | PATCH | 401 | 405 | 405 | 405 |
 | /api/ml/campanas-predecibles/ | DELETE | 401 | 405 | 405 | 405 |
+| /api/ml/entrenamientos/ | GET | 401 | manejo | 403 | 403 |
+| /api/ml/entrenamientos/ | POST | 401 | manejo | 403 | 403 |
+| /api/ml/entrenamientos/ | PUT | 401 | 405 | 405 | 405 |
+| /api/ml/entrenamientos/ | PATCH | 401 | 405 | 405 | 405 |
+| /api/ml/entrenamientos/ | DELETE | 401 | 405 | 405 | 405 |
+| /api/ml/entrenamientos/999999/ | GET | 401 | manejo | 403 | 403 |
+| /api/ml/entrenamientos/999999/ | POST | 401 | 405 | 405 | 405 |
+| /api/ml/entrenamientos/999999/ | PUT | 401 | 405 | 405 | 405 |
+| /api/ml/entrenamientos/999999/ | PATCH | 401 | 405 | 405 | 405 |
+| /api/ml/entrenamientos/999999/ | DELETE | 401 | 405 | 405 | 405 |
+| /api/ml/entrenamientos/999999/cancelar/ | GET | 401 | 405 | 405 | 405 |
+| /api/ml/entrenamientos/999999/cancelar/ | POST | 401 | manejo | 403 | 403 |
+| /api/ml/entrenamientos/999999/cancelar/ | PUT | 401 | 405 | 405 | 405 |
+| /api/ml/entrenamientos/999999/cancelar/ | PATCH | 401 | 405 | 405 | 405 |
+| /api/ml/entrenamientos/999999/cancelar/ | DELETE | 401 | 405 | 405 | 405 |
+| /api/ml/entrenamientos/999999/resultados/ | GET | 401 | manejo | 403 | 403 |
+| /api/ml/entrenamientos/999999/resultados/ | POST | 401 | 405 | 405 | 405 |
+| /api/ml/entrenamientos/999999/resultados/ | PUT | 401 | 405 | 405 | 405 |
+| /api/ml/entrenamientos/999999/resultados/ | PATCH | 401 | 405 | 405 | 405 |
+| /api/ml/entrenamientos/999999/resultados/ | DELETE | 401 | 405 | 405 | 405 |
+| /api/ml/estado-datos/ | GET | 401 | manejo | 403 | 403 |
+| /api/ml/estado-datos/ | POST | 401 | 405 | 405 | 405 |
+| /api/ml/estado-datos/ | PUT | 401 | 405 | 405 | 405 |
+| /api/ml/estado-datos/ | PATCH | 401 | 405 | 405 | 405 |
+| /api/ml/estado-datos/ | DELETE | 401 | 405 | 405 | 405 |
 | /api/ml/modelo-activo/ | GET | 401 | manejo | 403 | 403 |
 | /api/ml/modelo-activo/ | POST | 401 | 405 | 405 | 405 |
 | /api/ml/modelo-activo/ | PUT | 401 | 405 | 405 | 405 |

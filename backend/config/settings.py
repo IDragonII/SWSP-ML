@@ -120,6 +120,8 @@ REST_FRAMEWORK = {
         'clima_consulta': os.getenv('CLIMA_CONSULTA_RATE', '10/hour'),
         # Predicciones de ML por usuario y hora (S22, decisión 232)
         'ml_prediccion': os.getenv('ML_PREDICCION_RATE', '30/hour'),
+        # Entrenamientos pedidos desde la interfaz (S23, decisión 261)
+        'ml_entrenamiento': os.getenv('ML_ENTRENAMIENTO_RATE', '5/day'),
     },
     'EXCEPTION_HANDLER': 'usuarios.excepciones.manejar_excepciones',
     # Listados paginados (Semana 3): 20 por página, configurable en el .env

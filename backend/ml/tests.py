@@ -3522,3 +3522,269 @@ class InterrupcionTrabajadorTests(MLBase):
         self.assertIsNotNone(
             procesos[1].poll(), "el subproceso real quedó muerto"
         )
+
+
+# ---------------------------------------------------------------------- #
+# Fase F3: API de entrenamientos (400 y 402-406)
+# ---------------------------------------------------------------------- #
+class EntrenamientosApiTests(MLBase):
+    """Pruebas 400 y 402-406: la API de entrenamientos de la S23
+    (decisión 263): estado-datos, alta con 409 y throttle, cancelación,
+    resultados, columnas de BD de modelos e historial con progreso."""
+
+    @staticmethod
+    def _entrenamiento_con_modelos():
+        """Entrenamiento con los 3 candidatos y el criterio escrito
+        (la misma forma que deja `trabajo.entrenar_desde_sistema`)."""
+        entrenamiento = EntrenamientoML.objects.create(
+            n_registros=30,
+            n_entrenamiento=24,
+            n_prueba=6,
+            variables_usadas={
+                "conjunto": "plan",
+                "origen_datos": "sistema",
+                "semilla": 42,
+                "criterio": {
+                    "elegido": "RANDOM_FOREST",
+                    "motivo": "menor RMSE",
+                    "sigma": 0.5,
+                },
+            },
+        )
+        for algoritmo, mae in (
+            ("REGRESION_LINEAL", "4.10"),
+            ("RANDOM_FOREST", "1.20"),
+            ("GRADIENT_BOOSTING", "1.40"),
+        ):
+            ModeloML.objects.create(
+                entrenamiento=entrenamiento,
+                algoritmo=algoritmo,
+                version="t404",
+                mae=Decimal(mae),
+                rmse=Decimal("2.00"),
+                r2=Decimal("0.5000"),
+                contenido=b"tubo-de-prueba",
+                huella=hashlib.sha256(b"tubo-de-prueba").hexdigest(),
+                versiones_librerias={"pandas": "3.0.6", "joblib": "1.6.0"},
+            )
+        return entrenamiento
+
+    # ------------------------------------------------------------------ #
+    # 400: estado-datos informa filas, mínimo y sello
+    # ------------------------------------------------------------------ #
+    def test_400_estado_datos_informa_filas_minimo_y_sello(self):
+        self._entrar_admin()
+        vacio = self._json(self.client.get("/api/ml/estado-datos/"))
+        self.assertEqual(vacio["filas"], 0)
+        self.assertEqual(
+            vacio["minimo_entrenamiento"], registro.MINIMO_REGISTROS
+        )
+        self.assertFalse(vacio["listo"])
+        self.assertEqual(vacio["origen_datos"], "real")
+        self.assertFalse(vacio["datos_demostracion"])
+
+        campania = self._campania(self._parcela(self._productor()))
+        self._producir(campania, "1.50", "260")
+        self._cerrar(campania)
+        una = self._json(self.client.get("/api/ml/estado-datos/"))
+        self.assertEqual(una["filas"], 1)
+        self.assertFalse(una["listo"], "una campaña no alcanza el mínimo")
+
+        with patch.dict(os.environ, {"ML_ORIGEN_DATOS": "demostración"}):
+            demo = self._json(self.client.get("/api/ml/estado-datos/"))
+        self.assertEqual(demo["origen_datos"], "demostración")
+        self.assertTrue(demo["datos_demostracion"])
+
+        self._entrar("coord_ml", "CoordMl2026!")
+        self.assertEqual(
+            self.client.get("/api/ml/estado-datos/").status_code, 403
+        )
+
+    # ------------------------------------------------------------------ #
+    # 402: alta con permisos, 409 por activa y throttle diario
+    # ------------------------------------------------------------------ #
+    def test_402_alta_con_409_y_limite_diario(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+        self._entrar("coord_ml", "CoordMl2026!")
+        self.assertEqual(
+            self._api("post", "/api/ml/entrenamientos/").status_code, 403
+        )
+        self.assertEqual(
+            self.client.get("/api/ml/entrenamientos/").status_code, 403
+        )
+
+        self._entrar_admin()
+        alta = self._api("post", "/api/ml/entrenamientos/")
+        self.assertEqual(alta.status_code, 201)
+        datos = self._json(alta)
+        self.assertEqual(datos["estado"], "PENDIENTE")
+        self.assertEqual(datos["usuario"], "admin_ml")
+        self.assertIsNone(datos["progreso"])
+
+        segunda = self._api("post", "/api/ml/entrenamientos/")
+        self.assertEqual(segunda.status_code, 409)
+        self.assertIn("en curso", self._json(segunda)["detail"])
+
+        with patch.dict(
+            ScopedRateThrottle.THROTTLE_RATES, {"ml_entrenamiento": "3/day"}
+        ):
+            # Las dos peticiones anteriores (la alta y la del 409) ya
+            # consumieron cupo: con 3/día queda una y la otra es 429.
+            cancelada = self._api(
+                "post", f"/api/ml/entrenamientos/{datos['id']}/cancelar/"
+            )
+            self.assertEqual(cancelada.status_code, 200)
+            self.assertEqual(self._json(cancelada)["estado"], "CANCELADA")
+            self.assertEqual(
+                self._api("post", "/api/ml/entrenamientos/").status_code,
+                201,
+            )
+            bloqueo = self._api("post", "/api/ml/entrenamientos/")
+            self.assertEqual(bloqueo.status_code, 429)
+            detalle = self._json(bloqueo)
+            self.assertIn("Demasiadas solicitudes", detalle["detail"])
+            self.assertGreaterEqual(detalle["retry_after"], 1)
+
+    # ------------------------------------------------------------------ #
+    # 403: cancelar solo mientras la tarea siga activa
+    # ------------------------------------------------------------------ #
+    def test_403_cancelar_solo_mientras_este_activa(self):
+        self._entrar_admin()
+        pendiente = self._json(
+            self._api("post", "/api/ml/entrenamientos/")
+        )
+        cancelada = self._api(
+            "post", f"/api/ml/entrenamientos/{pendiente['id']}/cancelar/"
+        )
+        self.assertEqual(cancelada.status_code, 200)
+        self.assertEqual(self._json(cancelada)["estado"], "CANCELADA")
+        otra_vez = self._api(
+            "post", f"/api/ml/entrenamientos/{pendiente['id']}/cancelar/"
+        )
+        self.assertEqual(otra_vez.status_code, 409)
+        self.assertIn("terminó", self._json(otra_vez)["detail"])
+
+        terminada = TareaEntrenamiento.objects.create(
+            usuario=self.admin,
+            estado="COMPLETADA",
+            resultado=self._entrenamiento_con_modelos(),
+        )
+        bloqueo = self._api(
+            "post", f"/api/ml/entrenamientos/{terminada.pk}/cancelar/"
+        )
+        self.assertEqual(bloqueo.status_code, 409)
+
+        inexistente = self._api(
+            "post", "/api/ml/entrenamientos/99999/cancelar/"
+        )
+        self.assertEqual(inexistente.status_code, 404)
+
+    # ------------------------------------------------------------------ #
+    # 404: resultados con los 3 candidatos y el criterio
+    # ------------------------------------------------------------------ #
+    def test_404_resultados_con_criterio_y_tres_candidatos(self):
+        self._entrar_admin()
+        entrenamiento = self._entrenamiento_con_modelos()
+        tarea = TareaEntrenamiento.objects.create(
+            usuario=self.admin,
+            estado="COMPLETADA",
+            resultado=entrenamiento,
+        )
+        pendiente = self._json(
+            self._api("post", "/api/ml/entrenamientos/")
+        )
+        sin = self.client.get(
+            f"/api/ml/entrenamientos/{pendiente['id']}/resultados/"
+        )
+        self.assertEqual(sin.status_code, 404)
+        self.assertIn("resultado", self._json(sin)["detail"])
+
+        datos = self._json(
+            self.client.get(f"/api/ml/entrenamientos/{tarea.pk}/resultados/")
+        )
+        self.assertEqual(datos["criterio"]["elegido"], "RANDOM_FOREST")
+        self.assertEqual(datos["criterio"]["motivo"], "menor RMSE")
+        self.assertEqual(len(datos["modelos"]), 3)
+        elegido = next(
+            m for m in datos["modelos"] if m["algoritmo"] == "RANDOM_FOREST"
+        )
+        self.assertEqual(elegido["mae"], "1.20")
+        self.assertTrue(elegido["en_bd"])
+        self.assertEqual(len(elegido["huella"]), 64)
+        self.assertFalse(datos["datos_demostracion"])
+
+    # ------------------------------------------------------------------ #
+    # 405: los modelos de la lista traen las columnas de la BD
+    # ------------------------------------------------------------------ #
+    def test_405_modelos_traen_las_columnas_de_la_bd(self):
+        self._entrenamiento_con_modelos()
+        registro_manual = EntrenamientoML.objects.create(
+            n_registros=30,
+            n_entrenamiento=24,
+            n_prueba=6,
+            variables_usadas={"origen_datos": "demostración"},
+        )
+        ModeloML.objects.create(
+            entrenamiento=registro_manual,
+            algoritmo="REGRESION_LINEAL",
+            version="t405archivo",
+            mae=Decimal("3.00"),
+            rmse=Decimal("3.50"),
+            r2=Decimal("0.4000"),
+            archivo="ml_models/t405archivo.joblib",
+        )
+
+        self._entrar_admin()
+        modelos = self._json(self.client.get("/api/ml/modelos/"))
+        por_version = {m["version"]: m for m in modelos["results"]}
+        en_bd = por_version["t404"]
+        self.assertTrue(en_bd["en_bd"])
+        self.assertEqual(len(en_bd["huella"]), 64)
+        self.assertEqual(en_bd["versiones_librerias"]["pandas"], "3.0.6")
+        self.assertIsNone(en_bd["archivo"])
+        viejo = por_version["t405archivo"]
+        self.assertFalse(viejo["en_bd"])
+        self.assertIsNone(viejo["huella"])
+        self.assertEqual(viejo["archivo"], "ml_models/t405archivo.joblib")
+
+    # ------------------------------------------------------------------ #
+    # 406: historial con progreso para el polling y ficha
+    # ------------------------------------------------------------------ #
+    def test_406_historial_con_progreso_y_ficha(self):
+        self._entrar_admin()
+        primera = self._json(self._api("post", "/api/ml/entrenamientos/"))
+        TareaEntrenamiento.objects.filter(pk=primera["id"]).update(
+            estado="PROCESANDO",
+            latido=timezone.now(),
+            progreso={"etapa": "entrenamiento", "pct": 50},
+        )
+        entrenamiento = self._entrenamiento_con_modelos()
+        segunda = TareaEntrenamiento.objects.create(
+            usuario=self.admin,
+            estado="COMPLETADA",
+            resultado=entrenamiento,
+            observacion="Modelo v t404 registrado",
+        )
+
+        listado = self._json(self.client.get("/api/ml/entrenamientos/"))
+        self.assertEqual(listado["count"], 2)
+        ids = [fila["id"] for fila in listado["results"]]
+        self.assertEqual(ids, [segunda.pk, primera["id"]], "recientes 1.º")
+        completada = listado["results"][0]
+        self.assertEqual(completada["estado"], "COMPLETADA")
+        self.assertEqual(completada["resultado"], entrenamiento.pk)
+        self.assertEqual(completada["usuario"], "admin_ml")
+        en_curso = listado["results"][1]
+        self.assertEqual(en_curso["estado"], "PROCESANDO")
+        self.assertEqual(en_curso["progreso"]["pct"], 50)
+        self.assertIsNotNone(en_curso["latido"])
+        self.assertIsNone(en_curso["resultado"])
+
+        ficha = self._json(
+            self.client.get(f"/api/ml/entrenamientos/{primera['id']}/")
+        )
+        self.assertEqual(ficha["estado"], "PROCESANDO")
+        inexistente = self.client.get("/api/ml/entrenamientos/99999/")
+        self.assertEqual(inexistente.status_code, 404)

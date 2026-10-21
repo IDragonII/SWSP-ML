@@ -1,4 +1,4 @@
-"""Serializadores de la API de Machine Learning (Sprint 14, S22).
+"""Serializadores de la API de Machine Learning (Sprint 14, S22, S23).
 
 La lista de predicciones trae campaña (período, cultivo, parcela y
 productor), modelo (algoritmo y versión), fecha, resultado y la
@@ -20,7 +20,7 @@ from rest_framework.exceptions import NotFound
 from campanias.models import Campania
 from productores.views import filtrar_asignados
 
-from .models import ModeloML, Prediccion
+from .models import EntrenamientoML, ModeloML, Prediccion, TareaEntrenamiento
 from .servicio import TEXTO_ESTIMACION
 
 
@@ -233,10 +233,14 @@ class PrediccionEscrituraSerializer(serializers.Serializer):
 class ModeloListaSerializer(serializers.ModelSerializer):
     """Ficha del modelo con sus métricas, el origen de los datos del
     entrenamiento (223) y la marca de demostración para el banner de la
-    pantalla Modelos (239). Solo la ven los roles con ml.ver_modelos."""
+    pantalla Modelos (239). Solo la ven los roles con ml.ver_modelos.
+    Con la S23 (decisión 263) añade las columnas de la BD: `huella`,
+    `versiones_librerias` y `en_bd` (el binario JAMÁS sale por la API;
+    solo su presencia y su huella)."""
 
     entrenamiento = serializers.SerializerMethodField()
     datos_demostracion = serializers.SerializerMethodField()
+    en_bd = serializers.SerializerMethodField()
 
     class Meta:
         model = ModeloML
@@ -249,6 +253,9 @@ class ModeloListaSerializer(serializers.ModelSerializer):
             "r2",
             "activo",
             "archivo",
+            "huella",
+            "versiones_librerias",
+            "en_bd",
             "creado_en",
             "entrenamiento",
             "datos_demostracion",
@@ -266,6 +273,9 @@ class ModeloListaSerializer(serializers.ModelSerializer):
 
     def get_datos_demostracion(self, obj):
         return _demostracion(obj.entrenamiento)
+
+    def get_en_bd(self, obj):
+        return obj.contenido is not None
 
 
 class CampaniaPredecibleSerializer(serializers.ModelSerializer):
@@ -302,3 +312,79 @@ class CampaniaPredecibleSerializer(serializers.ModelSerializer):
                 ),
             },
         }
+
+
+class TareaEntrenamientoSerializer(serializers.ModelSerializer):
+    """Fila del historial y del polling cada 5 s (decisión 263): estado,
+    progreso, latido y, al terminar, el enlace al resultado. Todo
+    read-only: el cliente solo pide el alta y la cancelación."""
+
+    usuario = serializers.StringRelatedField()
+
+    class Meta:
+        model = TareaEntrenamiento
+        fields = (
+            "id",
+            "estado",
+            "progreso",
+            "latido",
+            "observacion",
+            "error",
+            "resultado",
+            "usuario",
+            "creado_en",
+        )
+        read_only_fields = fields
+
+
+class ResultadoEntrenamientoSerializer(serializers.ModelSerializer):
+    """La pantalla de resultados (decisión 264): los 3 candidatos con
+    sus métricas, el veredicto del criterio y la marca de
+    demostración. El binario del modelo no sale nunca."""
+
+    modelos = serializers.SerializerMethodField()
+    criterio = serializers.SerializerMethodField()
+    datos_demostracion = serializers.SerializerMethodField()
+
+    class Meta:
+        model = EntrenamientoML
+        fields = (
+            "id",
+            "fecha",
+            "n_registros",
+            "n_entrenamiento",
+            "n_prueba",
+            "criterio",
+            "modelos",
+            "datos_demostracion",
+        )
+
+    def get_modelos(self, obj):
+        return [
+            {
+                "id": modelo.id,
+                "algoritmo": modelo.algoritmo,
+                "version": modelo.version,
+                "mae": str(modelo.mae),
+                "rmse": str(modelo.rmse),
+                "r2": str(modelo.r2),
+                "activo": modelo.activo,
+                "en_bd": modelo.contenido is not None,
+                "huella": modelo.huella,
+            }
+            for modelo in obj.modelos.order_by("algoritmo")
+        ]
+
+    def get_criterio(self, obj):
+        """El veredicto escrito (elegido, motivo y sigma); si el
+        entrenamiento viejo no lo guarda, devuelve el vacío."""
+        usadas = obj.variables_usadas or {}
+        criterio = usadas.get("criterio") or {}
+        return {
+            "elegido": criterio.get("elegido"),
+            "motivo": criterio.get("motivo"),
+            "sigma": criterio.get("sigma"),
+        }
+
+    def get_datos_demostracion(self, obj):
+        return _demostracion(obj)
