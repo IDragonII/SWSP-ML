@@ -4,8 +4,8 @@
 definición que la fila de la vista `vw_dataset_entrenamiento` (categorías
 de recursos, por hectárea, unidades base; decisión 225) y `predecir` la
 convierte en una predicción con el modelo activo. El modelo se carga en
-cada petición verificando la huella contra el manifiesto y se recarga si
-cambió (226); solo se predice en campañas PLANIFICADA o EN_PRODUCCION
+cada petición verificando la huella (bytes en la BD o manifiesto) y se
+recarga si cambió (226); solo se predice en campañas PLANIFICADA o EN_PRODUCCION
 (227; sin modelo activo el error es ErrorSinModelo → 409 en la API) y
 `dias_ciclo` se guarda desde la fecha de siembra, o vacío si no hay
 (238).
@@ -29,9 +29,12 @@ sin variables de entrada (234). Al deshacer la cosecha,
 (236); si la producción se borra por SQL directo el trigger no corre y
 el comparativo queda — limitación declarada (237).
 """
+import hashlib
+import io
 import math
 from decimal import Decimal, ROUND_HALF_UP
 
+import joblib
 import pandas as pd
 from django.db import transaction
 from django.db.models import Sum
@@ -104,14 +107,40 @@ def limpiar_cache():
 
 
 def cargar_modelo(destino=None):
-    """(modelo activo, tubo) con la huella verificada contra el manifiesto.
+    """(modelo activo, tubo) con la huella verificada.
 
-    Si el archivo del modelo activo cambió (otra huella) se recarga; si
-    la huella no coincide con el manifiesto o el archivo falta, lanza
-    ErrorModelo — nunca se carga un archivo alterado (decisión 226).
+    El activo trae su artefacto de dos formas (254, 260): los bytes
+    .joblib en la BD (entrenado desde el sistema) o un archivo con
+    manifiesto (registro manual). En ambos casos la huella manda y el
+    caché se invalida al cambiar: nunca se carga algo alterado (226).
     """
     modelo = registro.modelo_activo()
-    if modelo is None or not modelo.archivo:
+    if modelo is None:
+        raise ErrorSinModelo(
+            "No hay ningún modelo activo: activa un modelo antes de "
+            "predecir."
+        )
+    if modelo.contenido:
+        bytea = bytes(modelo.contenido)
+        huella = hashlib.sha256(bytea).hexdigest()
+        if not modelo.huella or modelo.huella != huella:
+            raise ErrorModelo(
+                f"La huella del contenido de {modelo} no coincide con la "
+                "registrada: no se puede predecir."
+            )
+        clave = (f"contenido:{modelo.pk}", huella)
+        if _CACHE["clave"] == clave and _CACHE["tubo"] is not None:
+            return modelo, _CACHE["tubo"]
+        try:
+            tubo = joblib.load(io.BytesIO(bytea))
+        except Exception as error:  # noqa: BLE001 (pickle lanza varios tipos)
+            raise ErrorModelo(
+                f"No se pudo leer el contenido del modelo activo: {error}"
+            ) from error
+        _CACHE["clave"] = clave
+        _CACHE["tubo"] = tubo
+        return modelo, tubo
+    if not modelo.archivo:
         raise ErrorSinModelo(
             "No hay ningún modelo activo: activa un modelo antes de "
             "predecir."

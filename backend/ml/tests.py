@@ -1691,7 +1691,8 @@ class Bloque2cTests(Bloque2Base):
     sin intervalo y un negativo va a cero con marca (230), la respuesta
     lleva la marca de demostración con el texto y el MAE (231) y el
     comparativo con lo real se completa al cosechar y se limpia al
-    deshacer (236, 237)."""
+    deshacer (236, 237). La 408 predice con el activo cargado desde la
+    BD (modelo de contenido, 254)."""
 
     def setUp(self):
         super().setUp()
@@ -1820,6 +1821,62 @@ class Bloque2cTests(Bloque2Base):
         ruta.write_bytes(original)
         tercera = servicio.predecir(campania, self.admin, destino=self.destino)
         self.assertEqual(tercera["modelo"]["version"], "373b")
+
+    # ------------------------------------------------------------------ #
+    def test_408_se_predice_con_el_modelo_activo_cargado_desde_la_bd(self):
+        """408: el activo con `contenido` (S23, decisión 254) predice por
+        el mismo camino que el de archivo: huella sobre los bytes, caché
+        y recarga — y un byte alterado bloquea la predicción (226)."""
+        tubo, _, _ = entrenamiento.entrenar_completo(
+            datos_sinteticos(), "REGRESION_LINEAL"
+        )
+        buffer = io.BytesIO()
+        joblib.dump(tubo, buffer)
+        contenido = buffer.getvalue()
+        resultados = self._metricas(version="408")
+        resultados["origen_datos"] = "sistema"
+        resultados["datos_de"] = "real"
+        registro.registrar(
+            usuario=self.admin,
+            resultados=resultados,
+            version="408",
+            contenido=contenido,
+        )
+        elegido = ModeloML.objects.get(
+            version="408", algoritmo="REGRESION_LINEAL"
+        )
+        registro.activar_modelo(elegido, self.admin)
+        servicio.limpiar_cache()
+        self.assertIsNone(elegido.archivo)
+        self.assertFalse(
+            (self.destino / guardado.nombre_archivo(
+                "REGRESION_LINEAL", "408"
+            )).exists(),
+            "el artefacto no pasó por disco",
+        )
+
+        campania = self._camp()
+        self._usos(campania, semilla="67.5", fertilizante="180",
+                   jornales="45", agua="300")
+        primera = servicio.predecir(campania, self.admin, destino=self.destino)
+        self.assertEqual(primera["modelo"]["version"], "408")
+
+        # Caché: dos cargas seguidas devuelven el MISMO tubo (226)
+        _, tubo1 = servicio.cargar_modelo(destino=self.destino)
+        _, tubo2 = servicio.cargar_modelo(destino=self.destino)
+        self.assertIs(tubo1, tubo2)
+
+        # Bytes alterados → la huella no coincide y NO predice (226)
+        elegido.contenido = contenido + b"\x00"
+        elegido.save(update_fields=["contenido"])
+        with self.assertRaises(ErrorModelo):
+            servicio.predecir(campania, self.admin, destino=self.destino)
+
+        # Restaurado el contenido, vuelve a predecir igual
+        elegido.contenido = contenido
+        elegido.save(update_fields=["contenido"])
+        segunda = servicio.predecir(campania, self.admin, destino=self.destino)
+        self.assertEqual(segunda["modelo"]["version"], "408")
 
     # ------------------------------------------------------------------ #
     def test_374_solo_se_predice_en_estados_validos_y_con_modelo_activo(self):
