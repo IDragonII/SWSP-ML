@@ -36,6 +36,8 @@ import statistics
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -50,7 +52,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import IntegrityError, connection, transaction
 from django.db.migrations.executor import MigrationExecutor
-from django.test import TestCase
+from django.test import TestCase, TransactionTestCase
 from django.utils import timezone
 
 from rest_framework.throttling import ScopedRateThrottle
@@ -90,6 +92,7 @@ from ml.carga import ErrorCarga, cargar
 from ml.models import EntrenamientoML, ModeloML, Prediccion, TareaEntrenamiento
 from ml.registro import ErrorRegistro
 from ml.servicio import ErrorModelo, ErrorSinModelo, ErrorVariables
+from sistema.management.commands import procesar_entrenamientos
 
 RUTA_VISTA = "vw_dataset_entrenamiento"
 
@@ -3381,3 +3384,141 @@ class SistemaIgualScriptTests(MLBase):
                 rtol=1e-9,
                 err_msg="el sistema y el script predicen igual",
             )
+
+
+# ---------------------------------------------------------------------- #
+# Fase F2: trabajador procesar_entrenamientos (399 y 401)
+# ---------------------------------------------------------------------- #
+class DosTrabajadoresTests(TransactionTestCase):
+    """Prueba 399: dos trabajadores reclamando a la vez (decisión 258).
+
+    `SELECT ... FOR UPDATE SKIP LOCKED` reparte la tarea: exactamente
+    un trabajador la toma y el otro no la pisa ni la devuelve a
+    PENDIENTE. Se usan transacciones reales (dos hilos, cada uno con
+    su propia conexión, como en dos procesos distintos). Al ser la
+    segunda TransactionTestCase de la suite (tras la 33 de productores)
+    lleva serialized_rollback para ver los datos migrados aunque la
+    anterior haya vaciado la BD.
+    """
+
+    serialized_rollback = True
+
+    def setUp(self):
+        self.admin = Usuario.objects.create_superuser(
+            username="admin_tarea", email="", password="AdminTarea2026!",
+            rol=Rol.objects.get(nombre="Administrador"),
+        )
+        self.tarea = TareaEntrenamiento.objects.create(usuario=self.admin)
+
+    def test_399_dos_trabajadores_no_pisan_la_misma_tarea(self):
+        comando = procesar_entrenamientos.Command()
+        reclamadas = [None, None]
+        barrera = threading.Barrier(2, timeout=10)
+
+        def trabajador(indice):
+            try:
+                barrera.wait()
+                reclamadas[indice] = comando._reclamar()
+            finally:
+                connection.close()
+
+        hilos = [
+            threading.Thread(target=trabajador, args=(indice,))
+            for indice in (0, 1)
+        ]
+        for hilo in hilos:
+            hilo.start()
+        for hilo in hilos:
+            hilo.join(timeout=20)
+
+        tomadas = [tarea for tarea in reclamadas if tarea is not None]
+        self.assertEqual(len(tomadas), 1, "solo un trabajador reclama")
+        self.assertEqual(tomadas[0].pk, self.tarea.pk)
+        self.tarea.refresh_from_db()
+        self.assertEqual(self.tarea.estado, "PROCESANDO")
+        self.assertIsNotNone(self.tarea.latido)
+        self.assertEqual(TareaEntrenamiento.objects.count(), 1)
+
+
+class InterrupcionTrabajadorTests(MLBase):
+    """Prueba 401: el trabajador mata el subproceso y marca FALLIDA.
+
+    El hijo es un proceso REAL que duerme; el padre debe matar su árbol
+    por tope (a) o por latido envejecido (b) y dejar el motivo en
+    `error` (decisión 258: tope de 15 min y latido vencido en 5 min,
+    aquí reducidos a un segundo y 0,2 s).
+    """
+
+    @staticmethod
+    def _hijo_dormilon(segundos=60):
+        return [sys.executable, "-c", f"import time; time.sleep({segundos})"]
+
+    def test_401_interrupcion_por_tope_y_por_latido(self):
+        comando = procesar_entrenamientos.Command()
+        comando.stdout = io.StringIO()
+        popen_real = subprocess.Popen
+        procesos = []
+
+        def grabar(*argumentos, **kwargs):
+            proceso = popen_real(*argumentos, **kwargs)
+            procesos.append(proceso)
+            return proceso
+
+        # (a) tope: el subproceso real (60 s de sueño) muere al segundo
+        tarea_a = TareaEntrenamiento.objects.create(usuario=self.admin)
+        with (
+            patch.object(
+                comando, "_comando_hijo",
+                return_value=self._hijo_dormilon(),
+            ),
+            patch.object(
+                procesar_entrenamientos.subprocess, "Popen",
+                side_effect=grabar,
+            ),
+            patch.object(
+                procesar_entrenamientos, "MIRAR_CADA_SEGUNDOS", 0.05
+            ),
+            patch.object(procesar_entrenamientos, "TOPE_SEGUNDOS", 1.0),
+        ):
+            inicio = time.monotonic()
+            hubo = comando._ciclo()
+            duracion = time.monotonic() - inicio
+
+        self.assertTrue(hubo, "la tarea PENDIENTE se reclama")
+        self.assertLess(
+            duracion, 30, "el tope corta antes de la espera larga"
+        )
+        tarea_a.refresh_from_db()
+        self.assertEqual(tarea_a.estado, "FALLIDA")
+        self.assertIn("tope", tarea_a.error)
+        self.assertIsNotNone(
+            procesos[0].poll(), "el subproceso real quedó muerto"
+        )
+
+        # (b) latido vencido: el hijo corre pero nunca suena el latido
+        tarea_b = TareaEntrenamiento.objects.create(usuario=self.admin)
+        with (
+            patch.object(
+                comando, "_comando_hijo",
+                return_value=self._hijo_dormilon(),
+            ),
+            patch.object(
+                procesar_entrenamientos.subprocess, "Popen",
+                side_effect=grabar,
+            ),
+            patch.object(
+                procesar_entrenamientos, "MIRAR_CADA_SEGUNDOS", 0.05
+            ),
+            patch.object(
+                procesar_entrenamientos, "LATIDO_VENCIDO_SEGUNDOS", 0.2
+            ),
+        ):
+            hubo = comando._ciclo()
+
+        self.assertTrue(hubo)
+        tarea_b.refresh_from_db()
+        self.assertEqual(tarea_b.estado, "FALLIDA")
+        self.assertIn("latido", tarea_b.error)
+        self.assertIsNotNone(
+            procesos[1].poll(), "el subproceso real quedó muerto"
+        )

@@ -423,7 +423,12 @@ class TriggerFechasTests(TransactionTestCase):
     (TransactionTestCase) para que el UPDATE ocurra en otra transacción.
     El runner de Django agrupa los TestCase antes que los
     TransactionTestCase, así que esta prueba se ejecuta al final.
+    serialized_rollback restaura los datos migrados (roles, permisos,
+    catálogos) que vacía con su flush la otra TransactionTestCase de la
+    suite (prueba 399 de ml).
     """
+
+    serialized_rollback = True
 
     def setUp(self):
         cache.clear()
