@@ -1,12 +1,19 @@
-"""Modelos de Machine Learning (Sprint 14, decisiones 216-219).
+"""Modelos de Machine Learning (Sprint 14, decisiones 216-219, 253-256).
 
-Las tres tablas de `01_tablas.sql:385-431` con los mismos nombres y
+Las cuatro tablas de `01_tablas.sql` con los mismos nombres y
 restricciones: CHECK de algoritmo (los 3), MAE/RMSE ≥ 0, unicidad por
 entrenamiento+algoritmo y por algoritmo+versión, un solo modelo activo
 (índice único parcial), CHECK de intervalo e índices de campaña y
 modelo. Diferencias normales del diseño a Django (decisión 217): nombres
 de restricciones, `ON DELETE` declarado por Django y las identidades
 `BIGINT` con el modo que genera el migrador.
+
+La Semana 23 añade `tareas_entrenamiento` (decisión 253: el pedido del
+Administrador y su progreso, con una sola tarea activa a la vez) y las
+tres columnas de modelo-en-BD de `modelos_ml` (`contenido`, `huella` y
+`versiones_librerias`, decisión 254): el trabajador guarda el `.joblib`
+en la BD y el registro manual por comando sigue usando archivo +
+manifiesto como fallback.
 
 Los datos NO se crean desde el admin (se consulta aquí): el alta la da
 el comando `registrar_modelo` (HU-171), la activación la API (HU-172)
@@ -23,6 +30,16 @@ ALGORITMOS = [
     ("RANDOM_FOREST", "Random Forest"),
     ("GRADIENT_BOOSTING", "Gradient Boosting"),
 ]
+
+ESTADOS_TAREA = [
+    ("PENDIENTE", "Pendiente"),
+    ("PROCESANDO", "En proceso"),
+    ("COMPLETADA", "Completada"),
+    ("FALLIDA", "Fallida"),
+    ("CANCELADA", "Cancelada"),
+]
+
+ESTADOS_ACTIVOS_TAREA = ("PENDIENTE", "PROCESANDO")
 
 
 class EntrenamientoML(models.Model):
@@ -73,12 +90,15 @@ class EntrenamientoML(models.Model):
 
 
 class ModeloML(models.Model):
-    """Modelo entrenado, con sus métricas (01_tablas.sql:396).
+    """Modelo entrenado, con sus métricas (01_tablas.sql).
 
-    Un modelo por algoritmo y versión, con su archivo `.joblib` y su
-    huella en `ml_models/manifiesto.json`; `activo` admite solo una fila
-    (índice único parcial `uq_modelo_activo`). La línea base no es una
-    fila (decisión 224): sus métricas viven en `hiperparametros`.
+    Un modelo por algoritmo y versión, con su artefacto `.joblib` en la
+    BD (`contenido` + `huella`, decisión 254) o, en el registro manual,
+    como archivo con huella en `ml_models/manifiesto.json` (fallback);
+    `activo` admite solo una fila (índice único parcial
+    `uq_modelo_activo`). La línea base no es una fila (decisión 224):
+    sus métricas viven en `hiperparametros`. El CHECK `ck_modelo_tamano`
+    (migración 0003) limita `contenido` a 20 MiB.
     """
 
     entrenamiento = models.ForeignKey(
@@ -94,6 +114,11 @@ class ModeloML(models.Model):
     r2 = models.DecimalField("R²", max_digits=8, decimal_places=4)
     hiperparametros = models.JSONField("hiperparámetros", null=True, blank=True)
     archivo = models.CharField("archivo", max_length=255, null=True, blank=True)
+    contenido = models.BinaryField("contenido", null=True, blank=True)
+    huella = models.CharField("huella", max_length=64, null=True, blank=True)
+    versiones_librerias = models.JSONField(
+        "versiones de librerías", null=True, blank=True
+    )
     activo = models.BooleanField("activo", default=False)
     creado_en = models.DateTimeField(
         "creado el", default=timezone.now, db_default=Now()
@@ -227,3 +252,69 @@ class Prediccion(models.Model):
 
     def __str__(self):
         return f"Predicción {self.id} · campaña {self.campania_id}"
+
+
+class TareaEntrenamiento(models.Model):
+    """Pedido de entrenamiento hecho por el Administrador (decisión 253).
+
+    El trabajador `procesar_entrenamientos` reclama la tarea pendiente
+    con `SELECT ... FOR UPDATE SKIP LOCKED`, la marca PROCESANDO, escribe
+    el latido cada 30 s y al terminar guarda el resultado (un
+    `EntrenamientoML`) y las tres métricas. Solo puede haber **una**
+    tarea activa en todo el sistema: el índice único parcial
+    `uq_tarea_activa` sobre la constante con predicado
+    `estado IN ('PENDIENTE','PROCESANDO')` lo garantiza en la BD (una
+    segunda solicitud recibirá 409).
+    """
+
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="tareas_entrenamiento",
+        verbose_name="usuario",
+    )
+    estado = models.CharField(
+        "estado", max_length=15, choices=ESTADOS_TAREA, default="PENDIENTE"
+    )
+    progreso = models.JSONField("progreso", null=True, blank=True)
+    latido = models.DateTimeField("latido", null=True, blank=True)
+    observacion = models.CharField("observación", max_length=200, blank=True)
+    resultado = models.ForeignKey(
+        EntrenamientoML,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="tareas",
+        verbose_name="resultado",
+    )
+    error = models.TextField("error", null=True, blank=True)
+    creado_en = models.DateTimeField(
+        "creado el", default=timezone.now, db_default=Now()
+    )
+
+    class Meta:
+        db_table = "tareas_entrenamiento"
+        verbose_name = "tarea de entrenamiento"
+        verbose_name_plural = "tareas de entrenamiento"
+        ordering = ("-creado_en", "id")
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(
+                    estado__in=[clave for clave, _ in ESTADOS_TAREA]
+                ),
+                name="ck_tarea_estado",
+            ),
+            models.UniqueConstraint(
+                models.Value(1),
+                condition=models.Q(estado__in=ESTADOS_ACTIVOS_TAREA),
+                name="uq_tarea_activa",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(estado="COMPLETADA")
+                | models.Q(resultado__isnull=True),
+                name="ck_tarea_resultado",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Tarea {self.id} · {self.estado}"

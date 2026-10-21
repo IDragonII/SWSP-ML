@@ -1,4 +1,5 @@
-"""Pruebas de Machine Learning: Semana 21 (346-365) y Semana 22 (366-392).
+"""Pruebas de Machine Learning: Semana 21 (346-365), Semana 22 (366-392)
+y Semana 23 (393-419).
 
 Numeración Semana 21: 346-365 (20 pruebas → 365 en total; el
 repositorio cerró la Semana 20 en 345). Cubren la exportación del
@@ -16,6 +17,12 @@ serialización con manifiesto de huellas, registro/activación de
 modelos, servicio de predicción, API, comparación con lo real,
 permisos, migraciones (32 tablas / 25 triggers), recorrido completo y
 higiene de la entrega.
+
+Numeración Semana 23: 393-419 (27 pruebas → 419 en total; base real
+392, decisión 249). Cubren la cuarta tabla de ML (tareas_entrenamiento
+y las columnas de modelo-en-BD), el trabajador, el entrenamiento desde
+el sistema, la API de entrenamientos, las pantallas y el recorrido
+completo.
 
 Los datos de estas pruebas son de demostración: ninguna cifra que salga
 de aquí se presenta como resultado de la tesis.
@@ -41,7 +48,7 @@ import pandas as pd
 from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.db import connection
+from django.db import IntegrityError, connection, transaction
 from django.db.migrations.executor import MigrationExecutor
 from django.test import TestCase
 from django.utils import timezone
@@ -78,7 +85,7 @@ from ml import (
     validacion,
 )
 from ml.carga import ErrorCarga, cargar
-from ml.models import EntrenamientoML, ModeloML, Prediccion
+from ml.models import EntrenamientoML, ModeloML, Prediccion, TareaEntrenamiento
 from ml.registro import ErrorRegistro
 from ml.servicio import ErrorModelo, ErrorSinModelo, ErrorVariables
 
@@ -1055,10 +1062,10 @@ class LineaBaseTests(TestCase):
 # ---------------------------------------------------------------------- #
 class HigieneTests(TestCase):
     """Pruebas 363-365: la Semana 21 no mueve el esquema (29 tablas de
-    dominio entonces; 32 con las 3 de ML de la S22, 25 triggers) y los
-    notebooks se versionan limpios."""
+    dominio entonces; 33 con las 4 de ML de la S22-S23, 25 triggers) y
+    los notebooks se versionan limpios."""
 
-    def test_363_las_migraciones_siguen_creando_32_tablas_de_dominio(self):
+    def test_363_las_migraciones_siguen_creando_33_tablas_de_dominio(self):
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT count(*) FROM information_schema.tables"
@@ -1071,9 +1078,9 @@ class HigieneTests(TestCase):
             tablas = cursor.fetchone()[0]
         self.assertEqual(
             tablas,
-            32,
-            "las migraciones deben seguir creando 32 tablas de dominio "
-            "(29 de la S21 + 3 de ML de la S22)",
+            33,
+            "las migraciones deben seguir creando 33 tablas de dominio "
+            "(29 de la S21 + 4 de ML de la S22-S23)",
         )
 
     def test_364_las_migraciones_siguen_creando_25_triggers(self):
@@ -2448,12 +2455,12 @@ class Bloque2dTests(Bloque2Base):
 # Fase F2a: app ml, 3 tablas del diseño y fn de producción completa (388)
 # ---------------------------------------------------------------------- #
 class EsquemaMLTests(TestCase):
-    """Prueba 388 (decisiones 216-218): las migraciones dejan 32 tablas
-    de dominio y 25 triggers, con las tres tablas de ML de
-    01_tablas.sql:385-431, sus restricciones, los índices del diseño y
+    """Prueba 388 (decisiones 216-218 y 253-254): las migraciones dejan
+    33 tablas de dominio y 25 triggers, con las cuatro tablas de ML de
+    01_tablas.sql, sus restricciones, los índices del diseño y
     fn_produccion_post completa."""
 
-    def test_388_las_tres_tablas_ml_con_32_tablas_y_25_triggers(self):
+    def test_388_las_cuatro_tablas_ml_con_33_tablas_y_25_triggers(self):
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT table_name FROM information_schema.tables"
@@ -2472,13 +2479,15 @@ class EsquemaMLTests(TestCase):
         }
         self.assertEqual(
             len(dominio),
-            32,
-            "las migraciones deben crear 32 tablas de dominio "
-            "(29 + entrenamientos_ml, modelos_ml y predicciones)",
+            33,
+            "las migraciones deben crear 33 tablas de dominio "
+            "(29 + entrenamientos_ml, modelos_ml, predicciones y "
+            "tareas_entrenamiento)",
         )
         self.assertEqual(triggers, 25, "los triggers siguen en 25")
         self.assertLessEqual(
-            {"entrenamientos_ml", "modelos_ml", "predicciones"}, todas
+            {"entrenamientos_ml", "modelos_ml", "predicciones",
+             "tareas_entrenamiento"}, todas
         )
         # El resto de apps no debe crear tablas con ese nombre
         self.assertEqual(
@@ -2503,8 +2512,14 @@ class EsquemaMLTests(TestCase):
             )
             entrenamientos = {fila[0] for fila in cursor.fetchall()}
             cursor.execute(
+                "SELECT conname FROM pg_constraint "
+                "WHERE conrelid = 'tareas_entrenamiento'::regclass"
+            )
+            tareas = {fila[0] for fila in cursor.fetchall()}
+            cursor.execute(
                 "SELECT indexname FROM pg_indexes "
-                "WHERE tablename IN ('modelos_ml', 'predicciones')"
+                "WHERE tablename IN ('modelos_ml', 'predicciones',"
+                " 'tareas_entrenamiento')"
             )
             indices = {fila[0] for fila in cursor.fetchall()}
             cursor.execute(
@@ -2514,33 +2529,41 @@ class EsquemaMLTests(TestCase):
             )
             activo = cursor.fetchone()
             cursor.execute(
+                "SELECT i.indisunique, i.indpred IS NOT NULL"
+                " FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid"
+                " WHERE c.relname = 'uq_tarea_activa'"
+            )
+            tarea_activa = cursor.fetchone()
+            cursor.execute(
                 "SELECT prosrc FROM pg_proc WHERE proname = 'fn_produccion_post'"
             )
             fn_post = cursor.fetchone()[0]
 
-        # Restricciones de modelos_ml (01_tablas.sql:396-411)
+        # Restricciones de modelos_ml (01_tablas.sql)
         self.assertLessEqual(
             {
                 "ck_modelo_algoritmo",
                 "ck_modelo_mae",
                 "ck_modelo_rmse",
+                "ck_modelo_tamano",
                 "uq_modelo_entrenamiento",
                 "uq_modelo_version",
             },
             modelos,
         )
         # Índices de modelos_ml: el único parcial de modelo activo
-        # (01_tablas.sql:497-500) y los de predicciones (:523-524)
+        # y los de predicciones y tareas
         self.assertIn("uq_modelo_activo", indices)
         self.assertLessEqual(
             {"ix_predicciones_campania", "ix_predicciones_modelo"}, indices
         )
-        # Restricciones de predicciones (01_tablas.sql:413-431)
+        self.assertIn("uq_tarea_activa", indices)
+        # Restricciones de predicciones (01_tablas.sql)
         self.assertLessEqual(
             {"ck_prediccion_dias", "ck_prediccion_intervalo"},
             predicciones,
         )
-        # Restricciones de entrenamientos_ml (01_tablas.sql:385-394)
+        # Restricciones de entrenamientos_ml (01_tablas.sql)
         self.assertLessEqual(
             {
                 "ck_entrenamiento_registros",
@@ -2549,10 +2572,18 @@ class EsquemaMLTests(TestCase):
             },
             entrenamientos,
         )
+        # Restricciones de tareas_entrenamiento (decisión 253)
+        self.assertLessEqual(
+            {"ck_tarea_estado", "ck_tarea_resultado"}, tareas
+        )
         # uq_modelo_activo: único y PARCIAL (solo las filas activas)
         self.assertIsNotNone(activo, "falta el índice uq_modelo_activo")
         self.assertTrue(activo[0], "uq_modelo_activo debe ser único")
         self.assertTrue(activo[1], "uq_modelo_activo debe ser parcial")
+        # uq_tarea_activa: único y PARCIAL (solo las tareas activas)
+        self.assertIsNotNone(tarea_activa, "falta uq_tarea_activa")
+        self.assertTrue(tarea_activa[0], "uq_tarea_activa debe ser único")
+        self.assertTrue(tarea_activa[1], "uq_tarea_activa debe ser parcial")
 
         # fn_produccion_post completa: comparación predicho vs. real
         self.assertIn("predicciones", fn_post)
@@ -2734,7 +2765,7 @@ class HigieneEntregaTests(TestCase):
             + proceso.stdout + proceso.stderr,
         )
 
-        self.assertEqual(self._tablas(), 32)
+        self.assertEqual(self._tablas(), 33)
         self.assertEqual(self._triggers(), 25)
 
         # Revertir: primero produccion/0003 (depende de ml/0001, 248)
@@ -2742,9 +2773,11 @@ class HigieneEntregaTests(TestCase):
         executor.migrate([("produccion", "0002_funciones_y_triggers")])
         executor = MigrationExecutor(connection)
         executor.migrate([("ml", None)])
-        # 29 tablas de dominio (sin las 3 de ML) y la función vuelve a
+        # 29 tablas de dominio (sin las 4 de ML) y la función vuelve a
         # la versión parcial de 0002; los triggers no cambian porque
-        # 0003 solo reemplaza el cuerpo de la función (248)
+        # 0003 solo reemplaza el cuerpo de la función (248). La
+        # reversión de ml/0003 pasa por la guardia de la decisión 256
+        # (falla solo si hay modelos con contenido y sin archivo).
         self.assertEqual(self._tablas(), 29)
         self.assertNotIn("predicciones", self._fn_post())
         self.assertEqual(self._triggers(), 25)
@@ -2755,15 +2788,16 @@ class HigieneEntregaTests(TestCase):
             )
             tablas = {fila[0] for fila in cursor.fetchall()}
         self.assertNotIn("entrenamientos_ml", tablas)
+        self.assertNotIn("tareas_entrenamiento", tablas)
 
-        # Y al reaplicar todo vuelve como al inicio (32/25, completa)
+        # Y al reaplicar todo vuelve como al inicio (33/25, completa)
         executor = MigrationExecutor(connection)
-        executor.migrate([("ml", "0001_initial")])
+        executor.migrate(executor.loader.graph.leaf_nodes("ml"))
         executor = MigrationExecutor(connection)
         executor.migrate(
             [("produccion", "0003_fn_produccion_post_completa")]
         )
-        self.assertEqual(self._tablas(), 32)
+        self.assertEqual(self._tablas(), 33)
         self.assertEqual(self._triggers(), 25)
         fn_post = self._fn_post()
         self.assertIn("predicciones", fn_post)
@@ -2819,3 +2853,232 @@ class HigieneEntregaTests(TestCase):
         self.assertEqual(resultados["version"], "1")
         self.assertEqual(resultados["origen_datos"], "demostración")
         self.assertEqual(resultados["criterio"]["elegido"], "REGRESION_LINEAL")
+
+
+# ---------------------------------------------------------------------- #
+# Semana 23 F0: tareas_entrenamiento y modelo-en-BD (393-396)
+# ---------------------------------------------------------------------- #
+class TareaYModeloEnBDTests(TestCase):
+    """Pruebas 393-396 (decisiones 253-256): la cuarta tabla de ML con
+    su índice único parcial de una sola tarea activa, las tres columnas
+    de modelo-en-BD con su CHECK de 20 MiB y la reversión anotada de la
+    migración 0003."""
+
+    def setUp(self):
+        self.admin = Usuario.objects.create_superuser(
+            username="admin_s23f0", email="", password="AdminS23!",
+            rol=Rol.objects.get(nombre="Administrador"),
+        )
+
+    @staticmethod
+    def _entrenamiento():
+        return EntrenamientoML.objects.create(
+            n_registros=30,
+            n_entrenamiento=24,
+            n_prueba=6,
+            variables_usadas={"conjunto": "plan", "origen_datos": "sistema"},
+        )
+
+    def _modelo(self, **extras):
+        datos = {
+            "entrenamiento": self._entrenamiento(),
+            "algoritmo": "REGRESION_LINEAL",
+            "version": extras.pop("version", "t393"),
+            "mae": Decimal("1.00"),
+            "rmse": Decimal("1.50"),
+            "r2": Decimal("0.5000"),
+        }
+        datos.update(extras)
+        return ModeloML.objects.create(**datos)
+
+    # ------------------------------------------------------------------ #
+    # 393: el modelo de la tarea con sus estados, defaults y tabla
+    # ------------------------------------------------------------------ #
+    def test_393_el_modelo_de_la_tarea_con_defaults_estados_y_tabla(self):
+        tarea = TareaEntrenamiento.objects.create(
+            usuario=self.admin, observacion="Primera corrida"
+        )
+        self.assertEqual(tarea.estado, "PENDIENTE")
+        self.assertEqual(tarea.observacion, "Primera corrida")
+        self.assertIsNone(tarea.progreso)
+        self.assertIsNone(tarea.latido)
+        self.assertIsNone(tarea.resultado)
+        self.assertIsNone(tarea.error)
+        self.assertEqual(tarea.usuario, self.admin)
+        self.assertIn("PENDIENTE", str(tarea))
+
+        self.assertEqual(
+            TareaEntrenamiento._meta.db_table, "tareas_entrenamiento"
+        )
+        estados = [
+            clave
+            for clave, _ in TareaEntrenamiento._meta.get_field("estado").choices
+        ]
+        self.assertEqual(
+            estados,
+            ["PENDIENTE", "PROCESANDO", "COMPLETADA", "FALLIDA", "CANCELADA"],
+        )
+        # El resultado solo se guarda apuntando a un entrenamiento real
+        self.assertEqual(
+            TareaEntrenamiento._meta.get_field("resultado").related_model,
+            EntrenamientoML,
+        )
+        # El usuario no se borra en cascada: protege su historial
+        from django.db.models import PROTECT
+
+        self.assertIs(
+            TareaEntrenamiento._meta.get_field("usuario").remote_field.on_delete,
+            PROTECT,
+        )
+
+    # ------------------------------------------------------------------ #
+    # 394: las restricciones de la tabla de tareas en la BD
+    # ------------------------------------------------------------------ #
+    def test_394_las_restricciones_de_la_tarea_viven_en_la_bd(self):
+        # ck_tarea_estado: el estado sale de la lista fija
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "INSERT INTO tareas_entrenamiento"
+                        " (usuario_id, estado, observacion, creado_en)"
+                        " VALUES (%s, 'ROTO', '', now())",
+                        [self.admin.pk],
+                    )
+
+        # uq_tarea_activa: una sola tarea activa en todo el sistema
+        primera = TareaEntrenamiento.objects.create(usuario=self.admin)
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                TareaEntrenamiento.objects.create(usuario=self.admin)
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                TareaEntrenamiento.objects.create(
+                    usuario=self.admin, estado="PROCESANDO"
+                )
+        # Al dejar la primera COMPLETADA caben de nuevo pendientes
+        primera.estado = "COMPLETADA"
+        primera.save(update_fields=("estado",))
+        segunda = TareaEntrenamiento.objects.create(usuario=self.admin)
+        self.addCleanup(segunda.delete)
+
+        # ck_tarea_resultado: resultado solo en COMPLETADA
+        entrenamiento = self._entrenamiento()
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                TareaEntrenamiento.objects.create(
+                    usuario=self.admin, resultado=entrenamiento
+                )
+        self.assertEqual(segunda.estado, "PENDIENTE")
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                TareaEntrenamiento.objects.create(
+                    usuario=self.admin, estado="FALLIDA",
+                    resultado=entrenamiento,
+                )
+        # Una COMPLETADA con resultado sí cabe
+        completa = TareaEntrenamiento.objects.create(
+            usuario=self.admin, estado="COMPLETADA", resultado=entrenamiento
+        )
+        self.assertEqual(completa.resultado, entrenamiento)
+
+    # ------------------------------------------------------------------ #
+    # 395: las tres columnas de modelo-en-BD y su CHECK de 20 MiB
+    # ------------------------------------------------------------------ #
+    def test_395_las_columnas_de_modelo_en_bd_con_su_tope_de_20_mib(self):
+        # El artefacto cabe en la BD sin archivo (ruta del trabajador)
+        bits = b"joblib-falso-395"
+        modelo = self._modelo(
+            contenido=bits,
+            huella=hashlib.sha256(bits).hexdigest(),
+            versiones_librerias={
+                "pandas": "3.0.6",
+                "numpy": "2.5.4",
+                "scikit-learn": "1.9.1",
+                "joblib": "1.6.0",
+            },
+        )
+        self.assertEqual(bytes(modelo.contenido), bits)
+        self.assertEqual(modelo.huella, hashlib.sha256(bits).hexdigest())
+        self.assertEqual(
+            modelo.versiones_librerias["scikit-learn"], "1.9.1"
+        )
+        self.assertIsNone(modelo.archivo)
+
+        # El registro manual de la S22 sigue válido: archivo, sin contenido
+        archivo = self._modelo(version="t395-archivo", archivo="x_v1.joblib")
+        self.assertIsNone(archivo.contenido)
+        self.assertIsNone(archivo.huella)
+
+        # ck_modelo_tamano: 20 MiB caben, 20 MiB + 1 byte no
+        tope = 20 * 1024 * 1024
+        ModeloML.objects.filter(pk=modelo.pk).update(
+            contenido=b"\0" * tope
+        )
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                ModeloML.objects.filter(pk=modelo.pk).update(
+                    contenido=b"\0" * (tope + 1)
+                )
+        # Tras el rechazo, el contenido anterior sigue intacto
+        modelo.refresh_from_db()
+        self.assertEqual(len(bytes(modelo.contenido)), tope)
+
+    # ------------------------------------------------------------------ #
+    # 396: la reversión de 0003 pasa limpia o se niega con aviso
+    # ------------------------------------------------------------------ #
+    def test_396_la_reversion_de_0003_pasa_o_se_niega_con_aviso(self):
+        def columnas():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT column_name FROM information_schema.columns"
+                    " WHERE table_name = 'modelos_ml'"
+                )
+                return {fila[0] for fila in cursor.fetchall()}
+
+        def migrar(objetivo):
+            # Las FK de Django son DEFERRABLE INITIALLY DEFERRED: un
+            # INSERT posterior deja eventos pendientes que tumban el
+            # ALTER TABLE; se fuerzan antes de migrar (solo pruebas)
+            with connection.cursor() as cursor:
+                cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
+            executor = MigrationExecutor(connection)
+            executor.migrate(objetivo)
+
+        self.assertLessEqual(
+            {"contenido", "huella", "versiones_librerias"}, columnas()
+        )
+
+        # Sin modelos solo-en-BD: la reversión limpia las columnas
+        migrar([("ml", "0002_tareas_entrenamiento")])
+        self.assertFalse(
+            {"contenido", "huella", "versiones_librerias"} & columnas(),
+            "al revertir 0003 deben desaparecer las tres columnas",
+        )
+        migrar([("ml", "0003_modelos_en_bd")])
+        self.assertLessEqual(
+            {"contenido", "huella", "versiones_librerias"}, columnas()
+        )
+
+        # Con un modelo cuyo único artefacto vive en la BD, la
+        # reversión se niega y pide el respaldo (decisión 256)
+        modelo = self._modelo(
+            version="t396",
+            contenido=b"unico",
+            huella="a" * 64,
+        )
+        with self.assertRaisesMessage(RuntimeError, "respaldo"):
+            migrar([("ml", "0002_tareas_entrenamiento")])
+        self.assertLessEqual(
+            {"contenido", "huella", "versiones_librerias"}, columnas(),
+            "la reversión fallida no debe tocar las columnas",
+        )
+
+        # Con el modelo sin contenido (o con archivo) la reversión pasa
+        modelo.contenido = None
+        modelo.save(update_fields=("contenido",))
+        migrar([("ml", "0002_tareas_entrenamiento")])
+        migrar([("ml", "0003_modelos_en_bd")])
+        self.assertLessEqual(
+            {"contenido", "huella", "versiones_librerias"}, columnas()
+        )
