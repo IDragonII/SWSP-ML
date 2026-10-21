@@ -71,6 +71,7 @@ from usuarios.models import Rol, Usuario
 from usuarios.tests import _post_login
 
 from ml import (
+    carga,
     catalogo,
     columnas,
     criterio,
@@ -82,6 +83,7 @@ from ml import (
     preparacion,
     registro,
     servicio,
+    trabajo,
     validacion,
 )
 from ml.carga import ErrorCarga, cargar
@@ -3082,3 +3084,300 @@ class TareaYModeloEnBDTests(TestCase):
         self.assertLessEqual(
             {"contenido", "huella", "versiones_librerias"}, columnas()
         )
+
+
+# ---------------------------------------------------------------------- #
+# Fase F1: entrenamiento desde el sistema (397-398 y 407)
+# ---------------------------------------------------------------------- #
+class CargaDesdeBdTests(MLBase):
+    """Prueba 397: la puerta por la vista devuelve exactamente el mismo
+    DataFrame y la misma huella que el CSV exportado (decisión 259)."""
+
+    def setUp(self):
+        super().setUp()
+        for i, kilos in enumerate(("300", "264", "412"), start=1):
+            productor = self._productor(
+                dni=f"9600001{i}", nombre=f"Vista{i}"
+            )
+            parcela = self._parcela(productor, altitud_msnm=3500 + i * 100)
+            campania = self._campania(parcela)
+            self._producir(campania, "1.50", kilos)
+            self._cerrar(campania)
+
+    def test_397_la_vista_y_el_csv_dan_el_mismo_dataset(self):
+        with tempfile.TemporaryDirectory() as carpeta:
+            with patch.dict(os.environ, {"ML_EXPORT_DIR": carpeta}):
+                call_command(
+                    "exportar_dataset",
+                    "--usuario", "admin_ml",
+                    "--origen-datos", "real",
+                    stdout=io.StringIO(),
+                )
+            csvs = list(Path(carpeta).glob("dataset_*.csv"))
+            self.assertEqual(len(csvs), 1)
+            ruta_csv = csvs[0]
+
+            datos_csv = cargar(ruta_csv)
+            datos_bd = carga.cargar_desde_bd()
+
+            self.assertEqual(len(datos_bd), 3, "las tres campañas aptas")
+            self.assertEqual(
+                list(datos_bd.columns), list(columnas.COLUMNAS_EXPORTADAS)
+            )
+            pd.testing.assert_frame_equal(
+                datos_csv,
+                datos_bd,
+                check_dtype=False,
+                obj="el dataset de la vista vs el del CSV",
+            )
+            # La huella de la vista es la de los bytes del CSV escrito
+            huella = carga.huella_desde_bd()
+            self.assertRegex(huella, r"^[0-9a-f]{64}$")
+            self.assertEqual(huella, guardado.huella_de(ruta_csv))
+
+
+class RegistroContenidoTests(Bloque2Base):
+    """Prueba 398: registrar con `contenido` da de alta el mismo
+    triplete que por archivo, guarda el artefacto en la BD y la
+    activación verifica la huella sobre los bytes (decisiones 254,
+    260 y 262)."""
+
+    def _contenido(self, algoritmo="REGRESION_LINEAL"):
+        tubo, _, _ = entrenamiento.entrenar_completo(
+            datos_sinteticos(), algoritmo
+        )
+        buffer = io.BytesIO()
+        joblib.dump(tubo, buffer)
+        return buffer.getvalue()
+
+    def test_398_registrar_con_contenido_guarda_el_modelo_en_la_bd(self):
+        contenido = self._contenido()
+        resultados = self._metricas(version="t398")
+        resultados["origen_datos"] = "sistema"
+        resultados["datos_de"] = "real"
+        resumen = registro.registrar(
+            usuario=self.admin,
+            resultados=resultados,
+            version="t398",
+            contenido=contenido,
+        )
+
+        # El triplete completo, con el sello de honestidad en la BD
+        entrenamiento_ml = resumen["entrenamiento"]
+        self.assertEqual(entrenamiento_ml.n_registros, 48)
+        usadas = entrenamiento_ml.variables_usadas
+        self.assertEqual(
+            set(usadas),
+            {"variables", "conjunto", "origen_datos", "sha256_dataset",
+             "semilla", "estrategia", "datos_de"},
+            "variables_usadas lleva además datos_de (decisión 262)",
+        )
+        self.assertEqual(usadas["origen_datos"], "sistema")
+        self.assertEqual(usadas["datos_de"], "real")
+
+        # El artefacto vive solo en el elegido y pasó por la BD
+        modelos = list(ModeloML.objects.order_by("algoritmo"))
+        self.assertEqual(len(modelos), 3, "los tres algoritmos")
+        elegido = ModeloML.objects.get(algoritmo="REGRESION_LINEAL")
+        self.assertIsNotNone(elegido.contenido)
+        self.assertEqual(bytes(elegido.contenido), contenido)
+        self.assertEqual(
+            elegido.huella, hashlib.sha256(contenido).hexdigest()
+        )
+        self.assertEqual(
+            elegido.versiones_librerias, guardado.versiones_librerias()
+        )
+        self.assertIsNone(elegido.archivo)
+        otros = [m for m in modelos if m.algoritmo != "REGRESION_LINEAL"]
+        self.assertTrue(all(m.contenido is None for m in otros))
+        self.assertTrue(all(m.huella is None for m in otros))
+        self.assertTrue(all(m.archivo is None for m in otros))
+        self.assertFalse(
+            any(m.activo for m in modelos), "entrenar no activa"
+        )
+        self.assertFalse(
+            (guardado.carpeta() / "regresion_lineal_vt398.joblib").exists(),
+            "el artefacto no pasó por disco",
+        )
+
+        # Auditoría CREAR: artefacto «contenido», sin archivo (260)
+        evento = Auditoria.objects.get(
+            accion="CREAR", modulo="Machine Learning"
+        )
+        self.assertEqual(evento.usuario, self.admin)
+        self.assertEqual(evento.detalle["artefacto"], "contenido")
+        self.assertIsNone(evento.detalle["archivo"])
+
+        # Activación desde los bytes, sin manifiesto ni destino
+        activo = registro.activar_modelo(elegido, self.admin)
+        self.assertTrue(activo.activo)
+        otro = ModeloML.objects.get(algoritmo="RANDOM_FOREST")
+        with self.assertRaisesMessage(ErrorRegistro, "no tiene archivo"):
+            registro.activar_modelo(otro, self.admin)
+
+        # Contenido alterado → la huella no coincide y NO se activa
+        elegido.activo = False
+        elegido.save(update_fields=["activo"])
+        elegido.contenido = b"alterado"
+        elegido.save(update_fields=["contenido"])
+        with self.assertRaisesMessage(ErrorRegistro, "huella"):
+            registro.activar_modelo(elegido, self.admin)
+
+        # Rechazos: los dos artefactos a la vez y el tope de 20 MiB
+        with self.assertRaisesMessage(ErrorRegistro, "no los dos"):
+            registro.registrar(
+                usuario=self.admin,
+                resultados=self._metricas(version="t398b"),
+                version="t398b",
+                archivo="modelo.joblib",
+                contenido=contenido,
+            )
+        with self.assertRaisesMessage(ErrorRegistro, "20 MiB"):
+            registro.registrar(
+                usuario=self.admin,
+                resultados=self._metricas(version="t398c"),
+                version="t398c",
+                contenido=b"\0" * (registro.LIMITE_CONTENIDO + 1),
+            )
+        self.assertFalse(ModeloML.objects.filter(version="t398c").exists())
+
+        # El sello de demostración exige la bandera de desarrollo
+        demo = self._metricas(version="t398d")
+        demo["origen_datos"] = "sistema"
+        demo["datos_de"] = "demostración"
+        with self.assertRaisesMessage(ErrorRegistro, "--desarrollo"):
+            registro.registrar(
+                usuario=self.admin,
+                resultados=demo,
+                version="t398d",
+                contenido=contenido,
+            )
+
+
+class SistemaIgualScriptTests(MLBase):
+    """Prueba 407: el sistema (vista en memoria, decisión 259) y el
+    script (entrenar_modelos con el CSV exportado) dan resultados
+    idénticos con la semilla 42, incluida la huella del dataset."""
+
+    def setUp(self):
+        super().setUp()
+        # 32 campañas aptas con señal clara: la altitud sube y con ella
+        # el rendimiento, para que el criterio siempre elija un modelo
+        for i in range(1, 33):
+            altitud = 3400 + i * 40
+            productor = self._productor(
+                dni=f"960001{i:02d}", nombre=f"Prod{i:02d}"
+            )
+            parcela = self._parcela(productor, altitud_msnm=altitud)
+            campania = self._campania(parcela)
+            self._producir(campania, "1.50", str(260 + i * 7))
+            self._cerrar(campania)
+
+    def test_407_el_sistema_y_el_script_dan_identicos_resultados(self):
+        with tempfile.TemporaryDirectory() as carpeta:
+            # --- el script: exportar el CSV y correr el comando real ---
+            with patch.dict(os.environ, {"ML_EXPORT_DIR": carpeta}):
+                call_command(
+                    "exportar_dataset",
+                    "--usuario", "admin_ml",
+                    "--origen-datos", "real",
+                    stdout=io.StringIO(),
+                )
+            csvs = list(Path(carpeta).glob("dataset_*.csv"))
+            self.assertEqual(len(csvs), 1)
+            ruta_csv = csvs[0]
+
+            with patch("ml.guardado.carpeta", return_value=Path(carpeta)):
+                call_command(
+                    "entrenar_modelos",
+                    "--archivo", str(ruta_csv),
+                    "--version-modelo", "t407",
+                    "--informe", str(Path(carpeta) / "informe.md"),
+                    stdout=io.StringIO(),
+                )
+            guion = guardado.leer_resultados("t407", destino=carpeta)
+            self.assertEqual(
+                guion["n"], 32, "la vista debe traer las 32 campañas"
+            )
+
+            # --- el sistema: la MISMA corrida desde la vista ------------
+            resumen = trabajo.entrenar_desde_sistema(
+                usuario=self.admin,
+                version="t407",
+                datos_de="real",
+            )
+
+            em = resumen["entrenamiento"]
+            self.assertEqual(resumen["elegido"], guion["criterio"]["elegido"])
+            self.assertIsNone(resumen["activado"], "entrenar no activa")
+            self.assertFalse(ModeloML.objects.filter(activo=True).exists())
+
+            # Mismos números de punta a punta (semilla 42 en los dos)
+            self.assertEqual(em.n_registros, guion["n"])
+            self.assertEqual(em.observaciones, guion["criterio"]["motivo"])
+            usadas = em.variables_usadas
+            self.assertEqual(usadas["estrategia"], guion["estrategia"])
+            self.assertEqual(usadas["semilla"], 42)
+            self.assertEqual(guion["estrategia"]["semilla"], 42)
+            self.assertEqual(
+                usadas["sha256_dataset"], guion["sha256_dataset"]
+            )
+            self.assertEqual(
+                usadas["sha256_dataset"], carga.huella_desde_bd(),
+                "la huella del sistema es la del CSV del script",
+            )
+            self.assertEqual(usadas["origen_datos"], "sistema")
+            self.assertEqual(usadas["datos_de"], "real")
+            self.assertEqual(guion["origen_datos"], "real")
+            self.assertEqual(guion["excluidas"], 0)
+
+            # Los tres modelos con las métricas que redondea el registro
+            modelos = list(ModeloML.objects.filter(version="t407"))
+            self.assertEqual(len(modelos), 3)
+            for modelo in modelos:
+                candidato = guion["candidatos"][modelo.algoritmo]
+                self.assertEqual(
+                    str(modelo.mae), f'{candidato["mae"]:.2f}',
+                    f"MAE de {modelo.algoritmo}",
+                )
+                self.assertEqual(
+                    str(modelo.rmse), f'{candidato["rmse"]:.2f}',
+                    f"RMSE de {modelo.algoritmo}",
+                )
+                self.assertEqual(
+                    str(modelo.r2), f'{candidato["r2"]:.4f}',
+                    f"R2 de {modelo.algoritmo}",
+                )
+                self.assertIsNone(modelo.archivo)
+
+            # El artefacto del sistema está en la BD, solo en el elegido
+            elegido = ModeloML.objects.get(
+                version="t407", algoritmo=guion["criterio"]["elegido"]
+            )
+            otros = [m for m in modelos if m.pk != elegido.pk]
+            self.assertTrue(
+                all(m.contenido is None for m in otros),
+                "el artefacto en BD es del modelo elegido",
+            )
+            self.assertIsNotNone(elegido.contenido)
+            self.assertEqual(
+                elegido.huella, hashlib.sha256(bytes(elegido.contenido)).hexdigest()
+            )
+
+            # Predicción idéntica: tubo de la BD vs tubo del script
+            tubo_sistema = joblib.load(io.BytesIO(bytes(elegido.contenido)))
+            ruta_tubo = Path(carpeta) / guardado.nombre_archivo(
+                guion["criterio"]["elegido"], "t407"
+            )
+            tubo_script = guardado.cargar_verificado(
+                ruta_tubo, destino=carpeta
+            )
+            datos_csv = carga.cargar(ruta_csv)
+            limpio, _ = limpieza.limpiar(datos_csv)
+            X, _, _, _ = preparacion.preparar(limpio)
+            np.testing.assert_allclose(
+                tubo_sistema.predict(X),
+                tubo_script.predict(X),
+                rtol=1e-9,
+                err_msg="el sistema y el script predicen igual",
+            )

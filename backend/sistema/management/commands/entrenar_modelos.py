@@ -91,7 +91,7 @@ class Command(BaseCommand):
                 "archivo_dataset": ruta.name,
                 "sha256_dataset": guardado.huella_de(ruta),
                 "origen_datos": origen,
-                "excluidas": resumen.get("excluidas"),
+                "excluidas": resumen.get("filas_excluidas"),
                 "criterio": resolucion,
                 "criterio_archivo": "docs/criterio_seleccion.md",
             }
@@ -146,7 +146,7 @@ class Command(BaseCommand):
         self.stdout.write(
             f"Tramo de datos: {entrenamiento.nombre_tramo(resultado['n'])}"
             f" ({resultado['n']} filas limpias, "
-            f"{resumen.get('excluidas', 0)} excluidas)"
+            f"{resumen.get('filas_excluidas', 0)} excluidas)"
         )
 
     # ------------------------------------------------------------------ #

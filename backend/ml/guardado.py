@@ -20,9 +20,24 @@ from django.conf import settings
 
 NOMBRE_MANIFIESTO = "manifiesto.json"
 
+# Versiones fijadas en requirements.txt: el artefacto guardado en la BD
+# se sella con ellas para saber con qué entorno se entrenó (decisión
+# 254). La prueba 398 las contrasta con el archivo real.
+VERSIONES_LIBRERIAS = {
+    "pandas": "3.0.6",
+    "numpy": "2.5.4",
+    "scikit-learn": "1.9.1",
+    "joblib": "1.6.0",
+}
+
 
 class ErrorManifiesto(Exception):
     """El archivo no existe en el manifiesto o su huella no coincide."""
+
+
+def versiones_librerias():
+    """Copia de las versiones selladas en los modelos de la BD."""
+    return dict(VERSIONES_LIBRERIAS)
 
 
 def carpeta(destino=None):
