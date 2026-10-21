@@ -87,9 +87,10 @@ export default function ModelosMl() {
 
       <p className="texto-intro">
         El criterio escrito (docs/criterio_seleccion.md) elige el modelo de
-        menor RMSE; solo el modelo elegido tiene archivo y puede activarse.
-        Activar verifica archivo, huella y una predicción de prueba antes de
-        cambiar el modelo vigente.
+        menor RMSE; solo el modelo elegido tiene el artefacto (archivo con
+        manifiesto o contenido en la base de datos) y puede activarse.
+        Activar verifica huella y una predicción de prueba antes de cambiar
+        el modelo vigente.
       </p>
 
       <Aviso>{error}</Aviso>
@@ -97,7 +98,8 @@ export default function ModelosMl() {
       {datos && datos.results.length === 0 ? (
         <div className="panel">
           <p>
-            No hay modelos registrados: entrena con{' '}
+            No hay modelos registrados: entrena desde la pantalla{' '}
+            <strong>Entrenar</strong> o con{' '}
             <code>python manage.py entrenar_modelos</code> y registra con{' '}
             <code>python manage.py registrar_modelo</code>.
           </p>
@@ -161,11 +163,11 @@ export default function ModelosMl() {
                     <button
                       type="button"
                       className="boton-texto"
-                      disabled={!fila.archivo}
+                      disabled={!fila.archivo && !fila.en_bd}
                       title={
-                        fila.archivo
+                        fila.archivo || fila.en_bd
                           ? 'Hacerlo el modelo vigente'
-                          : 'Solo el modelo elegido por el criterio tiene archivo'
+                          : 'Solo el modelo elegido por el criterio tiene el artefacto'
                       }
                       onClick={() => setActivarId(fila.id)}
                     >
@@ -183,7 +185,7 @@ export default function ModelosMl() {
         titulo="Activar este modelo"
         texto={
           porActivar
-            ? `El modelo ${porActivar.algoritmo} v${porActivar.version} pasará a ser el vigente para todas las predicciones (el actual se desactiva). Se verifica la huella del archivo y se hace una predicción de prueba antes de cambiarlo. ¿Continuar?`
+            ? `El modelo ${porActivar.algoritmo} v${porActivar.version} pasará a ser el vigente para todas las predicciones (el actual se desactiva). Se verifica la huella del artefacto (archivo o contenido en la BD) y se hace una predicción de prueba antes de cambiarlo. ¿Continuar?`
             : ''
         }
         confirmar="Activar"

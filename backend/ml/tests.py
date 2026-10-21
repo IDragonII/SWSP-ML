@@ -1415,8 +1415,9 @@ class Bloque2bTests(Bloque2Base):
             self.assertEqual(
                 set(usadas),
                 {"variables", "conjunto", "origen_datos",
-                 "sha256_dataset", "semilla", "estrategia"},
-                "variables_usadas guarda lo de la decisión 223",
+                 "sha256_dataset", "semilla", "estrategia", "criterio"},
+                "variables_usadas guarda lo de la decisión 223 y el "
+                "veredicto del criterio (264)",
             )
             self.assertEqual(usadas["conjunto"], "plan")
             self.assertEqual(usadas["semilla"], 42)
@@ -3229,8 +3230,9 @@ class RegistroContenidoTests(Bloque2Base):
         self.assertEqual(
             set(usadas),
             {"variables", "conjunto", "origen_datos", "sha256_dataset",
-             "semilla", "estrategia", "datos_de"},
-            "variables_usadas lleva además datos_de (decisión 262)",
+             "semilla", "estrategia", "datos_de", "criterio"},
+            "variables_usadas lleva datos_de (decisión 262) y el "
+            "veredicto del criterio (264)",
         )
         self.assertEqual(usadas["origen_datos"], "sistema")
         self.assertEqual(usadas["datos_de"], "real")
@@ -3845,3 +3847,135 @@ class EntrenamientosApiTests(MLBase):
         self.assertEqual(ficha["estado"], "PROCESANDO")
         inexistente = self.client.get("/api/ml/entrenamientos/99999/")
         self.assertEqual(inexistente.status_code, 404)
+
+
+# ---------------------------------------------------------------------- #
+# Fase F4: contrato de la pantalla Entrenar (409)
+# ---------------------------------------------------------------------- #
+class PantallaEntrenarTests(Bloque2Base):
+    """Prueba 409: el contrato completo que encadena la pantalla Entrenar
+    (S23, decisiones 263-264): estado-datos → alta → progreso del
+    polling → resultados con criterio → activación del elegido desde la
+    API, terminando en /modelos/ con el artefacto en la BD. Es la misma
+    sucesión de llamadas que hace la UI, en el mismo orden."""
+
+    def test_409_el_contrato_de_la_pantalla_entrenar_end_to_end(self):
+        tubo, _, _ = entrenamiento.entrenar_completo(
+            datos_sinteticos(), "REGRESION_LINEAL"
+        )
+        buffer = io.BytesIO()
+        joblib.dump(tubo, buffer)
+        resultados = self._metricas(version="409")
+        resultados["origen_datos"] = "sistema"
+        resultados["datos_de"] = "real"
+        self._entrar_admin()
+
+        # 1) Estado de los datos: el contrato exacto de la cabecera
+        estado = self._json(self.client.get("/api/ml/estado-datos/"))
+        self.assertEqual(
+            set(estado),
+            {
+                "filas",
+                "minimo_entrenamiento",
+                "listo",
+                "origen_datos",
+                "datos_demostracion",
+            },
+        )
+        self.assertFalse(estado["listo"])
+
+        # 2) Alta: la fila que la UI sondea cada 5 s
+        alta = self._json(self._api("post", "/api/ml/entrenamientos/"))
+        self.assertEqual(
+            set(alta),
+            {
+                "id",
+                "estado",
+                "progreso",
+                "latido",
+                "observacion",
+                "error",
+                "resultado",
+                "usuario",
+                "creado_en",
+            },
+        )
+        self.assertEqual(alta["estado"], "PENDIENTE")
+        self.assertIsNone(alta["resultado"])
+
+        # 3) El trabajador reclama: el historial refleja etapa y latido
+        TareaEntrenamiento.objects.filter(pk=alta["id"]).update(
+            estado="PROCESANDO",
+            latido=timezone.now(),
+            progreso={"etapa": "reclamada", "pct": 5},
+        )
+        historia = self._json(self.client.get("/api/ml/entrenamientos/"))
+        en_curso = historia["results"][0]
+        self.assertEqual(en_curso["estado"], "PROCESANDO")
+        self.assertEqual(en_curso["progreso"]["pct"], 5)
+        self.assertIsNotNone(en_curso["latido"])
+
+        # 4) El hijo termina: tarea COMPLETADA con su resultado real
+        entrenamiento_ml = registro.registrar(
+            usuario=self.admin,
+            resultados=resultados,
+            version="409",
+            contenido=buffer.getvalue(),
+        )["entrenamiento"]
+        TareaEntrenamiento.objects.filter(pk=alta["id"]).update(
+            estado="COMPLETADA",
+            latido=timezone.now(),
+            progreso={"etapa": "completada", "pct": 100},
+            resultado=entrenamiento_ml,
+        )
+        detalle = self._json(
+            self.client.get(f"/api/ml/entrenamientos/{alta['id']}/")
+        )
+        self.assertEqual(detalle["estado"], "COMPLETADA")
+        self.assertEqual(detalle["progreso"]["pct"], 100)
+        self.assertEqual(detalle["resultado"], entrenamiento_ml.pk)
+
+        # 5) Resultados: comparativa y criterio, sin el binario jamás
+        datos = self._json(
+            self.client.get(
+                f"/api/ml/entrenamientos/{alta['id']}/resultados/"
+            )
+        )
+        self.assertEqual(
+            set(datos),
+            {
+                "id",
+                "fecha",
+                "n_registros",
+                "n_entrenamiento",
+                "n_prueba",
+                "criterio",
+                "modelos",
+                "datos_demostracion",
+            },
+        )
+        self.assertEqual(datos["criterio"]["elegido"], "REGRESION_LINEAL")
+        self.assertEqual(len(datos["modelos"]), 3)
+        elegido = next(
+            m
+            for m in datos["modelos"]
+            if m["algoritmo"] == "REGRESION_LINEAL"
+        )
+        self.assertTrue(elegido["en_bd"])
+        self.assertEqual(len(elegido["huella"]), 64)
+        self.assertNotIn("contenido", json.dumps(datos))
+
+        # 6) Activación del elegido por el id que devolvió la pantalla
+        activado = self._api(
+            "post", f"/api/ml/modelos/{elegido['id']}/activar/"
+        )
+        self.assertEqual(activado.status_code, 200)
+        self.assertTrue(self._json(activado)["activo"])
+
+        # 7) La pantalla Modelos lo ve activo, en la BD y sin archivo
+        modelos = self._json(self.client.get("/api/ml/modelos/"))
+        fila = next(m for m in modelos["results"] if m["activo"])
+        self.assertEqual(fila["id"], elegido["id"])
+        self.assertTrue(fila["en_bd"])
+        self.assertIsNone(fila["archivo"])
+        self.assertEqual(len(fila["huella"]), 64)

@@ -292,6 +292,9 @@ def registrar(*, usuario, resultados, version, archivo=None,
         "sha256_dataset": resultados["sha256_dataset"],
         "semilla": resultados["estrategia"].get("semilla"),
         "estrategia": resultados["estrategia"],
+        # El veredicto viaja con el entrenamiento: la pantalla de
+        # resultados lo lee para marcar el recomendado (decisión 264)
+        "criterio": resultados["criterio"],
     }
     if "datos_de" in resultados:
         variables_usadas["datos_de"] = resultados["datos_de"]

@@ -8,6 +8,7 @@ import Campanias from './pages/Campanias.jsx'
 import CambiarClave from './pages/CambiarClave.jsx'
 import Catalogos from './pages/Catalogos.jsx'
 import Climas from './pages/Climas.jsx'
+import Entrenar from './pages/Entrenar.jsx'
 import Incidencias from './pages/Incidencias.jsx'
 import Inicio from './pages/Inicio.jsx'
 import Login from './pages/Login.jsx'
@@ -49,6 +50,7 @@ const rutasConPantalla = new Set([
   '/prediccion',
   '/predicciones',
   '/modelos',
+  '/entrenar',
 ])
 const modulos = opcionesMenu.filter(
   (opcion) => !rutasConPantalla.has(opcion.ruta),
@@ -236,6 +238,15 @@ export default function App() {
             element={
               <RutaProtegida permiso="ml.ver_modelos">
                 <ModelosMl />
+              </RutaProtegida>
+            }
+          />
+
+          <Route
+            path="/entrenar"
+            element={
+              <RutaProtegida permiso="ml.entrenar">
+                <Entrenar />
               </RutaProtegida>
             }
           />

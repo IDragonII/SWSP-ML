@@ -23,6 +23,7 @@ export const opcionesMenu = [
     permiso: 'ml.ver_predicciones',
   },
   { ruta: '/modelos', nombre: 'Modelos ML', permiso: 'ml.ver_modelos' },
+  { ruta: '/entrenar', nombre: 'Entrenar', permiso: 'ml.entrenar' },
   { ruta: '/reportes', nombre: 'Reportes', permiso: 'reportes.ver' },
   { ruta: '/usuarios', nombre: 'Usuarios', permiso: 'usuarios.ver' },
   { ruta: '/roles', nombre: 'Roles y permisos', permiso: 'roles.gestionar' },
@@ -57,7 +58,7 @@ export const gruposMenu = [
   { titulo: 'Alertas', opciones: rutas('/alertas', '/productores-riesgo') },
   {
     titulo: 'Predicción',
-    opciones: rutas('/prediccion', '/predicciones', '/modelos'),
+    opciones: rutas('/prediccion', '/predicciones', '/modelos', '/entrenar'),
   },
   {
     titulo: 'Administración',
