@@ -23,13 +23,11 @@ import RuedaCarga from '../components/RuedaCarga.jsx'
 import Tabla from '../components/Tabla.jsx'
 import { useSesion } from '../context/useSesion.js'
 import { useToast } from '../context/useToast.js'
-
-function fechaCorta(valor) {
-  if (!valor) return '—'
-  const fecha = new Date(valor)
-  if (Number.isNaN(fecha.getTime())) return valor
-  return fecha.toLocaleString('es-PE', { dateStyle: 'short', timeStyle: 'short' })
-}
+import {
+  fechaCorta,
+  fechaHoraCorta,
+  horaCorta,
+} from '../utils/fechas.js'
 
 function AtenderAlerta({ alerta, abierto, onAtendida, onCancelar }) {
   const { avisar } = useToast()
@@ -159,11 +157,11 @@ function FichaAlerta({ id, abierto, onCerrar }) {
               </div>
               <div>
                 <dt>Creada</dt>
-                <dd>{fechaCorta(ficha.creada_en)}</dd>
+                <dd>{fechaHoraCorta(ficha.creada_en)}</dd>
               </div>
               <div>
                 <dt>Atendida</dt>
-                <dd>{ficha.atendida_en ? fechaCorta(ficha.atendida_en) : '—'}</dd>
+                <dd>{ficha.atendida_en ? fechaHoraCorta(ficha.atendida_en) : '—'}</dd>
               </div>
               <div>
                 <dt>Atendida por</dt>
@@ -361,7 +359,7 @@ export default function Alertas() {
         <Aviso>
           La evaluación automática de alertas está atrasada
           {evaluacion.ultima_evaluacion
-            ? ` (última: ${fechaCorta(evaluacion.ultima_evaluacion)})`
+            ? ` (última: ${fechaHoraCorta(evaluacion.ultima_evaluacion)})`
             : ' (aún no se ha ejecutado)'}
           . El proceso diario debe correr al menos cada{' '}
           {evaluacion.umbral_horas} horas.
@@ -481,7 +479,14 @@ export default function Alertas() {
               {
                 clave: 'creada_en',
                 etiqueta: 'Creada',
-                celda: (fila) => fechaCorta(fila.creada_en),
+                celda: (fila) => (
+                  <span className="celda-fecha">
+                    <span>{fechaCorta(fila.creada_en)}</span>
+                    <span className="celda-fecha-hora">
+                      {horaCorta(fila.creada_en)}
+                    </span>
+                  </span>
+                ),
               },
               {
                 clave: 'tipo',
@@ -502,7 +507,7 @@ export default function Alertas() {
               {
                 clave: 'mensaje',
                 etiqueta: 'Mensaje',
-                celda: (fila) => fila.mensaje,
+                celda: (fila) => <span className="celda-texto">{fila.mensaje}</span>,
               },
               {
                 clave: 'estado',
@@ -516,7 +521,7 @@ export default function Alertas() {
                 etiqueta: 'Acciones',
                 acciones: true,
                 celda: (fila) => (
-                  <>
+                  <div className="fila-acciones">
                     {puedeAtender && !fila.atendida && (
                       <button
                         type="button"
@@ -542,7 +547,7 @@ export default function Alertas() {
                     >
                       Ver ficha
                     </button>
-                  </>
+                  </div>
                 ),
               },
             ]}

@@ -28,3 +28,46 @@ export const opcionesMenu = [
   { ruta: '/roles', nombre: 'Roles y permisos', permiso: 'roles.gestionar' },
   { ruta: '/auditoria', nombre: 'Auditoría', permiso: 'auditoria.ver' },
 ]
+
+// Agrupación del menú lateral (Layout.jsx). Reutiliza los mismos objetos
+// de `opcionesMenu`; los grupos sin ninguna opción visible se omiten.
+const porRuta = Object.fromEntries(
+  opcionesMenu.map((opcion) => [opcion.ruta, opcion]),
+)
+
+const rutas = (...rutasGrupo) => rutasGrupo.map((ruta) => porRuta[ruta])
+
+export const gruposMenu = [
+  { titulo: 'General', opciones: rutas('/') },
+  {
+    titulo: 'Productores y parcelas',
+    opciones: rutas('/productores', '/parcelas'),
+  },
+  {
+    titulo: 'Campañas',
+    opciones: rutas(
+      '/campanias',
+      '/actividades',
+      '/produccion',
+      '/recursos',
+      '/clima',
+      '/incidencias',
+    ),
+  },
+  { titulo: 'Alertas', opciones: rutas('/alertas', '/productores-riesgo') },
+  {
+    titulo: 'Predicción',
+    opciones: rutas('/prediccion', '/predicciones', '/modelos'),
+  },
+  {
+    titulo: 'Administración',
+    opciones: rutas(
+      '/catalogos',
+      '/parametros',
+      '/reportes',
+      '/usuarios',
+      '/roles',
+      '/auditoria',
+    ),
+  },
+]

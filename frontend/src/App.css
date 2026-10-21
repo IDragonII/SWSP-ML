@@ -1,15 +1,18 @@
-/* ---------- Estructura general ---------- */
+/* ---------- Estructura general (app shell: un solo scroll, el del main) ---------- */
 
 .app {
-  display: grid;
-  grid-template-columns: 264px 1fr;
-  min-height: 100vh;
+  display: flex;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--crema);
 }
 
 .barra-lateral {
-  position: sticky;
-  top: 0;
-  height: 100vh;
+  width: 264px;
+  flex-shrink: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--bosque);
@@ -21,6 +24,7 @@
   display: flex;
   align-items: center;
   gap: 0.6rem;
+  flex-shrink: 0;
   padding: 0 1.25rem 1.1rem;
   border-bottom: 1px solid rgba(245, 243, 237, 0.14);
 }
@@ -36,7 +40,76 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 1rem 0.75rem;
+  flex: 1;
+  min-height: 0;
+  padding: 0.75rem 0.75rem 1rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(245, 243, 237, 0.3) transparent;
+}
+
+.menu::-webkit-scrollbar {
+  width: 8px;
+}
+
+.menu::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(245, 243, 237, 0.3);
+}
+
+.menu::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Títulos de grupo: botones de acordeón (solo se despliegan al pulsarlos;
+   ver gruposMenu en routes/opcionesMenu.js) */
+.menu-grupo + .menu-grupo {
+  margin-top: 0.35rem;
+}
+
+.menu-titulo {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  margin: 0;
+  padding: 0.55rem 0.75rem 0.35rem;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--fuente-display);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: rgba(207, 216, 202, 0.72);
+}
+
+.menu-titulo:hover {
+  background: rgba(253, 253, 251, 0.06);
+  color: var(--crema);
+}
+
+.menu-titulo .flecha {
+  flex-shrink: 0;
+  margin-left: auto;
+  transition: transform 0.15s ease;
+}
+
+.menu-titulo[aria-expanded='true'] .flecha {
+  transform: rotate(90deg);
+}
+
+.menu-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0.15rem 0 0.25rem;
+}
+
+.menu-lista[hidden] {
+  display: none;
 }
 
 .menu .enlace {
@@ -59,8 +132,9 @@
   box-shadow: inset 3px 0 0 var(--marigold);
 }
 
-/* Semana 15: insignia de alertas pendientes en el menú */
-.menu .enlace .insignia {
+/* Semana 15: insignia de alertas pendientes (en el enlace y en el
+   título del grupo colapsado) */
+.menu .insignia {
   display: inline-block;
   min-width: 1.3rem;
   margin-left: 0.5rem;
@@ -75,34 +149,41 @@
 }
 
 .pie-menu {
-  margin-top: auto;
+  flex-shrink: 0;
   padding: 1rem 1.25rem 0;
   border-top: 1px solid rgba(245, 243, 237, 0.14);
   font-size: 0.8125rem;
-  color: #9fb09b;
+  color: var(--tenue);
 }
 
 .zona {
   display: flex;
   flex-direction: column;
+  flex: 1;
   min-width: 0;
+  overflow: hidden;
 }
 
 .cabecera {
-  position: sticky;
-  top: 0;
-  z-index: 5;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
+  gap: 0.75rem;
+  flex-shrink: 0;
   padding: 0.75rem 1.75rem;
   background: var(--blanco);
   border-bottom: 1px solid var(--linea);
 }
 
+/* Hamburguesa del menú (Layout.jsx): el estilo base está en
+   «Menú móvil» más abajo; aquí solo se reserva su espacio en la cabecera */
+
 .situacion {
   margin: 0;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-size: 0.9375rem;
   color: var(--apagado);
 }
@@ -127,8 +208,13 @@
 }
 
 .contenido {
+  flex: 1;
+  min-height: 0;
   padding: 1.75rem;
   width: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
 }
 
 .contenido h1 {
@@ -200,6 +286,7 @@
 
 .cargando {
   min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
   place-items: center;
   gap: 0.75rem;
@@ -241,6 +328,7 @@
 
 .login {
   min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
   grid-template-columns: minmax(300px, 42%) 1fr;
 }
@@ -490,24 +578,26 @@
 /* ---------- Responsive ---------- */
 
 @media (max-width: 860px) {
-  .app {
-    grid-template-columns: 1fr;
-  }
+  /* En móvil la barra-lateral sale del flujo (fixed) y .zona ocupa todo
+     el ancho: no hace falta ninguna regla extra sobre .app */
 
   .boton-menu-movil {
     display: inline-flex;
     align-items: center;
-    gap: 0.5rem;
-    position: sticky;
-    top: 0;
-    z-index: 20;
-    width: 100%;
-    padding: 0.7rem 1rem;
-    background: var(--bosque);
-    border: none;
-    color: var(--crema);
-    font-size: 0.9375rem;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 2.5rem;
+    height: 2.5rem;
+    padding: 0;
+    background: transparent;
+    border: 1px solid var(--linea);
+    border-radius: 8px;
+    color: var(--tinta);
     cursor: pointer;
+  }
+
+  .boton-menu-movil:hover {
+    background: var(--crema);
   }
 
   .barra-lateral {
@@ -516,6 +606,8 @@
     top: 0;
     z-index: 30;
     width: min(280px, 82vw);
+    height: 100vh;
+    height: 100dvh;
     transform: translateX(-100%);
     transition: transform 0.2s ease;
   }
@@ -676,8 +768,9 @@
 
 .chip {
   display: inline-block;
-  padding: 0.15rem 0.6rem;
+  padding: 0.25rem 0.75rem;
   border-radius: 999px;
+  white-space: nowrap;
   font-size: 0.8125rem;
   font-weight: 600;
 }
@@ -777,10 +870,11 @@
 .tabla {
   width: 100%;
   border-collapse: collapse;
+  font-size: 0.875rem;
 }
 
 .tabla th {
-  padding: 0.7rem 0.9rem;
+  padding: 0.75rem 1rem;
   text-align: left;
   font-size: 0.8125rem;
   font-weight: 600;
@@ -791,8 +885,9 @@
 }
 
 .tabla td {
-  padding: 0.7rem 0.9rem;
+  padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--linea);
+  vertical-align: top;
   overflow-wrap: anywhere;
 }
 
@@ -801,12 +896,41 @@
 }
 
 .tabla tbody tr:hover {
-  background: #fafaf6;
+  background: var(--crema);
 }
 
 .celda-acciones {
   text-align: right;
   white-space: nowrap;
+}
+
+/* Acciones de fila: contenedor flex de botones/enlaces de texto */
+.fila-acciones {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+/* Celda de fecha en dos líneas: valor (fecha) + hora tenue */
+.celda-fecha {
+  display: flex;
+  flex-direction: column;
+}
+
+.celda-fecha-hora {
+  font-size: 0.75rem;
+  color: var(--apagado);
+}
+
+/* Celda de texto largo: truncada a 2 líneas para no romper la tabla */
+.celda-texto {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  max-width: 28rem;
+  overflow: hidden;
 }
 
 /* --- Ficha --- */
