@@ -108,7 +108,7 @@ Notas de cada paso:
   `.xlsx` con columnas provincia, distrito y comunidad); también es
   idempotente e informa de filas creadas, existentes y fallidas. **Sin estas
   ubicaciones no se puede registrar ningún productor.**
-- **Pruebas:** `python manage.py test` (**416 pruebas** de las 11 apps del
+- **Pruebas:** `python manage.py test` (**416 pruebas** de las 13 apps del
   backend).
 - El diseño de las tablas está en `DB_sql/` (solo referencia; **no** se
   ejecuta sobre la base real).
