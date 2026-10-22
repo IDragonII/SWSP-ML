@@ -3,7 +3,7 @@
 > Semana del **8 al 14 de marzo** (calendario referencial). Alcance: que el
 > Administrador entrena, siga el avance, compare resultados y active un
 > modelo desde pantallas React, sin tocar `.py`; trabajador de segundo
-> proceso con cancelación; **27 pruebas nuevas → 419**, colección de API
+> proceso con cancelación; **23 pruebas nuevas → 415**, colección de API
 > de la semana, manuales y control de cambios del `.tex`.
 > Numeración de decisiones continua desde la Semana 22 (terminó en la
 > **248**); esta semana ocupa la **249 en adelante**.
@@ -15,7 +15,7 @@
 
 | N.º | Decisión | Justificación |
 |-----|----------|---------------|
-| **249** | Numeración de pruebas: **393–419** (27 pruebas → total **419**). El plan asumía 396 como base y numeraba 397–423; la base real al cerrar la Semana 22 fue **392** → renumeración −4. | Confirmado con `manage.py test` (suite 392/392) el primer día. |
+| **249** | Numeración de pruebas: **393–415** (23 pruebas → total **415**). El plan asumía 396 como base y numeraba 397–423; la base real al cerrar la Semana 22 fue **392** → renumeración −4. El plan contaba 27; se consolidaron en menos numeraciones las del modo hijo (410-415), con la de punta a punta cerrando la serie. | Confirmado con `manage.py test` (suite 392/392) el primer día y **415/415** al cerrar F5. |
 | **250** | Historias **HU-180..HU-187** (continuas tras HU-179). El plan decía HU-186..193, lo que dejaba un hueco 180–185 sin explicar. | Numeración sin huecos en la memoria y el tablero (precedente: decisión 204). |
 | **251** | **Inamovibles** (no entran en ningún recorte): 1 modelo activo, entrenar no activa, versión única, huella verificada, atomicidad, los 55 permisos sin cambios, auditoría sin contenido de entrada y honestidad de métricas. **Orden de recorte** si falta tiempo: detalle de etapas del trabajador → cancelación de tarea en proceso → aviso de datos nuevos. | Acordado en el plan; protege lo ya validado en la S22. |
 | **252** | El trabajador es un comando **portátil** (Windows, Linux o contenedor). El manual técnico documenta los tres casos para mantenerlo vivo: **Task Scheduler** (Windows), **systemd** (Linux) y **docker compose** (contenedor); el comando es el mismo en los tres. | Plataforma de producción aún sin cerrar; el código no se ata a un SO (decisión 258). |
@@ -59,8 +59,8 @@
 
 - **Pruebas clave**: 399 dos trabajadores no pisan la tarea · 401
   interrupción por tope/latido · 407 el sistema y el script `ml` dan
-  idénticos resultados (semilla 42) · 419 recorrido completo de punta a
-  punta.
+  idénticos resultados (semilla 42) · 415 recorrido completo de punta a
+  punta (vista → entrenamiento → modelo en BD → predecir).
 - **Migraciones**: `ml/0002_tareas_entrenamiento` y
   `ml/0003_modelos_en_bd` (anotada, decisión 256). Orden de reversión de
   la app completa: primero `produccion 0002`, luego `ml zero` (decisión

@@ -3979,3 +3979,251 @@ class PantallaEntrenarTests(Bloque2Base):
         self.assertTrue(fila["en_bd"])
         self.assertIsNone(fila["archivo"])
         self.assertEqual(len(fila["huella"]), 64)
+
+
+# ---------------------------------------------------------------------- #
+# Fase F5: modo hijo y ciclo del trabajador (410-415)
+# ---------------------------------------------------------------------- #
+class HijoTrabajadorTests(MLBase):
+    """Pruebas 410-415 (F5): el comando procesar_entrenamientos
+    (decisión 258): latido y cierre del modo hijo, error, cableado del
+    CLI, rechazos de estado, modos --dry-run/--una-vez y el recorrido
+    real de punta a punta desde la vista."""
+
+    def _en_proceso(self, **extra):
+        datos = {
+            "usuario": self.admin,
+            "estado": "PROCESANDO",
+            "latido": timezone.now(),
+            "progreso": {"etapa": "reclamada", "pct": 5},
+        }
+        datos.update(extra)
+        return TareaEntrenamiento.objects.create(**datos)
+
+    def _resumen(self, tarea):
+        entrenamiento_ml = EntrenamientoML.objects.create(
+            n_registros=48,
+            n_entrenamiento=48,
+            n_prueba=0,
+            variables_usadas={"origen_datos": "real"},
+        )
+        return {
+            "entrenamiento": entrenamiento_ml,
+            "version": str(tarea.pk),
+            "elegido": "REGRESION_LINEAL",
+        }
+
+    # ------------------------------------------------------------------ #
+    # 410: el hijo latía, entrena y cierra COMPLETADA
+    # ------------------------------------------------------------------ #
+    def test_410_el_hijo_latia_entrena_y_completa_la_tarea(self):
+        tarea = self._en_proceso()
+        resumen = self._resumen(tarea)
+        latidos = []
+
+        def latir_sonando(_comando, tarea_id, fin):
+            # El latido real en miniatura: suena hasta que fin lo corte
+            while not fin.wait(0.02):
+                latidos.append(time.monotonic())
+
+        def lento(**kwargs):
+            time.sleep(0.1)
+            return resumen
+
+        with (
+            patch.object(
+                procesar_entrenamientos.Command,
+                "_latir",
+                latir_sonando,
+            ),
+            patch.object(
+                procesar_entrenamientos.trabajo,
+                "entrenar_desde_sistema",
+                side_effect=lento,
+            ) as llamado,
+        ):
+            procesar_entrenamientos.Command()._hijo(tarea.pk)
+
+        # El hilo de latido sonó mientras entrenaba y terminó con fin
+        self.assertGreaterEqual(len(latidos), 2, "el latido suena a intervalos")
+        # La llamada va con los datos del entorno, sin bandera de demo
+        argumentos = llamado.call_args.kwargs
+        self.assertEqual(argumentos["usuario"], self.admin)
+        self.assertEqual(argumentos["version"], str(tarea.pk))
+        self.assertEqual(argumentos["datos_de"], "real")
+        self.assertFalse(argumentos["desarrollo"])
+
+        tarea.refresh_from_db()
+        self.assertEqual(tarea.estado, "COMPLETADA")
+        self.assertEqual(tarea.resultado, resumen["entrenamiento"])
+        self.assertEqual(tarea.progreso, {"etapa": "completada", "pct": 100})
+        self.assertIn(f"Modelo v{tarea.pk}", tarea.observacion)
+        self.assertIsNone(tarea.error)
+
+        # El latido real actualiza la fila hasta que fin lo corta (30 s
+        # → 0,01 s) con la conexión del propio hilo principal
+        tarea.latido = timezone.now() - timedelta(seconds=5)
+        tarea.save(update_fields=("latido",))
+        original = tarea.latido
+        fin = threading.Event()
+        reloj = threading.Timer(0.08, fin.set)
+        reloj.start()
+        try:
+            with (
+                patch.object(procesar_entrenamientos, "LATIDO_CADA_SEGUNDOS",
+                             0.01),
+                patch.object(procesar_entrenamientos, "connection"),
+            ):
+                procesar_entrenamientos.Command()._latir(tarea.pk, fin)
+        finally:
+            reloj.join()
+        tarea.refresh_from_db()
+        self.assertGreater(tarea.latido, original, "el latido avanza")
+
+    # ------------------------------------------------------------------ #
+    # 411: si el entrenamiento revienta, FALLIDA con el error
+    # ------------------------------------------------------------------ #
+    def test_411_si_el_entrenamiento_falla_la_tarea_queda_fallida(self):
+        tarea = self._en_proceso()
+        with patch.object(
+            procesar_entrenamientos.trabajo,
+            "entrenar_desde_sistema",
+            side_effect=ValueError("no hay 30 campañas cerradas"),
+        ):
+            with self.assertRaisesMessage(
+                CommandError, "no hay 30 campañas cerradas"
+            ):
+                procesar_entrenamientos.Command()._hijo(tarea.pk)
+
+        tarea.refresh_from_db()
+        self.assertEqual(tarea.estado, "FALLIDA")
+        self.assertEqual(tarea.error, "no hay 30 campañas cerradas")
+        self.assertEqual(tarea.progreso, {"etapa": "error", "pct": 100})
+        self.assertIsNone(tarea.resultado)
+
+    # ------------------------------------------------------------------ #
+    # 412: el CLI --ejecutar-tarea cablea handle → hijo
+    # ------------------------------------------------------------------ #
+    def test_412_el_comando_ejecutar_tarea_cablea_el_modo_hijo(self):
+        tarea = self._en_proceso()
+        resumen = self._resumen(tarea)
+        with patch.object(
+            procesar_entrenamientos.trabajo,
+            "entrenar_desde_sistema",
+            return_value=resumen,
+        ):
+            call_command(
+                "procesar_entrenamientos",
+                "--ejecutar-tarea",
+                str(tarea.pk),
+            )
+        tarea.refresh_from_db()
+        self.assertEqual(tarea.estado, "COMPLETADA")
+        self.assertEqual(tarea.resultado, resumen["entrenamiento"])
+
+    # ------------------------------------------------------------------ #
+    # 413: --ejecutar-tarea rechaza tareas inexistentes o no reclamadas
+    # ------------------------------------------------------------------ #
+    def test_413_ejecutar_tarea_rechaza_lo_que_no_esta_en_proceso(self):
+        with self.assertRaisesMessage(CommandError, "no existe"):
+            call_command(
+                "procesar_entrenamientos", "--ejecutar-tarea", "99999"
+            )
+
+        pendiente = TareaEntrenamiento.objects.create(usuario=self.admin)
+        with self.assertRaisesMessage(CommandError, "no está en proceso"):
+            call_command(
+                "procesar_entrenamientos",
+                "--ejecutar-tarea",
+                str(pendiente.pk),
+            )
+        pendiente.refresh_from_db()
+        self.assertEqual(pendiente.estado, "PENDIENTE")
+
+    # ------------------------------------------------------------------ #
+    # 414: --dry-run no toca nada y --una-vez reclama sin vigilar dos veces
+    # ------------------------------------------------------------------ #
+    def test_414_dry_run_informa_y_una_vez_reclama_un_ciclo(self):
+        tarea = TareaEntrenamiento.objects.create(usuario=self.admin)
+        salida = io.StringIO()
+        call_command("procesar_entrenamientos", "--dry-run", stdout=salida)
+        self.assertIn("1 pendiente(s)", salida.getvalue())
+        self.assertIn("dry-run, sin cambios", salida.getvalue())
+        tarea.refresh_from_db()
+        self.assertEqual(tarea.estado, "PENDIENTE", "dry-run no reclama")
+
+        with patch.object(
+            procesar_entrenamientos.Command, "_vigilar"
+        ) as vigilar:
+            call_command("procesar_entrenamientos", "--una-vez")
+            call_command("procesar_entrenamientos", "--una-vez")
+
+        tarea.refresh_from_db()
+        self.assertEqual(tarea.estado, "PROCESANDO")
+        self.assertEqual(
+            tarea.progreso, {"etapa": "reclamada", "pct": 5}
+        )
+        self.assertEqual(
+            vigilar.call_count, 1,
+            "solo la primera pasada encontró tarea pendiente",
+        )
+
+    # ------------------------------------------------------------------ #
+    # 415: recorrido real: vista → entrenamiento → modelo en BD → predecir
+    # ------------------------------------------------------------------ #
+    def test_415_el_trabajador_entrena_desde_la_vista_y_el_modelo_preve(self):
+        self.addCleanup(servicio.limpiar_cache)
+        # El mínimo de campañas cerradas con producción en la vista.
+        # La altitud avanza con los kilos: el rendimiento queda lineal
+        # con una variable real y la regresión puede batir a la base
+        for i in range(registro.MINIMO_REGISTROS):
+            productor = self._productor(
+                dni=f"96000{i:03d}", nombre=f"C{i:02d}"
+            )
+            parcela = self._parcela(productor, altitud_msnm=3700 + i * 10)
+            campania = self._campania(parcela)
+            self._producir(campania, "1.50", str(260 + i))
+            self._cerrar(campania)
+        with connection.cursor() as cursor:
+            cursor.execute(f"SELECT COUNT(*) FROM {RUTA_VISTA}")
+            filas = cursor.fetchone()[0]
+        self.assertGreaterEqual(filas, registro.MINIMO_REGISTROS)
+
+        # El ciclo real: reclama y ejecuta el modo hijo SIN mocks de BD
+        tarea = TareaEntrenamiento.objects.create(usuario=self.admin)
+        comando = procesar_entrenamientos.Command()
+        reclamada = comando._reclamar()
+        self.assertIsNotNone(reclamada)
+        self.assertEqual(reclamada.estado, "PROCESANDO")
+        comando._hijo(reclamada.pk)
+
+        tarea.refresh_from_db()
+        self.assertEqual(tarea.estado, "COMPLETADA")
+        entrenamiento = tarea.resultado
+        self.assertGreaterEqual(
+            entrenamiento.n_registros, registro.MINIMO_REGISTROS
+        )
+        usadas = entrenamiento.variables_usadas
+        self.assertEqual(usadas["origen_datos"], "sistema")
+        self.assertEqual(usadas["datos_de"], "real")
+        self.assertIn("criterio", usadas)
+
+        # El artefacto del elegido vive en la BD, con su huella
+        elegido = ModeloML.objects.get(
+            entrenamiento=entrenamiento,
+            algoritmo=usadas["criterio"]["elegido"],
+        )
+        self.assertIsNotNone(elegido.contenido)
+        self.assertEqual(
+            elegido.huella,
+            hashlib.sha256(bytes(elegido.contenido)).hexdigest(),
+        )
+        self.assertIsNone(elegido.archivo)
+
+        # Activar y predecir sin tocar disco (decisión 254/260)
+        registro.activar_modelo(elegido, self.admin)
+        productor = self._productor(dni="96000999", nombre="Prediccion")
+        campania = self._campania(self._parcela(productor))
+        respuesta = servicio.predecir(campania, self.admin)
+        self.assertIsNotNone(respuesta["rendimiento_predicho"])
+        self.assertEqual(respuesta["modelo"]["id"], elegido.pk)
