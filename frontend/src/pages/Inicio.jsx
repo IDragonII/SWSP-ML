@@ -115,22 +115,33 @@ function Grafico({ etiqueta, datos, claveValor = 'total', nombreValor, colorPorF
 }
 
 function Tarjetas({ resumen }) {
+  const { tienePermiso } = useSesion()
   const tarjetas = [
     ['Productores activos', cifra(resumen.productores.activos)],
     ['Productores inactivos', cifra(resumen.productores.inactivos)],
     ['Con campaña activa', cifra(resumen.productores.con_campania_activa)],
     ['Superficie sembrada (ha)', cifra(resumen.superficie_sembrada_ha)],
     ['Campañas aptas para entrenar', cifra(resumen.aptas_entrenar)],
-    ['Revisiones pendientes', cifra(resumen.revisiones_pendientes)],
+    [
+      'Revisiones pendientes',
+      cifra(resumen.revisiones_pendientes),
+      '/produccion?requiere_revision=true',
+    ],
     ['Alertas pendientes', cifra(resumen.alertas.pendientes)],
     ['Alertas totales', cifra(resumen.alertas.total)],
   ]
   return (
     <dl className="tarjetas">
-      {tarjetas.map(([rotulo, valor]) => (
+      {tarjetas.map(([rotulo, valor, ruta]) => (
         <div className="tarjeta" key={rotulo}>
           <dt>{rotulo}</dt>
-          <dd>{valor}</dd>
+          <dd>
+            {ruta && tienePermiso('produccion.ver') ? (
+              <Link to={ruta}>{valor}</Link>
+            ) : (
+              valor
+            )}
+          </dd>
         </div>
       ))}
     </dl>

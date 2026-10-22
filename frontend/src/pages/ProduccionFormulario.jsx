@@ -234,7 +234,7 @@ export default function ProduccionFormulario({
                 error={errores.campania}
                 ayuda={
                   campaniaActual
-                    ? `Cultivo: ${campaniaActual.cultivo.nombre}. Superficie sembrada: ${campaniaActual.superficie_sembrada_ha} ha.`
+                    ? `Cultivo: ${campaniaActual.cultivo.nombre}. Siembra: ${campaniaActual.fecha_siembra ?? '—'}. Superficie sembrada: ${campaniaActual.superficie_sembrada_ha} ha.`
                     : 'Solo aparecen las campañas en producción con siembra registrada y sin cosecha.'
                 }
               >

@@ -21,6 +21,7 @@ import Prediccion from './pages/Prediccion.jsx'
 import PrediccionHistorial from './pages/PrediccionHistorial.jsx'
 import Productores from './pages/Productores.jsx'
 import ProductoresRiesgo from './pages/ProductoresRiesgo.jsx'
+import Produccion from './pages/Produccion.jsx'
 import Recursos from './pages/Recursos.jsx'
 import Reportes from './pages/Reportes.jsx'
 import Roles from './pages/Roles.jsx'
@@ -38,6 +39,7 @@ const rutasConPantalla = new Set([
   '/parametros',
   '/campanias',
   '/actividades',
+  '/produccion',
   '/recursos',
   '/clima',
   '/incidencias',
@@ -139,6 +141,15 @@ export default function App() {
             element={
               <RutaProtegida permiso="actividades.ver">
                 <Actividades />
+              </RutaProtegida>
+            }
+          />
+
+          <Route
+            path="/produccion"
+            element={
+              <RutaProtegida permiso="produccion.ver">
+                <Produccion />
               </RutaProtegida>
             }
           />
