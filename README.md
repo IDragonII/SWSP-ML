@@ -87,7 +87,6 @@ Copy-Item ..\.env.example ..\.env   # y rellenar DB_*, SECRET_KEY y ADMIN_*
 python manage.py migrate               # crea las tablas y carga roles/permisos
 python manage.py cargar_catalogos      # catálogos completos (idempotente)
 python manage.py cargar_ubicacion      # provincias/distritos/comunidades de ejemplo
-python manage.py crear_superusuario    # crea el admin desde ADMIN_* del .env
 python manage.py runserver
 ```
 
@@ -109,9 +108,6 @@ Notas de cada paso:
   `.xlsx` con columnas provincia, distrito y comunidad); también es
   idempotente e informa de filas creadas, existentes y fallidas. **Sin estas
   ubicaciones no se puede registrar ningún productor.**
-- `crear_superusuario` es idempotente: si el usuario de `ADMIN_USERNAME` ya
-  existe no lo modifica. En el panel `http://127.0.0.1:8000/admin/` también
-  se gestionan ubicaciones y productores.
 - **Pruebas:** `python manage.py test` (**416 pruebas** de las 11 apps del
   backend).
 - El diseño de las tablas está en `DB_sql/` (solo referencia; **no** se
@@ -130,26 +126,45 @@ Se abre en `http://localhost:5173` y redirige al login. Crea un `.env` a partir 
 (y `npm run build`): el lint incluye además un chequeo que falla si una entrada del
 menú no tiene pantalla real.
 
-### 4. Usuarios para revisar (los 3 roles)
+### 4. Administrador inicial (superusuario)
 
-`crear_superusuario` solo crea el Administrador (con tu `ADMIN_USERNAME`/
-`ADMIN_PASSWORD`). Los otros dos roles se crean una vez desde la UI
-(`http://localhost:5173` → Usuarios, sesión de admin) y quedan listos:
+```powershell
+cd backend
+python manage.py crear_superusuario
+```
+
+- El username **no siempre es `admin`**: es el valor de `ADMIN_USERNAME` en
+  tu `.env` (puede ser el nombre que quieras); la clave es `ADMIN_PASSWORD`.
+- Es idempotente: si ese usuario ya existe no lo modifica.
+- Crea la cuenta con el rol **Administrador** (los 55 permisos); con ella se
+  entra tanto a la app (`http://localhost:5173`) como al panel
+  `http://127.0.0.1:8000/admin/`, donde también se gestionan ubicaciones y
+  productores.
+
+### 5. Usuarios iniciales desde el sistema
+
+Con la cuenta del Administrador entra a **Usuarios** en la app y crea los
+otros dos roles (username a libre elección; aquí se sugieren `coordinador` y
+`tecnico`):
 
 | Usuario sugerido | Rol | Alcance |
 |---|---|---|
-| `admin` (el tuyo) | Administrador | Todo el menú (55 permisos) + `/admin/` |
+| `ADMIN_USERNAME` (el tuyo) | Administrador | Todo el menú (55 permisos) + `/admin/` |
 | `coordinador` | Coordinador | Solo lectura (14 permisos): no ve Usuarios, Roles ni Auditoría |
 | `tecnico` | Técnico de campo | Crea y edita en campo (32 permisos); **solo ve los productores que se le asignen** |
 
 Notas:
 
+- **Cada usuario debe usar su propia contraseña, distinta y segura** (no
+  reutilizar la del Administrador ni compartirla entre usuarios). El backend
+  las valida con los validadores de Django y rechaza las débiles (cortas,
+  comunes, numéricas o iguales al username).
 - El Técnico de campo tiene `limita_a_asignados`: hasta que no se le asignen
   productores (ficha del productor → asignar técnico) verá listados vacíos.
-- Las contraseñas se eligen al crear cada usuario; guárdalas en tu propio
-  `.credenciales` (ignorado por Git), que es donde este proyecto las deja.
+- Las contraseñas de cada cuenta guárdalas en tu propio `.credenciales`
+  (ignorado por Git), que es donde este proyecto las deja.
 
-### 5. Probar la sesión rápido (sin navegador)
+### 6. Probar la sesión rápido (sin navegador)
 
 ```powershell
 curl.exe -s -c cookies.txt -H "Content-Type: application/json" `
