@@ -16,6 +16,7 @@ import Modal from '../components/Modal.jsx'
 import Paginacion from '../components/Paginacion.jsx'
 import RuedaCarga from '../components/RuedaCarga.jsx'
 import Tabla from '../components/Tabla.jsx'
+import { describirDetalle } from '../utils/detalleAuditoria.js'
 import { useToast } from '../context/useToast.js'
 import { useSesion } from '../context/useSesion.js'
 
@@ -57,6 +58,7 @@ export default function Auditoria() {
   const { avisar } = useToast()
   const [exportando, setExportando] = useState(null)
   const [confirmarExportar, setConfirmarExportar] = useState(null)
+  const [detalleJson, setDetalleJson] = useState(null)
   const puedeExportar = tienePermiso('reportes.exportar')
 
   // Filtros compatibles con el reporte `auditoría` (la búsqueda libre
@@ -367,9 +369,16 @@ export default function Auditoria() {
                 etiqueta: 'Detalle',
                 celda: (fila) =>
                   fila.detalle ? (
-                    <code className="chip-codigo">
-                      {JSON.stringify(fila.detalle)}
-                    </code>
+                    <>
+                      <span>{describirDetalle(fila) ?? 'Detalle técnico'}</span>{' '}
+                      <button
+                        type="button"
+                        className="boton-texto"
+                        onClick={() => setDetalleJson(fila.detalle)}
+                      >
+                        JSON
+                      </button>
+                    </>
                   ) : (
                     '—'
                   ),
@@ -402,6 +411,17 @@ export default function Auditoria() {
         onConfirmar={() => exportar(confirmarExportar)}
         onCerrar={() => setConfirmarExportar(null)}
       />
+
+      <Modal
+        abierto={detalleJson !== null}
+        titulo="Detalle del evento"
+        tamano="ficha"
+        onCerrar={() => setDetalleJson(null)}
+      >
+        <pre className="detalle-json">
+          {JSON.stringify(detalleJson, null, 2)}
+        </pre>
+      </Modal>
     </>
   )
 }
