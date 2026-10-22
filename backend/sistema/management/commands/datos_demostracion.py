@@ -33,6 +33,14 @@ Dos bloques idempotentes por separado (decisión 55 de
   auditoría (HU-155/HU-156) y su pantalla se pinten con un rango de
   fechas. Idempotente por sus propios marcadores (la marca V3 en las
   actividades y el módulo «sesiones_demo» en la bitácora).
+- **V4 — Semana 23**: 40 productores y 40 parcelas (DNI 98000001..40)
+  con 40 campañas CERRADA de 2025-2026 y producción: el rendimiento
+  crece con la altitud de la parcela (3700 + 25·i, patrón lineal con
+  ruido pequeño, semilla 42) para que la vista
+  `vw_dataset_entrenamiento` alcance el mínimo de 30 filas y el criterio
+  escrito pueda elegir un modelo desde la pantalla Entrenar (S23). Con
+  las 13 filas de V1/V2 ningún modelo gana a la línea base (informe
+  `docs/informe_resultados_ml.md`). Idempotente por sus DNIs.
 
 El reparto respeta los índices únicos de la base: **una sola campaña
 activa (PLANIFICADA/EN_PRODUCCION/COSECHADA) por parcela**
@@ -45,12 +53,13 @@ Idempotente por DNI: cada bloque se crea solo si le falta algún
 productor; si los diez existen nada se hace. Todo se hace en una sola
 transacción: si algo falla, no queda media siembra.
 """
+import random
 from datetime import timedelta
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
-from django.db import transaction
+from django.db import connection, transaction
 from django.utils import timezone
 
 from auditoria.models import Auditoria
@@ -300,12 +309,21 @@ EVENTOS_V3 = [
     ),
 ]
 
+# --------------------------------------------------------------------- #
+# V4 (Semana 23): campañas aptas para entrenar desde la vista, con un
+# patrón aprendible (rendimiento lineal con la altitud de la parcela)
+# --------------------------------------------------------------------- #
+MARCA_V4 = "Datos de demostración inventados (Semana 23, entrenamiento)"
+DEMO_DNIS_V4 = tuple(f"980000{i:02d}" for i in range(1, 41))
+CAMPANIAS_V4 = len(DEMO_DNIS_V4)
+SEMILLA_V4 = 42
+
 
 class Command(BaseCommand):
     help = (
-        "Siembra datos de demostración inventados y marcados para el panel "
-        "y los reportes (idempotente por bloques; no sustituye a "
-        "cargar_ubicacion ni a cargar_catalogos)."
+        "Siembra datos de demostración inventados y marcados para el panel, "
+        "los reportes y el entrenamiento de ML (idempotente por bloques; no "
+        "sustituye a cargar_ubicacion ni a cargar_catalogos)."
     )
 
     def handle(self, *args, **opciones):
@@ -322,7 +340,13 @@ class Command(BaseCommand):
             observaciones=MARCA_V3
         ).exists()
         falta_v3_aud = not Auditoria.objects.filter(modulo=MODULO_V3).exists()
-        if not (falta_v1 or falta_v2 or falta_v3_act or falta_v3_aud):
+        falta_v4 = (
+            Productor.objects.filter(dni__in=DEMO_DNIS_V4).count()
+            < CAMPANIAS_V4
+        )
+        if not (
+            falta_v1 or falta_v2 or falta_v3_act or falta_v3_aud or falta_v4
+        ):
             self.stdout.write(
                 "Los datos de demostración ya existen; nada que crear."
             )
@@ -764,6 +788,83 @@ class Command(BaseCommand):
             if falta_v3_act or falta_v3_aud:
                 marcas.append(MARCA_V3)
 
+            # --------------------------------------------------------- #
+            # V4 — Semana 23 (campañas aptas para entrenar desde la vista)
+            # --------------------------------------------------------- #
+            if falta_v4:
+                azar = random.Random(SEMILLA_V4)
+                for indice, dni in enumerate(DEMO_DNIS_V4):
+                    productor = Productor.objects.create(
+                        nombres=f"Demo ML {indice + 1:02d}",
+                        apellidos="Entrenamiento",
+                        dni=dni,
+                        comunidad=com_a if indice % 2 == 0 else com_b,
+                        referencia_ubicacion=MARCA_V4,
+                        creado_por=admin,
+                    )
+                    n_prod += 1
+                    superficie = Decimal(
+                        str(round(0.80 + 0.15 * (indice % 7), 2))
+                    )
+                    altitud = 3700 + 25 * indice
+                    parcela = Parcela.objects.create(
+                        productor=productor,
+                        comunidad=productor.comunidad,
+                        referencia_ubicacion=MARCA_V4,
+                        superficie_ha=superficie,
+                        altitud_msnm=altitud,
+                        tipo_suelo="FRANCO",
+                        pendiente="SUAVE",
+                        disponibilidad_agua="MEDIA",
+                        sistema_riego="GOTEO",
+                        creado_por=admin,
+                    )
+                    n_par += 1
+                    # Rendimiento lineal con la altitud y ruido pequeño
+                    # (semilla fija): el criterio escrito puede batir a
+                    # la línea base y el flujo completo es demostrable
+                    objetivo = (
+                        180
+                        + 0.064 * (altitud - 3700)
+                        + azar.uniform(-5, 5)
+                    )
+                    kilos = (
+                        superficie * Decimal(str(round(objetivo, 2)))
+                    ).quantize(Decimal("0.01"))
+                    campania = Campania.objects.create(
+                        periodo="2025-2026",
+                        parcela=parcela,
+                        cultivo=cultivos[0] if indice % 2 == 0 else cultivo_b,
+                        variedad=(
+                            variedades[0] if indice % 2 == 0 else variedades[1]
+                        ),
+                        fecha_inicio="2025-06-01",
+                        fecha_siembra="2025-06-15",
+                        fecha_fin_prevista="2025-12-20",
+                        superficie_sembrada_ha=superficie,
+                        estado=Campania.ESTADO_EN_PRODUCCION,
+                        observaciones=MARCA_V4,
+                        creado_por=admin,
+                    )
+                    n_cam += 1
+                    Produccion.objects.create(
+                        campania=campania,
+                        fecha_cosecha="2025-11-10",
+                        superficie_cosechada_ha=superficie,
+                        cantidad_producida=kilos,
+                        unidad=unidad,
+                        produccion_kg=Decimal("0"),
+                        rendimiento_kg_ha=Decimal("0"),
+                        observaciones=MARCA_V4,
+                        registrado_por=admin,
+                    )
+                    n_produ += 1
+                    # fn_produccion_post la pasó a COSECHADA: se cierra
+                    campania.refresh_from_db()
+                    campania.estado = Campania.ESTADO_CERRADA
+                    campania.save(update_fields=["estado", "actualizado_en"])
+                marcas.append(MARCA_V4)
+
         marcas_texto = " y ".join(f"«{m}»" for m in marcas)
         self.stdout.write(
             self.style.SUCCESS(
@@ -774,3 +875,22 @@ class Command(BaseCommand):
                 f"Todos los registros llevan la marca {marcas_texto}."
             )
         )
+        if falta_v4:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT COUNT(*) FROM vw_dataset_entrenamiento"
+                )
+                filas = cursor.fetchone()[0]
+            self.stdout.write(
+                f"V4: {CAMPANIAS_V4} campañas CERRADA con patrón aprendible "
+                "(rendimiento lineal con la altitud); la vista de "
+                f"entrenamiento queda con {filas} filas."
+            )
+            self.stdout.write(
+                self.style.WARNING(
+                    "Estos datos son inventados: para el sello de "
+                    "honestidad define ML_ORIGEN_DATOS=demostración en el "
+                    ".env y reinicia el backend; la pantalla Entrenar "
+                    "mostrará el aviso."
+                )
+            )

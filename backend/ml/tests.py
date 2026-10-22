@@ -4227,3 +4227,48 @@ class HijoTrabajadorTests(MLBase):
         respuesta = servicio.predecir(campania, self.admin)
         self.assertIsNotNone(respuesta["rendimiento_predicho"])
         self.assertEqual(respuesta["modelo"]["id"], elegido.pk)
+
+
+# ---------------------------------------------------------------------- #
+# Bloque V4 de datos_demostracion (416)
+# ---------------------------------------------------------------------- #
+class DemostracionV4Tests(MLBase):
+    """Prueba 416: el bloque V4 de datos_demostracion deja la vista de
+    entrenamiento apta (>=30) y con patrón aprendible (S23). Con las
+    13 filas de V1/V2 ningún modelo gana a la línea base; V4 siembra
+    40 campañas CERRADA cuyo rendimiento crece con la altitud."""
+
+    def test_416_el_bloque_v4_deja_la_vista_apta_y_aprendible(self):
+        call_command("datos_demostracion", stdout=io.StringIO())
+        filas = self._filas_vista()
+        self.assertGreaterEqual(len(filas), registro.MINIMO_REGISTROS)
+
+        v4 = set(
+            Productor.objects.filter(dni__startswith="980000").values_list(
+                "id", flat=True
+            )
+        )
+        self.assertEqual(len(v4), 40, "el bloque V4 crea 40 productores")
+        filas_v4 = [f for f in filas if f["productor_id"] in v4]
+        self.assertEqual(
+            len(filas_v4), 40, "las 40 campañas V4 entran en la vista"
+        )
+
+        # Aprendible: el rendimiento crece con la altitud de la parcela
+        ordenadas = sorted(filas_v4, key=lambda f: f["altitud_msnm"])
+
+        def media(grupo):
+            return sum(f["rendimiento_kg_ha"] for f in grupo) / len(grupo)
+
+        self.assertGreater(
+            media(ordenadas[-10:]) - media(ordenadas[:10]),
+            30,
+            "el patrón altitud → rendimiento es aprendible",
+        )
+
+        # Idempotencia: una segunda corrida no añade nada
+        call_command("datos_demostracion", stdout=io.StringIO())
+        self.assertEqual(
+            Productor.objects.filter(dni__startswith="980000").count(), 40
+        )
+        self.assertEqual(len(self._filas_vista()), len(filas))
