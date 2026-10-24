@@ -180,6 +180,25 @@ La API de ubicación y productores (HU-15..HU-22) está en
 `docs/coleccion_api_semana3.json` (36 peticiones; las claves de prueba no se
 suben: están en tu `.credenciales` local).
 
+### 7. Entrenamiento ML (segunda terminal)
+
+La pantalla **Entrenar** solo encola la tarea; el que realmente entrena es
+el trabajador, que corre en segundo plano:
+
+```powershell
+cd backend
+.\venv\Scripts\Activate.ps1
+python manage.py procesar_entrenamientos
+```
+
+- Déjalo abierto mientras entrenes: reclama la tarea `PENDIENTE` cada 5 s
+  (tope de 15 min y latido cada 30 s), la ejecuta en un subproceso y deja
+  el resultado `COMPLETADA` (o `FALLIDA` con el motivo).
+- **Sin este proceso la tarea se queda `PENDIENTE` para siempre**: la
+  pantalla la muestra en cola, pero nadie la toma.
+- Funciona en cualquier terminal y SO (el cierre de procesos es portátil:
+  `taskkill` en Windows, `os.killpg` en POSIX).
+
 ## Opcional: datos de demostración
 
 Para probar los flujos de ML y el dashboard con datos de relleno (todo
