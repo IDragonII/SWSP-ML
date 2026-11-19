@@ -1415,9 +1415,10 @@ class Bloque2bTests(Bloque2Base):
             self.assertEqual(
                 set(usadas),
                 {"variables", "conjunto", "origen_datos",
-                 "sha256_dataset", "semilla", "estrategia", "criterio"},
-                "variables_usadas guarda lo de la decisión 223 y el "
-                "veredicto del criterio (264)",
+                 "sha256_dataset", "semilla", "estrategia", "criterio",
+                 "linea_base", "prueba_final", "fuera", "muestra"},
+                "variables_usadas guarda lo de la decisión 223, el "
+                "veredicto del criterio (264) y el diagnóstico S24",
             )
             self.assertEqual(usadas["conjunto"], "plan")
             self.assertEqual(usadas["semilla"], 42)
@@ -1445,7 +1446,8 @@ class Bloque2bTests(Bloque2Base):
             rf = ModeloML.objects.get(algoritmo="RANDOM_FOREST")
             hiper = rf.hiperparametros
             self.assertEqual(
-                set(hiper), {"hiperparametros", "linea_base", "validacion"}
+                set(hiper),
+                {"hiperparametros", "linea_base", "validacion", "rangos"},
             )
             self.assertEqual(hiper["hiperparametros"]["n_estimators"], 300)
             self.assertEqual(hiper["linea_base"]["rmse"], 24.47)
@@ -3230,9 +3232,10 @@ class RegistroContenidoTests(Bloque2Base):
         self.assertEqual(
             set(usadas),
             {"variables", "conjunto", "origen_datos", "sha256_dataset",
-             "semilla", "estrategia", "datos_de", "criterio"},
-            "variables_usadas lleva datos_de (decisión 262) y el "
-            "veredicto del criterio (264)",
+             "semilla", "estrategia", "datos_de", "criterio",
+             "linea_base", "prueba_final", "fuera", "muestra"},
+            "variables_usadas lleva datos_de (decisión 262), el "
+            "veredicto del criterio (264) y el diagnóstico S24",
         )
         self.assertEqual(usadas["origen_datos"], "sistema")
         self.assertEqual(usadas["datos_de"], "real")
@@ -3950,6 +3953,10 @@ class PantallaEntrenarTests(Bloque2Base):
                 "n_entrenamiento",
                 "n_prueba",
                 "criterio",
+                "linea_base",
+                "prueba_final",
+                "muestra",
+                "variables_usadas",
                 "modelos",
                 "datos_demostracion",
             },
@@ -4272,3 +4279,295 @@ class DemostracionV4Tests(MLBase):
             Productor.objects.filter(dni__startswith="980000").count(), 40
         )
         self.assertEqual(len(self._filas_vista()), len(filas))
+
+
+# ---------------------------------------------------------------------- #
+# Diagnóstico del panel Entrenar (422-424)
+# ---------------------------------------------------------------------- #
+class DiagnosticoPanelTests(Bloque2Base):
+    """Pruebas 422-424 (S24): el panel de diagnóstico de la pantalla
+    Entrenar — registrar persiste línea base, holdout, fuera y los
+    rangos del .joblib; el endpoint de resultados los expone sin el
+    binario; evaluar deja prueba_final solo cuando hay holdout."""
+
+    # ------------------------------------------------------------------ #
+    def test_422_registrar_persiste_el_diagnostico_y_los_rangos(self):
+        tubo, _, _ = entrenamiento.entrenar_completo(
+            datos_sinteticos(), "REGRESION_LINEAL"
+        )
+        self.assertTrue(
+            getattr(tubo, "rangos_entrenamiento_", None),
+            "entrenar_completo deja los min/max en el tubo (229)",
+        )
+        buffer = io.BytesIO()
+        joblib.dump(tubo, buffer)
+
+        resultados = self._metricas(version="t422")
+        resultados["linea_base"]["rmse_pliegues"] = [24.0, 25.5]
+        resultados["prueba_final"] = {
+            "LINEA_BASE": {"mae": 20.0, "rmse": 23.0, "filas": 8},
+        }
+        resultados["fuera"] = {"clima_temp": 0.9}
+
+        resumen = registro.registrar(
+            usuario=self.admin,
+            resultados=resultados,
+            version="t422",
+            contenido=buffer.getvalue(),
+        )
+        usadas = resumen["entrenamiento"].variables_usadas
+        self.assertEqual(usadas["linea_base"]["rmse_pliegues"], [24.0, 25.5])
+        self.assertEqual(usadas["prueba_final"]["LINEA_BASE"]["filas"], 8)
+        self.assertEqual(usadas["fuera"], {"clima_temp": 0.9})
+
+        modelos = list(resumen["entrenamiento"].modelos.all())
+        self.assertEqual(len(modelos), 3)
+        for modelo in modelos:
+            hiper = modelo.hiperparametros
+            self.assertIn("rangos", hiper)
+            self.assertTrue(
+                hiper["rangos"], "las numéricas vistas quedan con min/max"
+            )
+            self.assertEqual(
+                hiper["linea_base"]["rmse_pliegues"], [24.0, 25.5],
+                "la línea base del panel lleva sus pliegues",
+            )
+
+        # Un tubo viejo sin el atributo deja rangos vacíos, no rompe
+        tubo_viejo, _, _ = entrenamiento.entrenar_completo(
+            datos_sinteticos(), "REGRESION_LINEAL"
+        )
+        del tubo_viejo.rangos_entrenamiento_
+        buffer_viejo = io.BytesIO()
+        joblib.dump(tubo_viejo, buffer_viejo)
+        resumen_viejo = registro.registrar(
+            usuario=self.admin,
+            resultados=self._metricas(version="t422b"),
+            version="t422b",
+            contenido=buffer_viejo.getvalue(),
+        )
+        for modelo in resumen_viejo["entrenamiento"].modelos.all():
+            self.assertEqual(modelo.hiperparametros["rangos"], {})
+
+    # ------------------------------------------------------------------ #
+    def test_423_resultados_expone_el_panel_de_diagnostico(self):
+        em = EntrenamientoML.objects.create(
+            n_registros=48,
+            n_entrenamiento=40,
+            n_prueba=8,
+            variables_usadas={
+                "origen_datos": "sistema",
+                "variables": ["cultivo", "superficie_sembrada_ha"],
+                "criterio": {
+                    "elegido": "RANDOM_FOREST",
+                    "motivo": "menor RMSE",
+                    "sigma": 1.2,
+                },
+                "linea_base": {
+                    "mae": 20.9,
+                    "rmse": 24.47,
+                    "rmse_pliegues": [24.0, 25.0],
+                },
+                "prueba_final": {
+                    "LINEA_BASE": {"mae": 20.0, "rmse": 23.0, "filas": 8},
+                },
+                "fuera": {"clima_temp": 0.95},
+            },
+        )
+        ModeloML.objects.create(
+            entrenamiento=em,
+            algoritmo="RANDOM_FOREST",
+            version="t423",
+            mae=Decimal("1.20"),
+            rmse=Decimal("2.00"),
+            r2=Decimal("0.5000"),
+            hiperparametros={
+                "hiperparametros": {},
+                "linea_base": {"rmse": 24.47},
+                "validacion": {
+                    "rmse_pliegues": [2.0, 2.5],
+                    "por_cultivo": {
+                        "Quinua": {"mae": 1.0, "rmse": 2.0, "filas": 12},
+                    },
+                },
+                "rangos": {
+                    "superficie_sembrada_ha": {"min": 1.0, "max": 100.0},
+                },
+            },
+        )
+        ModeloML.objects.create(
+            entrenamiento=em,
+            algoritmo="REGRESION_LINEAL",
+            version="t423",
+            mae=Decimal("4.10"),
+            rmse=Decimal("5.00"),
+            r2=Decimal("0.4000"),
+        )
+        ModeloML.objects.create(
+            entrenamiento=em,
+            algoritmo="GRADIENT_BOOSTING",
+            version="t423",
+            mae=Decimal("1.40"),
+            rmse=Decimal("3.00"),
+            r2=Decimal("0.4500"),
+        )
+        tarea = TareaEntrenamiento.objects.create(
+            usuario=self.admin,
+            estado="COMPLETADA",
+            resultado=em,
+        )
+        self._entrar_admin()
+        datos = self._json(
+            self.client.get(f"/api/ml/entrenamientos/{tarea.pk}/resultados/")
+        )
+
+        self.assertEqual(datos["linea_base"]["rmse"], 24.47)
+        self.assertEqual(datos["linea_base"]["rmse_pliegues"], [24.0, 25.0])
+        self.assertEqual(datos["prueba_final"]["LINEA_BASE"]["filas"], 8)
+        self.assertEqual(
+            datos["variables_usadas"]["fuera"], {"clima_temp": 0.95}
+        )
+
+        rf = next(
+            m for m in datos["modelos"] if m["algoritmo"] == "RANDOM_FOREST"
+        )
+        self.assertEqual(
+            rf["hiperparametros"]["rangos"]["superficie_sembrada_ha"]["max"],
+            100.0,
+        )
+        self.assertEqual(
+            rf["hiperparametros"]["validacion"]["por_cultivo"]["Quinua"][
+                "filas"
+            ],
+            12,
+        )
+        lineal = next(
+            m
+            for m in datos["modelos"]
+            if m["algoritmo"] == "REGRESION_LINEAL"
+        )
+        self.assertIsNone(
+            lineal["hiperparametros"], "un registro viejo sale como null"
+        )
+        self.assertNotIn("contenido", json.dumps(datos))
+
+    # ------------------------------------------------------------------ #
+    def test_424_evaluar_deja_prueba_final_solo_con_holdout(self):
+        # n >= 100 → holdout 20 %: la tabla del holdout sale completa
+        con_holdout = entrenamiento.evaluar(datos_sinteticos(n=150))
+        self.assertEqual(
+            con_holdout["estrategia"]["nombre"], "holdout_final_20"
+        )
+        self.assertGreater(con_holdout["estrategia"]["n_prueba"], 0)
+        self.assertIsNotNone(con_holdout["prueba_final"])
+        self.assertEqual(
+            set(con_holdout["prueba_final"]),
+            {"LINEA_BASE", "REGRESION_LINEAL", "RANDOM_FOREST",
+             "GRADIENT_BOOSTING"},
+        )
+        for metricas in con_holdout["prueba_final"].values():
+            self.assertEqual(set(metricas), {"mae", "rmse", "filas"})
+        self.assertEqual(
+            len(con_holdout["linea_base"]["rmse_pliegues"]), 5,
+            "los 5 pliegues del plan holdout_final_20",
+        )
+
+        # _hiperparametros refleja la línea base con pliegues (S24)
+        hiper = registro._hiperparametros(
+            con_holdout["candidatos"]["REGRESION_LINEAL"],
+            con_holdout["linea_base"],
+            rangos={"altitud_msnm": {"min": 3600.0, "max": 4000.0}},
+        )
+        self.assertEqual(
+            set(hiper),
+            {"hiperparametros", "linea_base", "validacion", "rangos"},
+        )
+        self.assertIn("rmse_pliegues", hiper["linea_base"])
+        self.assertEqual(len(hiper["linea_base"]["rmse_pliegues"]), 5)
+        self.assertEqual(
+            hiper["rangos"]["altitud_msnm"]["max"], 4000.0
+        )
+
+        # n < 100 → sin holdout: la pantalla muestra la nota
+        sin_holdout = entrenamiento.evaluar(datos_sinteticos())
+        self.assertIsNone(sin_holdout["prueba_final"])
+        self.assertEqual(sin_holdout["estrategia"]["n_prueba"], 0)
+
+    # ------------------------------------------------------------------ #
+    def test_425_evaluar_deja_la_muestra_de_predicciones(self):
+        resultado = entrenamiento.evaluar(datos_sinteticos())
+        muestra = resultado["muestra"]
+        self.assertEqual(
+            set(muestra),
+            {"LINEA_BASE", "REGRESION_LINEAL", "RANDOM_FOREST",
+             "GRADIENT_BOOSTING"},
+            "los gráficos necesitan los 3 algoritmos y la línea base",
+        )
+        n = resultado["n"]
+        # La muestra es la base pooled: cada fila se evalúa una vez por
+        # repetición (con holdout, solo las filas de entrenamiento)
+        estrategia = resultado["estrategia"]
+        esperado = (
+            (n - estrategia["n_prueba"]) * estrategia["repeticiones"]
+        )
+        for algoritmo, pares in muestra.items():
+            self.assertEqual(len(pares["reales"]), esperado, algoritmo)
+            self.assertEqual(len(pares["predichos"]), esperado, algoritmo)
+            for real, predicho in zip(pares["reales"], pares["predichos"]):
+                self.assertIsInstance(real, float, algoritmo)
+                self.assertIsInstance(predicho, float, algoritmo)
+                self.assertEqual(real, round(real, 2), "2 decimales")
+
+        # El tope: muestreo sistemático determinista, sin RNG
+        reales = [float(v) for v in range(5000)]
+        predichos = [v * 2 for v in reales]
+        pares = entrenamiento._muestra(reales, predichos, limite=1000)
+        self.assertEqual(len(pares["reales"]), 1000)
+        self.assertEqual(len(pares["predichos"]), 1000)
+        self.assertEqual(pares["reales"][0], 0.0)
+        self.assertEqual(pares["predichos"][0], 0.0)
+
+    # ------------------------------------------------------------------ #
+    def test_426_registrar_y_resultados_expone_la_muestra(self):
+        tubo, _, _ = entrenamiento.entrenar_completo(
+            datos_sinteticos(), "REGRESION_LINEAL"
+        )
+        buffer = io.BytesIO()
+        joblib.dump(tubo, buffer)
+        resultados = self._metricas(version="t426")
+        resultados["muestra"] = {
+            "REGRESION_LINEAL": {
+                "reales": [180.5, 200.0],
+                "predichos": [175.25, 210.5],
+            },
+            "LINEA_BASE": {
+                "reales": [180.5, 200.0],
+                "predichos": [190.0, 195.0],
+            },
+        }
+        resumen = registro.registrar(
+            usuario=self.admin,
+            resultados=resultados,
+            version="t426",
+            contenido=buffer.getvalue(),
+        )
+        usadas = resumen["entrenamiento"].variables_usadas
+        self.assertEqual(
+            usadas["muestra"]["REGRESION_LINEAL"]["predichos"],
+            [175.25, 210.5],
+        )
+
+        tarea = TareaEntrenamiento.objects.create(
+            usuario=self.admin,
+            estado="COMPLETADA",
+            resultado=resumen["entrenamiento"],
+        )
+        self._entrar_admin()
+        datos = self._json(
+            self.client.get(f"/api/ml/entrenamientos/{tarea.pk}/resultados/")
+        )
+        self.assertIn("muestra", datos)
+        self.assertEqual(
+            datos["muestra"]["LINEA_BASE"]["reales"], [180.5, 200.0]
+        )
+        self.assertNotIn("contenido", json.dumps(datos))

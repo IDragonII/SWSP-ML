@@ -24,7 +24,9 @@ export default function Tabla({ columnas, filas, refrescando = false }) {
                   data-rotulo={columna.acciones ? undefined : columna.etiqueta}
                   className={columna.acciones ? 'celda-acciones' : undefined}
                 >
-                  {columna.celda(fila)}
+                  {columna.celda
+                    ? columna.celda(fila)
+                    : fila[columna.clave]}
                 </td>
               ))}
             </tr>

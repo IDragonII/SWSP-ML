@@ -177,10 +177,17 @@ def _cargar_tubo_bytes(contenido):
     return tubo, columnas
 
 
-def _hiperparametros(candidato, linea_base):
-    """Lo que guarda modelos_ml.hiperparametros (decisión 223)."""
+def _hiperparametros(candidato, linea_base, rangos=None):
+    """Lo que guarda modelos_ml.hiperparametros (decisión 223).
+
+    `rangos` son los min/max por variable numérica que viajan
+    serializados dentro del propio .joblib (`tubo.rangos_entrenamiento_`,
+    decisión 229) y que el panel de diagnóstico de la pantalla Entrenar
+    muestra como tabla.
+    """
     base = {clave: linea_base.get(clave)
-            for clave in ("mae", "rmse", "r2", "desvio_rmse", "mape")
+            for clave in ("mae", "rmse", "r2", "desvio_rmse", "mape",
+                          "rmse_pliegues")
             if clave in linea_base}
     validacion = {clave: candidato.get(clave)
                   for clave in ("desvio_rmse", "mape", "rmse_pliegues",
@@ -190,6 +197,7 @@ def _hiperparametros(candidato, linea_base):
         "hiperparametros": {},
         "linea_base": base,
         "validacion": validacion,
+        "rangos": dict(rangos or {}),
     }
 
 
@@ -221,6 +229,7 @@ def registrar(*, usuario, resultados, version, archivo=None,
 
     # --- artefacto y huella (antes de tocar la base) --------------------
     huella_modelo = None
+    rangos = {}
     if contenido is not None:
         # Modelo en la BD (decisión 254): sin disco ni manifiesto
         if len(contenido) > LIMITE_CONTENIDO:
@@ -230,6 +239,7 @@ def registrar(*, usuario, resultados, version, archivo=None,
             )
         huella_modelo = hashlib.sha256(contenido).hexdigest()
         tubo, columnas = _cargar_tubo_bytes(contenido)
+        rangos = dict(getattr(tubo, "rangos_entrenamiento_", None) or {})
         del tubo
         nombre = None
         if seco:
@@ -284,6 +294,7 @@ def registrar(*, usuario, resultados, version, archivo=None,
                 }
 
         tubo, columnas = _cargar_y_probar(ruta_final, destino)
+        rangos = dict(getattr(tubo, "rangos_entrenamiento_", None) or {})
 
     variables_usadas = {
         "variables": columnas,
@@ -295,6 +306,14 @@ def registrar(*, usuario, resultados, version, archivo=None,
         # El veredicto viaja con el entrenamiento: la pantalla de
         # resultados lo lee para marcar el recomendado (decisión 264)
         "criterio": resultados["criterio"],
+        # Diagnóstico de la pantalla Entrenar (S24): la línea base y el
+        # holdout como métricas de contraste, las variables descartadas
+        # por faltantes y la muestra de predicciones (real/predicho) de
+        # los gráficos, para exponerlas en el endpoint de resultados.
+        "linea_base": resultados.get("linea_base"),
+        "prueba_final": resultados.get("prueba_final"),
+        "fuera": resultados.get("fuera"),
+        "muestra": resultados.get("muestra"),
     }
     if "datos_de" in resultados:
         variables_usadas["datos_de"] = resultados["datos_de"]
@@ -313,7 +332,7 @@ def registrar(*, usuario, resultados, version, archivo=None,
         modelos = []
         for algoritmo in entrenamiento.NOMBRES:
             candidato = resultados["candidatos"][algoritmo]
-            hiper = _hiperparametros(candidato, linea_base)
+            hiper = _hiperparametros(candidato, linea_base, rangos)
             hiper["hiperparametros"] = entrenamiento.hiperparametros_de(algoritmo)
             es_elegido = algoritmo == elegido
             modelos.append(ModeloML.objects.create(

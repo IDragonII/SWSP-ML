@@ -1,4 +1,4 @@
-"""Pruebas 326-345 (Semana 20).
+"""Pruebas 326-345 (Semana 20) y 417-421 (S24, cargar_dataset_dra).
 
 Numeración del repositorio: la Semana 19 cierra con 325 pruebas, así
 que la Semana 20 añade 326-345 (20 pruebas → 345 en total): plantillas
@@ -17,7 +17,7 @@ de docs/ejemplos_importacion (345).
 """
 import os
 import tempfile
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from io import StringIO
 from pathlib import Path
@@ -42,6 +42,7 @@ from importaciones.plantillas import (
     encabezados,
     generar_plantilla,
 )
+from ml.columnas import COLUMNAS_EXPORTADAS
 from productores.models import Comunidad, Distrito, Parcela, Productor, Provincia
 from produccion.models import Produccion
 from seguimiento.models import UsoRecurso
@@ -658,3 +659,271 @@ class DatasetTests(ImportacionBase):
                 "WHERE origen = 'IMPORTADA'"
             )
             self.assertEqual(cursor.fetchone()[0], 3)
+
+
+class CargaDatasetDraTests(TestCase):
+    """Pruebas 417-421 (S24): la carga del dataset DRA de 28 columnas.
+
+    El CSV fuente es agregado (distrito × cultivo × campaña) y viene en el
+    formato de vw_dataset_entrenamiento; cargar_dataset_dra lo traduce a
+    productores/parcelas/campañas y reutiliza el servicio de importación.
+    """
+
+    def setUp(self):
+        self.admin = Usuario.objects.create_superuser(
+            username="admin_dra", email="", password="AdminDra!",
+            rol=Rol.objects.get(nombre="Administrador"),
+        )
+        self.coordinador = Usuario.objects.create_user(
+            username="coord_dra", password="CoordDra!",
+            rol=Rol.objects.get(nombre="Coordinador"),
+        )
+
+    # ------------------------------------------------------------------ #
+    # helpers
+    # ------------------------------------------------------------------ #
+    def _archivo(self, contenido):
+        descriptor, ruta = tempfile.mkstemp(suffix=".csv")
+        with os.fdopen(descriptor, "w", encoding="utf-8-sig", newline="") as archivo:
+            archivo.write(contenido)
+        self.addCleanup(os.unlink, ruta)
+        return ruta
+
+    def _dataset_csv(self, filas):
+        lineas = [",".join(COLUMNAS_EXPORTADAS)]
+        for cambios in filas:
+            fila = dict.fromkeys(COLUMNAS_EXPORTADAS, "")
+            fila.update(cambios)
+            lineas.append(",".join(fila[c] for c in COLUMNAS_EXPORTADAS))
+        return self._archivo("\n".join(lineas) + "\n")
+
+    def _referencia_csv(self, filas):
+        columnas = (
+            "campania_id", "provincia", "distrito", "mes_siembra_principal",
+            "mes_cosecha_principal", "superficie_sembrada_ha",
+            "superficie_cosechada_ha", "produccion_t",
+        )
+        lineas = [",".join(columnas)]
+        for cambios in filas:
+            fila = dict.fromkeys(columnas, "")
+            fila.update(cambios)
+            lineas.append(",".join(fila[c] for c in columnas))
+        return self._archivo("\n".join(lineas) + "\n")
+
+    def _dataset_estandar(self):
+        return self._dataset_csv(
+            [
+                {
+                    "campania_id": "1", "periodo": "2020-2021",
+                    "anio_campania": "2020", "cultivo": "Quinua DRA",
+                    "superficie_sembrada_ha": "2.0",
+                    "origen": "EXCEL_DRA_DISTRITAL",
+                },
+                {
+                    "campania_id": "2", "periodo": "2020-2021",
+                    "anio_campania": "2020", "cultivo": "Papa DRA",
+                    "superficie_sembrada_ha": "1.0",
+                    "origen": "EXCEL_DRA_DISTRITAL",
+                },
+                {
+                    "campania_id": "3", "periodo": "2020-2021",
+                    "anio_campania": "2020", "cultivo": "Quinua DRA",
+                    "superficie_sembrada_ha": "5.0",
+                    "origen": "EXCEL_DRA_DISTRITAL",
+                },
+            ]
+        )
+
+    def _referencia_estandar(self):
+        return self._referencia_csv(
+            [
+                {
+                    "campania_id": "1", "provincia": "AZANGARO",
+                    "distrito": "ACHAYA", "mes_siembra_principal": "2020-12",
+                    "mes_cosecha_principal": "2021-05",
+                    "superficie_sembrada_ha": "",
+                    "superficie_cosechada_ha": "1.5", "produccion_t": "5.0",
+                },
+                {
+                    "campania_id": "2", "provincia": "PUNO", "distrito": "PUNO",
+                    "mes_siembra_principal": "",
+                    "mes_cosecha_principal": "2021-05",
+                    "superficie_sembrada_ha": "1.0",
+                    "superficie_cosechada_ha": "2.0", "produccion_t": "6.0",
+                },
+                {
+                    "campania_id": "3", "provincia": "AZANGARO",
+                    "distrito": "ACHAYA", "mes_siembra_principal": "2020-10",
+                    "mes_cosecha_principal": "2021-06",
+                    "superficie_sembrada_ha": "5.0",
+                    "superficie_cosechada_ha": "5.0",
+                    "produccion_t": "200000",
+                },
+            ]
+        )
+
+    def _cargar(self, dataset, referencia, usuario="admin_dra", **opciones):
+        opciones.setdefault("usuario", usuario)
+        salida = StringIO()
+        call_command(
+            "cargar_dataset_dra",
+            archivo=dataset,
+            referencia=referencia,
+            stdout=salida,
+            **opciones,
+        )
+        return salida.getvalue()
+
+    # ------------------------------------------------------------------ #
+    # 417-421
+    # ------------------------------------------------------------------ #
+    def test_417_la_carga_crea_todo_y_es_idempotente(self):
+        salida = self._cargar(self._dataset_estandar(), self._referencia_estandar())
+        self.assertEqual(Productor.objects.count(), 2)
+        self.assertEqual(Parcela.objects.count(), 2)
+        self.assertEqual(Campania.objects.count(), 2)
+        self.assertEqual(
+            Campania.objects.filter(estado=Campania.ESTADO_CERRADA).count(), 2
+        )
+        self.assertEqual(Produccion.objects.count(), 2)
+        self.assertEqual(
+            Importacion.objects.filter(estado="COMPLETADA").count(), 3
+        )
+        self.assertEqual(
+            Auditoria.objects.filter(modulo="importaciones").count(), 3
+        )
+        # catálogos que la fuente exige y esta carga sí crea
+        self.assertEqual(
+            Cultivo.objects.filter(nombre__in=["Quinua DRA", "Papa DRA"]).count(),
+            2,
+        )
+        self.assertEqual(Variedad.objects.filter(nombre="Local").count(), 2)
+        self.assertTrue(Comunidad.objects.filter(nombre="Comunidad ACHAYA").exists())
+        self.assertTrue(Comunidad.objects.filter(nombre="Comunidad PUNO").exists())
+
+        from django.db import connection
+
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT COUNT(*) FROM vw_dataset_entrenamiento")
+            self.assertEqual(cursor.fetchone()[0], 2)
+
+        # re-ejecutar: todo se omite, nada se duplica
+        salida2 = self._cargar(
+            self._dataset_estandar(), self._referencia_estandar()
+        )
+        self.assertIn("productores: creadas 0 · ya existían 2", salida2)
+        self.assertIn("parcelas: creadas 0 · ya existían 2", salida2)
+        self.assertIn("campanias: creadas 0 · ya existían 2", salida2)
+        self.assertEqual(Productor.objects.count(), 2)
+        self.assertEqual(Parcela.objects.count(), 2)
+        self.assertEqual(Campania.objects.count(), 2)
+
+    def test_418_el_dry_run_no_deja_nada(self):
+        salida = self._cargar(
+            self._dataset_estandar(), self._referencia_estandar(), dry_run=True
+        )
+        self.assertIn("dry-run", salida)
+        self.assertEqual(Productor.objects.count(), 0)
+        self.assertEqual(Parcela.objects.count(), 0)
+        self.assertEqual(Campania.objects.count(), 0)
+        self.assertEqual(Cultivo.objects.filter(nombre="Quinua DRA").count(), 0)
+        self.assertEqual(Importacion.objects.count(), 0)
+        self.assertEqual(Auditoria.objects.count(), 0)
+
+    def test_419_descarta_overflow_normaliza_y_calcula_la_siembra(self):
+        salida = self._cargar(self._dataset_estandar(), self._referencia_estandar())
+        self.assertIn("producción > 100.000 t (numeric(10,2)): 1", salida)
+        self.assertIn("sembrada normalizada (cosechada > sembrada) 1", salida)
+        self.assertIn("sin superficie de siembra en la fuente 1", salida)
+        self.assertIn("sin mes de siembra (fallback cosecha - 183 d) 1", salida)
+        self.assertIn("Descartadas en la traducción: 0", salida)
+
+        # la fila 3 (200.000 t > numeric(10,2)) no crea parcela ni campaña
+        self.assertFalse(Parcela.objects.filter(referencia_ubicacion="DRA-3").exists())
+
+        # cosechada > sembrada: la parcela y la campaña quedan en 2.00 ha
+        parcela = Parcela.objects.get(referencia_ubicacion="DRA-2")
+        self.assertEqual(parcela.superficie_ha, Decimal("2.00"))
+        self.assertEqual(parcela.altitud_msnm, 3800)
+        campania = Campania.objects.get(parcela=parcela)
+        self.assertEqual(campania.superficie_sembrada_ha, Decimal("2.00"))
+
+        # sin mes de siembra: fallback cosecha - 183 días (sin tope: 2020-11-13)
+        self.assertEqual(
+            campania.fecha_siembra, date(2021, 5, 15) - timedelta(days=183)
+        )
+        self.assertEqual(campania.fecha_inicio, campania.fecha_siembra)
+        self.assertEqual(
+            campania.fecha_fin_prevista, campania.produccion.fecha_cosecha
+        )
+        self.assertEqual(campania.produccion.fecha_cosecha, date(2021, 5, 15))
+        self.assertEqual(campania.estado, Campania.ESTADO_CERRADA)
+
+    def test_420_pide_permiso_y_archivos_existentes(self):
+        with self.assertRaises(CommandError) as contexto:
+            self._cargar(
+                self._dataset_estandar(),
+                self._referencia_estandar(),
+                usuario="coord_dra",
+            )
+        self.assertIn("importacion.ejecutar", str(contexto.exception))
+
+        with self.assertRaises(CommandError) as contexto:
+            self._cargar("no_existe.csv", self._referencia_estandar())
+        self.assertIn("dataset", str(contexto.exception))
+
+        with self.assertRaises(CommandError) as contexto:
+            self._cargar(self._dataset_estandar(), "no_existe.csv")
+        self.assertIn("referencia", str(contexto.exception))
+
+    def test_421_las_filas_malas_se_descartan_sin_frenar_la_carga(self):
+        dataset = self._dataset_csv(
+            [
+                {
+                    "campania_id": "1", "periodo": "2020-2021",
+                    "cultivo": "Quinua DRA", "superficie_sembrada_ha": "2.0",
+                    "origen": "EXCEL_DRA_DISTRITAL",
+                },
+                {
+                    "campania_id": "99", "periodo": "2020-2021",
+                    "cultivo": "Sin referencia",
+                    "superficie_sembrada_ha": "1.0",
+                    "origen": "EXCEL_DRA_DISTRITAL",
+                },
+                {
+                    "campania_id": "2", "periodo": "2020-2022",
+                    "cultivo": "Periodo malo",
+                    "superficie_sembrada_ha": "1.0",
+                    "origen": "EXCEL_DRA_DISTRITAL",
+                },
+            ]
+        )
+        referencia = self._referencia_csv(
+            [
+                {
+                    "campania_id": "1", "provincia": "AZANGARO",
+                    "distrito": "ACHAYA", "mes_siembra_principal": "2020-12",
+                    "mes_cosecha_principal": "2021-05",
+                    "superficie_sembrada_ha": "2.0",
+                    "superficie_cosechada_ha": "1.5", "produccion_t": "5.0",
+                }
+            ]
+        )
+        salida = self._cargar(dataset, referencia)
+        self.assertIn("Descartadas en la traducción: 2", salida)
+        self.assertEqual(Campania.objects.count(), 1)
+
+        # si NINGUNA fila es apta, el comando se niega a cargar
+        solo_malas = self._dataset_csv(
+            [
+                {
+                    "campania_id": "99", "periodo": "2020-2021",
+                    "cultivo": "Sin referencia",
+                    "superficie_sembrada_ha": "1.0",
+                    "origen": "EXCEL_DRA_DISTRITAL",
+                }
+            ]
+        )
+        with self.assertRaises(CommandError) as contexto:
+            self._cargar(solo_malas, referencia)
+        self.assertIn("Ninguna fila del dataset es apta", str(contexto.exception))

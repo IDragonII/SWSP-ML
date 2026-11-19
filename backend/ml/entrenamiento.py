@@ -41,6 +41,11 @@ from ml.preparacion import preparar
 
 NOMBRES = criterio.ORDEN_SIMPLICIDAD
 
+# Tope de pares (real, predicho) que guarda cada muestra de diagnóstico:
+# con muestreo sistemático basta para pintar los gráficos sin que el
+# JSON del entrenamiento crezca sin control.
+LIMITE_MUESTRA = 2000
+
 # Fábricas e hiperparámetros en una sola tabla: los hiperparámetros que
 # se guardan en modelos_ml.hiperparametros son los mismos con los que se
 # entrena, sin duplicarlos en dos sitios (decisión 223).
@@ -156,6 +161,21 @@ def _metricas_pooled(reales, predichos):
     return {"r2": r2, "mape": mape}
 
 
+def _muestra(reales, predichos, limite=LIMITE_MUESTRA):
+    """Pares (real, predicho) redondeados a 2 decimales: la materia
+    prima de los gráficos de diagnóstico (predicho vs real con
+    diagonal, residuales con signo y error acumulado). Muestreo
+    sistemático si supera el límite, determinista y sin RNG."""
+    n = len(reales)
+    indices = (
+        range(0, n, math.ceil(n / limite)) if n > limite else range(n)
+    )
+    return {
+        "reales": [round(float(reales[i]), 2) for i in indices],
+        "predichos": [round(float(predichos[i]), 2) for i in indices],
+    }
+
+
 def _por_cultivo(cultivos, reales, predichos):
     if cultivos is None:
         return None
@@ -187,6 +207,7 @@ def evaluar(datos, estrategia=None, conjunto=CONJUNTO_PLAN, semilla=SEMILLA):
       "linea_base": {mae, rmse, desvio_rmse, r2, mape, por_cultivo},
       "prueba_final": {algoritmo: {...}} | None,   # solo holdout
       "fuera": {...},
+      "muestra": {algoritmo: {reales, predichos}},  # OOF, para gráficos
       "n": n,
     }
     """
@@ -299,6 +320,16 @@ def evaluar(datos, estrategia=None, conjunto=CONJUNTO_PLAN, semilla=SEMILLA):
         "linea_base": base,
         "prueba_final": None,
         "fuera": fuera,
+        # Predicciones out-of-fold de los 3 algoritmos y la línea base
+        # para los gráficos de diagnóstico (S24): predicho vs real,
+        # residuales con signo y curva de error acumulado.
+        "muestra": {
+            nombre: _muestra(
+                acumulados[nombre]["reales"],
+                acumulados[nombre]["predichos"],
+            )
+            for nombre in (*NOMBRES, criterio.LINEA_BASE)
+        },
         "n": n,
     }
 

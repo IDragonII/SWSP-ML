@@ -12,6 +12,8 @@ import Aviso from '../components/Aviso.jsx'
 import BannerDemostracion from '../components/BannerDemostracion.jsx'
 import Cargando from '../components/Cargando.jsx'
 import Chip from '../components/Chip.jsx'
+import GraficosEntrenamiento from '../components/GraficosEntrenamiento.jsx'
+import MetricasModelo from '../components/MetricasModelo.jsx'
 import Modal from '../components/Modal.jsx'
 import Tabla from '../components/Tabla.jsx'
 import { useToast } from '../context/useToast.js'
@@ -58,6 +60,7 @@ export default function Entrenar() {
   const [cancelando, setCancelando] = useState(false)
   const [activarId, setActivarId] = useState(null)
   const [activando, setActivando] = useState(false)
+  const [metricasId, setMetricasId] = useState(null)
   const activaPrevia = useRef(null)
 
   function refrescar() {
@@ -172,6 +175,11 @@ export default function Entrenar() {
     }
   }
 
+  function cerrarResultados() {
+    setResultadoId(null)
+    setMetricasId(null)
+  }
+
   if ((!estado || !historial) && !error) {
     return <Cargando texto="Cargando entrenamientos…" />
   }
@@ -189,6 +197,10 @@ export default function Entrenar() {
     ? (resultado.modelos.find((m) => m.algoritmo === resultado.criterio?.elegido)
         ?.id ?? null)
     : null
+  const modeloMetricas =
+    resultado && metricasId !== null
+      ? resultado.modelos.find((m) => m.id === metricasId) || null
+      : null
 
   return (
     <div>
@@ -285,34 +297,32 @@ export default function Entrenar() {
         </div>
       )}
 
-      {resultado && (
-        <div className="panel">
-          <div className="pagina-cabecera">
-            <div>
-              <h2>Resultados del entrenamiento</h2>
-              <p className="conteo">
-                {fechaHoraCorta(resultado.fecha)} · {resultado.n_registros}{' '}
-                campañas · {resultado.n_entrenamiento} de entrenamiento y{' '}
-                {resultado.n_prueba} de prueba
-              </p>
-            </div>
-            <div className="ficha-acciones">
-              <button
-                type="button"
-                className="boton-texto"
-                onClick={() => setResultadoId(null)}
-              >
-                Ocultar
-              </button>
-            </div>
-          </div>
+      <Modal
+        abierto={resultadoId !== null}
+        titulo="Resultados del entrenamiento"
+        tamano="ficha"
+        onCerrar={cerrarResultados}
+      >
+        {!resultado ? (
+          error ? (
+            <Aviso>{error}</Aviso>
+          ) : (
+            <Cargando texto="Cargando resultados…" />
+          )
+        ) : (
+          <>
+            {resultado.datos_demostracion && <BannerDemostracion />}
 
-          {resultado.datos_demostracion && <BannerDemostracion />}
+            <p className="conteo">
+              {fechaHoraCorta(resultado.fecha)} · {resultado.n_registros}{' '}
+              campañas · {resultado.n_entrenamiento} de entrenamiento y{' '}
+              {resultado.n_prueba} de prueba
+            </p>
 
-          <p className="texto-intro">
-            El criterio escrito (docs/criterio_seleccion.md):{' '}
-            {resultado.criterio?.motivo || 'sin veredicto registrado'}.
-          </p>
+            <p className="texto-intro">
+              El criterio escrito (docs/criterio_seleccion.md):{' '}
+              {resultado.criterio?.motivo || 'sin veredicto registrado'}.
+            </p>
 
           <Tabla
             filas={resultado.modelos}
@@ -349,25 +359,36 @@ export default function Entrenar() {
                 clave: 'acciones',
                 etiqueta: 'Acciones',
                 acciones: true,
-                celda: (fila) =>
-                  fila.id === elegidoId &&
-                  !fila.activo &&
-                  tienePermiso('ml.activar_modelo') ? (
+                celda: (fila) => (
+                  <div className="fila-acciones">
                     <button
                       type="button"
                       className="boton-texto"
-                      onClick={() => setActivarId(fila.id)}
+                      onClick={() => setMetricasId(fila.id)}
                     >
-                      Activar este modelo
+                      Métricas
                     </button>
-                  ) : (
-                    '—'
-                  ),
+                    {fila.id === elegidoId &&
+                      !fila.activo &&
+                      tienePermiso('ml.activar_modelo') && (
+                        <button
+                          type="button"
+                          className="boton-texto"
+                          onClick={() => setActivarId(fila.id)}
+                        >
+                          Activar este modelo
+                        </button>
+                      )}
+                  </div>
+                ),
               },
             ]}
           />
-        </div>
-      )}
+
+          <GraficosEntrenamiento resultado={resultado} />
+          </>
+        )}
+      </Modal>
 
       <div className="pagina-cabecera">
         <div>
@@ -481,6 +502,25 @@ export default function Entrenar() {
         onConfirmar={activar}
         onCerrar={() => setActivarId(null)}
       />
+
+      <Modal
+        abierto={modeloMetricas !== null}
+        titulo={
+          modeloMetricas
+            ? `Métricas — ${modeloMetricas.algoritmo.replaceAll('_', ' ').toLowerCase()}`
+            : 'Métricas'
+        }
+        tamano="ficha"
+        onCerrar={() => setMetricasId(null)}
+      >
+        {modeloMetricas && (
+          <MetricasModelo
+            modelo={modeloMetricas}
+            muestra={resultado?.muestra?.[modeloMetricas.algoritmo] ?? null}
+            lineaBase={resultado?.linea_base ?? null}
+          />
+        )}
+      </Modal>
     </div>
   )
 }

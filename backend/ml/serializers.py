@@ -340,11 +340,20 @@ class TareaEntrenamientoSerializer(serializers.ModelSerializer):
 class ResultadoEntrenamientoSerializer(serializers.ModelSerializer):
     """La pantalla de resultados (decisión 264): los 3 candidatos con
     sus métricas, el veredicto del criterio y la marca de
-    demostración. El binario del modelo no sale nunca."""
+    demostración. El binario del modelo no sale nunca.
+
+    S24: se añade el panel de diagnóstico — línea base, holdout
+    (`prueba_final`), variables usadas/descartadas (`fuera`) y, por
+    modelo, `hiperparametros` con `validacion` (rmse_pliegues,
+    por_cultivo, desvio_rmse, mape) y `rangos` (min/max del .joblib).
+    """
 
     modelos = serializers.SerializerMethodField()
     criterio = serializers.SerializerMethodField()
     datos_demostracion = serializers.SerializerMethodField()
+    linea_base = serializers.SerializerMethodField()
+    prueba_final = serializers.SerializerMethodField()
+    muestra = serializers.SerializerMethodField()
 
     class Meta:
         model = EntrenamientoML
@@ -355,6 +364,10 @@ class ResultadoEntrenamientoSerializer(serializers.ModelSerializer):
             "n_entrenamiento",
             "n_prueba",
             "criterio",
+            "linea_base",
+            "prueba_final",
+            "muestra",
+            "variables_usadas",
             "modelos",
             "datos_demostracion",
         )
@@ -371,9 +384,23 @@ class ResultadoEntrenamientoSerializer(serializers.ModelSerializer):
                 "activo": modelo.activo,
                 "en_bd": modelo.contenido is not None,
                 "huella": modelo.huella,
+                "hiperparametros": modelo.hiperparametros,
             }
             for modelo in obj.modelos.order_by("algoritmo")
         ]
+
+    def get_linea_base(self, obj):
+        """Métricas de la línea base para el gráfico de contraste."""
+        return (obj.variables_usadas or {}).get("linea_base")
+
+    def get_prueba_final(self, obj):
+        """Holdout 20 % por algoritmo; null cuando n < 100."""
+        return (obj.variables_usadas or {}).get("prueba_final")
+
+    def get_muestra(self, obj):
+        """Pares (real, predicho) por algoritmo para los gráficos de
+        diagnóstico; null en entrenamientos antiguos."""
+        return (obj.variables_usadas or {}).get("muestra")
 
     def get_criterio(self, obj):
         """El veredicto escrito (elegido, motivo y sigma); si el
