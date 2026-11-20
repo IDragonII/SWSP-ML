@@ -1,0 +1,22 @@
+# Despliegue del frontend en Netlify (S24). El backend vive en Render:
+# /api/* se proxea al mismo origen para que las cookies httpOnly de
+# sesión (SameSite=Lax) viajen como first-party en todos los
+# navegadores; el resto es el clásico fallback SPA.
+
+[build]
+  base = "frontend"
+  command = "npm ci && npm run build"
+  publish = "dist"
+
+# IMPORTANTE: /api/* va ANTES que el fallback SPA (Netlify evalúa en
+# orden). Cambiar sigpa-ga.onrender.com si el servicio de Render se
+# creó con otro nombre.
+[[redirects]]
+  from = "/api/*"
+  to = "https://sigpa-ga.onrender.com/api/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

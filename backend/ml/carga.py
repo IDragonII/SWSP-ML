@@ -14,9 +14,6 @@ Hay DOS puertas con exactamente la misma validación (_preparar):
   memoria por el trabajador, SIN archivos ni ML_EXPORT_DIR (decisión
   259: los datos del entrenamiento salen siempre del sistema).
 """
-import pandas as pd
-
-from ml.catalogo import aplicar_cobertura_clima
 from ml.columnas import COLUMNAS_EXPORTADAS, consulta_exportacion
 from ml.exportacion import bytes_csv, huella_sha256
 
@@ -67,6 +64,12 @@ def _preparar(datos, aplicar_clima):
     cargar_desde_bd(): un DataFrame del CSV y otro de la vista pasan por
     las MISMAS reglas (prueba 397).
     """
+    # Import perezoso: pandas/catálogo solo en quien valida datos (el
+    # proceso web solo lee la constante COLUMNAS_NUMERICAS de este módulo)
+    import pandas as pd
+
+    from ml.catalogo import aplicar_cobertura_clima
+
     columnas = list(datos.columns)
     faltantes = [c for c in COLUMNAS_EXPORTADAS if c not in columnas]
     if faltantes:
@@ -132,6 +135,9 @@ def cargar(ruta, aplicar_clima=True):
     - Identificadores vacíos o no enteros → ErrorCarga.
     - Si aplicar_clima, el clima con cobertura < 80 % queda vacío.
     """
+    # Import perezoso: pandas solo al leer un CSV
+    import pandas as pd
+
     try:
         datos = pd.read_csv(ruta, encoding="utf-8-sig")
     except Exception as error:  # noqa: BLE001 (pandas lanza varios tipos)
@@ -161,6 +167,9 @@ def cargar_desde_bd(aplicar_clima=True):
     sin ML_EXPORT_DIR; exactamente las mismas validaciones que el
     archivo (prueba 397).
     """
+    # Import perezoso: pandas solo en el proceso que entrena
+    import pandas as pd
+
     columnas, filas = _consultar_vista()
     datos = pd.DataFrame.from_records(filas, columns=columnas)
     return _preparar(datos, aplicar_clima)

@@ -35,7 +35,6 @@ import math
 from decimal import Decimal, ROUND_HALF_UP
 
 import joblib
-import pandas as pd
 from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
@@ -308,6 +307,9 @@ def _preparar_entrada(fila, origenes, tubo):
     numérico fuera del rango visto en el entrenamiento (si el tubo lo
     trae) → se avisa sin bloquear (decisión 229).
     """
+    # Import perezoso: pandas solo al preparar la fila de una predicción
+    import pandas as pd
+
     columnas = _columnas_del_tubo(tubo)
     medianas, vistas = _estadisticas(tubo)
     rangos = getattr(tubo, "rangos_entrenamiento_", None) or {}

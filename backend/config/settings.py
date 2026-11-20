@@ -84,6 +84,8 @@ AUTH_USER_MODEL = 'usuarios.Usuario'
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',  # CORS en primer lugar
     'django.middleware.security.SecurityMiddleware',
+    # Estáticos en producción (Render, DEBUG=False): ver STATIC_ROOT
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -100,6 +102,14 @@ CORS_ALLOWED_ORIGINS = [
 ]
 # Las cookies httpOnly del login viajan cross-origin desde Vite: requieren credenciales
 CORS_ALLOW_CREDENTIALS = True
+
+# Despliegue (Render + Netlify): orígenes desde los que se aceptan POST
+# con CSRF (el panel admin); vacío en desarrollo.
+CSRF_TRUSTED_ORIGINS = [
+    o.strip()
+    for o in os.getenv("CSRF_TRUSTED_ORIGINS", "").split(",")
+    if o.strip()
+]
 
 # API REST: JWT y todo endpoint nace protegido (hay que abrirlo a propósito)
 REST_FRAMEWORK = {
@@ -206,6 +216,13 @@ DATABASES = {
         "PASSWORD": os.getenv("DB_PASSWORD"),
         "HOST": os.getenv("DB_HOST", "localhost"),
         "PORT": os.getenv("DB_PORT", "5432"),
+        # Despliegue: DB_SSLMODE=require apunta al pooler de Supabase;
+        # vacío en local (Docker sin TLS) para no romper el entorno.
+        "OPTIONS": (
+            {"sslmode": os.environ["DB_SSLMODE"]}
+            if os.getenv("DB_SSLMODE")
+            else {}
+        ),
     }
 }
 
@@ -245,6 +262,17 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+# Recogida en el build de Render (`collectstatic`); WhiteNoise los sirve
+# con caché y compresión cuando DEBUG=False.
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+STORAGES = {
+    'default': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+    },
+    'staticfiles': {
+        'BACKEND': 'whitenoise.storage.CompressedStaticFilesStorage',
+    },
+}
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

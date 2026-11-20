@@ -93,6 +93,7 @@ from ml.models import EntrenamientoML, ModeloML, Prediccion, TareaEntrenamiento
 from ml.registro import ErrorRegistro
 from ml.servicio import ErrorModelo, ErrorSinModelo, ErrorVariables
 from sistema.management.commands import procesar_entrenamientos
+from sistema import trabajador_web
 
 RUTA_VISTA = "vw_dataset_entrenamiento"
 
@@ -4571,3 +4572,80 @@ class DiagnosticoPanelTests(Bloque2Base):
             datos["muestra"]["LINEA_BASE"]["reales"], [180.5, 200.0]
         )
         self.assertNotIn("contenido", json.dumps(datos))
+
+
+class DespliegueLibreTests(MLBase):
+    """S24: el proceso web carga sin pandas/sklearn (Render free da
+    512 MB) y el hilo trabajador recupera las tareas huérfanas."""
+
+    # ------------------------------------------------------------------ #
+    # 427: al arrancar, las tareas PROCESANDO huérfanas quedan FALLIDAS
+    # ------------------------------------------------------------------ #
+    def test_427_el_arranque_recupera_las_tareas_huerfanas(self):
+        # Sin la bandera no se arranca ningún hilo (local y pruebas)
+        with patch.dict(os.environ, {"TRABAJADOR_EN_WEB": "0"}):
+            self.assertFalse(trabajador_web.iniciar())
+
+        # Con la bandera se pide el hilo (mock: sin ejecutar el bucle)
+        with (
+            patch.dict(os.environ, {"TRABAJADOR_EN_WEB": "1"}),
+            patch.object(trabajador_web.threading, "Thread") as hilo,
+        ):
+            self.assertTrue(trabajador_web.iniciar())
+            hilo.assert_called_once()
+
+        # La tarea que murió con la instancia → FALLIDA con su motivo
+        tarea = TareaEntrenamiento.objects.create(
+            usuario=self.admin,
+            estado="PROCESANDO",
+            latido=timezone.now() - timedelta(minutes=7),
+        )
+        self.assertEqual(trabajador_web.recuperar_huerfanas(), 1)
+        tarea.refresh_from_db()
+        self.assertEqual(tarea.estado, "FALLIDA")
+        self.assertIn("Trabajador reiniciado", tarea.error)
+        self.assertEqual(
+            tarea.progreso, {"etapa": "recuperada", "pct": 100}
+        )
+
+        # Sólo huérfanas: una pendiente nueva no se toca
+        pendiente = TareaEntrenamiento.objects.create(usuario=self.admin)
+        self.assertEqual(trabajador_web.recuperar_huerfanas(), 0)
+        pendiente.refresh_from_db()
+        self.assertEqual(pendiente.estado, "PENDIENTE")
+
+    # ------------------------------------------------------------------ #
+    # 428: importar toda la API no trae pandas ni sklearn al proceso web
+    # ------------------------------------------------------------------ #
+    def test_428_el_proceso_web_no_carga_pandas_ni_sklearn(self):
+        codigo = (
+            "import os, sys\n"
+            "os.environ.pop('TRABAJADOR_EN_WEB', None)\n"
+            "import django\n"
+            "django.setup()\n"
+            "import config.urls  # la entera: apps, vistas y serializadores\n"
+            "pesados = sorted(\n"
+            "    m for m in ('pandas', 'sklearn') if m in sys.modules\n"
+            ")\n"
+            "if pesados:\n"
+            "    print('cargados:', ', '.join(pesados))\n"
+            "sys.exit(1 if pesados else 0)\n"
+        )
+        entorno = os.environ.copy()
+        entorno["DJANGO_SETTINGS_MODULE"] = "config.settings"
+        entorno.pop("TRABAJADOR_EN_WEB", None)
+        backend = Path(__file__).resolve().parent.parent
+        proceso = subprocess.run(
+            [sys.executable, "-c", codigo],
+            cwd=str(backend),
+            env=entorno,
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        self.assertEqual(
+            proceso.returncode,
+            0,
+            "el proceso web cargó librerías pesadas:\n"
+            f"{proceso.stdout}{proceso.stderr}",
+        )

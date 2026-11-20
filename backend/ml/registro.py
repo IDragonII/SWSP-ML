@@ -29,12 +29,10 @@ from decimal import Decimal
 from pathlib import Path
 
 import joblib
-import numpy as np
-import pandas as pd
 from django.db import transaction
 
 from auditoria.registrar import registrar_evento
-from ml import catalogo, entrenamiento, guardado, preparacion
+from ml import guardado
 from ml.models import EntrenamientoML, ModeloML
 from usuarios.models import RolPermiso
 
@@ -72,6 +70,10 @@ def _decimal(valor, decimales):
 
 def _validar(resultados, version, desarrollo):
     """Comprobaciones previas; devuelve (elegido, n, origen)."""
+    # Import perezoso: entrenamiento trae pandas/numpy y el proceso web
+    # no debe cargarlos solo por importar registro
+    from ml import entrenamiento
+
     faltan = [clave for clave in CLAVES_REQUERIDAS if clave not in resultados]
     if faltan:
         raise ErrorRegistro(
@@ -139,6 +141,12 @@ def _columnas_del_tubo(tubo):
 
 def _probar(tubo, columnas):
     """Predicción de prueba sobre una fila sintética (decisión 222)."""
+    # Import perezoso: solo al verificar un artefacto (registro/activación)
+    import numpy as np
+    import pandas as pd
+
+    from ml import preparacion
+
     numericas = set(preparacion.columnas_del_pipeline(columnas)[0])
     fila = {c: (0.0 if c in numericas else "") for c in columnas}
     try:
@@ -211,6 +219,9 @@ def registrar(*, usuario, resultados, version, archivo=None,
     ruta del trabajador) o `archivo` (+ manifiesto de huellas, ruta del
     comando manual). No se admiten los dos a la vez.
     """
+    # Import perezoso: catalogo/entrenamiento traen pandas y sklearn
+    from ml import catalogo, entrenamiento
+
     _exigir(usuario, PERMISO_REGISTRAR)
     elegido, n, origen = _validar(resultados, version, desarrollo)
     if activar:

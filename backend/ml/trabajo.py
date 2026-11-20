@@ -19,8 +19,6 @@ import os
 
 import joblib
 
-from ml import carga, entrenamiento, limpieza, registro
-
 
 class ErrorTrabajo(Exception):
     """El entrenamiento no llega al registro: el motivo es el dato."""
@@ -40,6 +38,9 @@ def entrenar_desde_datos(datos, *, huella_dataset, version, datos_de):
     `registro.registrar(contenido=...)`. Lanza ErrorTrabajo si no hay
     datos suficientes o si ningún modelo supera a la línea base.
     """
+    # Import perezoso: pandas/sklearn solo en el proceso que entrena
+    from ml import entrenamiento, limpieza
+
     limpio, resumen = limpieza.limpiar(datos)
     if len(limpio) < 5:
         raise ErrorTrabajo(
@@ -85,6 +86,10 @@ def entrenar_desde_sistema(*, usuario, version, datos_de=None,
     Devuelve el resumen de registro.registrar con la clave adicional
     `resultados` (las métricas completas que quedaron en la BD).
     """
+    # Import perezoso: el proceso web solo necesita este módulo para el
+    # sello de entorno; el peso de pandas/sklearn queda en quien entrena
+    from ml import carga, registro
+
     if datos_de is None:
         datos_de = datos_de_entorno()
 
