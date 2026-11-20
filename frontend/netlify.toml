@@ -9,11 +9,10 @@
   publish = "dist"
 
 # IMPORTANTE: /api/* va ANTES que el fallback SPA (Netlify evalúa en
-# orden). Cambiar sigpa-ga.onrender.com si el servicio de Render se
-# creó con otro nombre.
+# orden). Este host es el servicio real de Render (swsp-ml).
 [[redirects]]
   from = "/api/*"
-  to = "https://sigpa-ga.onrender.com/api/:splat"
+  to = "https://swsp-ml.onrender.com/api/:splat"
   status = 200
 
 [[redirects]]
