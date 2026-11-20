@@ -9,7 +9,10 @@ from usuarios.models import Rol
 class Command(BaseCommand):
     help = (
         "Crea el superusuario inicial a partir de ADMIN_USERNAME y "
-        "ADMIN_PASSWORD del .env (idempotente; no toca un usuario existente)."
+        "ADMIN_PASSWORD del .env (idempotente; no toca un usuario "
+        "existente ni duplica si ya hay un superusuario). La cuenta "
+        "nace con debe_cambiar_credenciales: el primer ingreso obliga "
+        "a elegir usuario y contraseña propios (S24)."
     )
 
     def handle(self, *args, **options):
@@ -22,6 +25,14 @@ class Command(BaseCommand):
         if Usuario.objects.filter(username=username).exists():
             self.stdout.write(f"El usuario '{username}' ya existe; no se modifica.")
             return
+        # El superusuario puede haber renombrado su cuenta en el primer
+        # ingreso: no crear otro desde el env (el env solo hace de
+        # bootstrap, una vez)
+        if Usuario.objects.filter(is_superuser=True).exists():
+            self.stdout.write(
+                "Ya existe un superusuario con otro nombre; no se crea otro."
+            )
+            return
 
         try:
             rol = Rol.objects.get(nombre="Administrador")
@@ -29,7 +40,11 @@ class Command(BaseCommand):
             raise CommandError("No existe el rol 'Administrador'; ejecuta primero migrate.")
 
         Usuario.objects.create_superuser(
-            username=username, email="", password=password, rol=rol
+            username=username,
+            email="",
+            password=password,
+            rol=rol,
+            debe_cambiar_credenciales=True,
         )
         self.stdout.write(
             self.style.SUCCESS(f"Superusuario '{username}' creado con rol Administrador.")

@@ -10,11 +10,12 @@ export default function RutaProtegida({ permiso, children }) {
   if (!usuario) {
     return <Navigate to="/login" state={{ desde: ubicacion }} replace />
   }
-  // Semana 13 (HU-112): con la marca de cambio obligatorio solo se usa
-  // /cambiar-clave; el resto de la app espera (el backend también corta
-  // la API con 403, la puerta aquí es del lado del cliente)
+  // Semana 13 (HU-112) + S24: con marca de cambio obligatorio (solo
+  // contraseña o credenciales completas) solo se usa /cambiar-clave;
+  // el resto de la app espera (el backend también corta la API con 403,
+  // la puerta aquí es del lado del cliente)
   if (
-    usuario.debe_cambiar_clave &&
+    (usuario.debe_cambiar_clave || usuario.debe_cambiar_credenciales) &&
     ubicacion.pathname !== '/cambiar-clave'
   ) {
     return <Navigate to="/cambiar-clave" replace />

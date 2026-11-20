@@ -7,17 +7,21 @@ import RuedaCarga from '../components/RuedaCarga.jsx'
 import { useSesion } from '../context/useSesion.js'
 import { useToast } from '../context/useToast.js'
 
-// Semana 13 (HU-105 a HU-113): cambio de la propia contraseña. Con la
-// marca debe_cambiar_clave el backend cierra el resto de la API (403),
-// así que RutaProtegida redirige aquí y solo esta pantalla —y las
-// rutas de sesión— quedan disponibles hasta cambiarla.
+// Semana 13 (HU-105 a HU-113) + S24: cambio de la propia contraseña y,
+// con la marca debe_cambiar_credenciales, también del usuario. Con
+// cualquier marca el backend cierra el resto de la API (403), así que
+// RutaProtegida redirige aquí y solo esta pantalla —y las rutas de
+// sesión— quedan disponibles hasta cambiar.
 export default function CambiarClave() {
   const { usuario, actualizarUsuario } = useSesion()
   const { avisar } = useToast()
   const navegar = useNavigate()
+  const marcado = Boolean(usuario?.debe_cambiar_credenciales)
+  const [usernameNuevo, setUsernameNuevo] = useState('')
   const [actual, setActual] = useState('')
   const [nueva, setNueva] = useState('')
   const [confirmar, setConfirmar] = useState('')
+  const [errorUsername, setErrorUsername] = useState(null)
   const [errorActual, setErrorActual] = useState(null)
   const [errorNueva, setErrorNueva] = useState(null)
   const [errorConfirmacion, setErrorConfirmacion] = useState(null)
@@ -27,6 +31,7 @@ export default function CambiarClave() {
   async function enviar(evento) {
     evento.preventDefault()
     setError(null)
+    setErrorUsername(null)
     setErrorActual(null)
     setErrorNueva(null)
     setErrorConfirmacion(null)
@@ -34,22 +39,46 @@ export default function CambiarClave() {
       setErrorConfirmacion('Las dos contraseñas nuevas no coinciden.')
       return
     }
+    const nuevo = usernameNuevo.trim()
+    if (marcado && !nuevo) {
+      setErrorUsername('El nuevo nombre de usuario es obligatorio.')
+      return
+    }
+    if (marcado && nuevo === usuario.username) {
+      setErrorUsername('Elige un nombre de usuario distinto al actual.')
+      return
+    }
     setGuardando(true)
     try {
-      const respuesta = await cambiarClave(actual, nueva)
+      const respuesta = await cambiarClave(
+        actual,
+        nueva,
+        marcado ? nuevo : undefined
+      )
       actualizarUsuario(respuesta.usuario)
-      avisar('Contraseña actualizada. Tus sesiones anteriores quedaron cerradas.')
+      avisar(
+        marcado
+          ? 'Credenciales actualizadas. Tus sesiones anteriores quedaron cerradas.'
+          : 'Contraseña actualizada. Tus sesiones anteriores quedaron cerradas.'
+      )
       navegar('/', { replace: true })
     } catch (err) {
       if (err.response?.status === 400) {
         const campos = erroresDeCampo(err.response.data)
+        if (campos.username_nuevo) {
+          setErrorUsername(campos.username_nuevo)
+        }
         if (campos.password_actual) {
           setErrorActual(campos.password_actual)
         }
         if (campos.password_nueva) {
           setErrorNueva(campos.password_nueva)
         }
-        if (campos.password_actual || campos.password_nueva) {
+        if (
+          campos.username_nuevo ||
+          campos.password_actual ||
+          campos.password_nueva
+        ) {
           setGuardando(false)
           return
         }
@@ -59,29 +88,53 @@ export default function CambiarClave() {
     }
   }
 
+  const lema = marcado
+    ? 'Por seguridad, define tu propio usuario y contraseña antes de continuar usando el sistema.'
+    : usuario?.debe_cambiar_clave
+      ? 'Tu cuenta tiene una contraseña provisional: cambia antes de continuar usando el sistema.'
+      : 'Actualiza tu contraseña para seguir trabajando con seguridad.'
+
   return (
     <div className="login">
       <aside className="login-marca">
         <Marca className="marca-agua" width="100%" height="100%" />
         <div>
           <h1>SIGPA-GA</h1>
-          <p className="login-lema">
-            {usuario?.debe_cambiar_clave
-              ? 'Tu cuenta tiene una contraseña provisional: cambia antes de continuar usando el sistema.'
-              : 'Actualiza tu contraseña para seguir trabajando con seguridad.'}
-          </p>
+          <p className="login-lema">{lema}</p>
         </div>
         <p className="login-pie">Puno · 2026</p>
       </aside>
 
       <main className="login-panel">
         <form className="formulario" onSubmit={enviar}>
-          <h2>Cambiar contraseña</h2>
+          <h2>{marcado ? 'Cambiar credenciales' : 'Cambiar contraseña'}</h2>
 
           {error && (
             <p className="error" role="alert">
               {error}
             </p>
+          )}
+
+          {marcado && (
+            <div className="campo">
+              <label htmlFor="usuario-nuevo">Nombre de usuario nuevo</label>
+              <input
+                id="usuario-nuevo"
+                type="text"
+                autoComplete="username"
+                required
+                value={usernameNuevo}
+                onChange={(evento) => setUsernameNuevo(evento.target.value)}
+              />
+              <p className="campo-ayuda">
+                Debe ser distinto al actual («{usuario?.username}»).
+              </p>
+              {errorUsername && (
+                <p className="campo-error" role="alert">
+                  {errorUsername}
+                </p>
+              )}
+            </div>
           )}
 
           <div className="campo">
@@ -145,6 +198,8 @@ export default function CambiarClave() {
                 <RuedaCarga etiqueta="Guardando…" />
                 Guardando…
               </>
+            ) : marcado ? (
+              'Guardar credenciales'
             ) : (
               'Guardar contraseña'
             )}

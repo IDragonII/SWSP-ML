@@ -27,7 +27,8 @@
 
 ## 2. Rutas libres de la puerta
 
-Mientras `debe_cambiar_clave` está activo, solo responden:
+Mientras `debe_cambiar_clave` o `debe_cambiar_credenciales` está
+activo (§6), solo responden:
 
 - `POST /api/auth/login/`
 - `POST /api/auth/refresh/`
@@ -54,6 +55,17 @@ otra comprobación de permisos. El anónimo sigue recibiendo **401**.
 }
 ```
 
+Con la marca S24 `debe_cambiar_credenciales` (§6) se agrega
+`username_nuevo` (obligatorio):
+
+```json
+{
+  "password_actual": "SigpaGA2026!",
+  "password_nueva": "NuevaClave2026!",
+  "username_nuevo": "coordinador_puno"
+}
+```
+
 **200**:
 
 ```json
@@ -63,7 +75,9 @@ otra comprobación de permisos. El anónimo sigue recibiendo **401**.
 }
 ```
 
-La respuesta rota las cookies `sigpa_access`/`sigpa_refresh` (emite
+Con `username_nuevo` el `detail` pasa a ser **«Credenciales
+actualizadas.»** y `usuario.username` refleja el nombre nuevo. La
+respuesta rota las cookies `sigpa_access`/`sigpa_refresh` (emite
 tokens nuevos) y **el refresh anterior deja de servir** (401 en
 `refresh`/`me`).
 
@@ -73,6 +87,7 @@ tokens nuevos) y **el refresh anterior deja de servir** (401 en
 |---|---|---|
 | 400 | `password_actual` incorrecta | «La contraseña actual no es correcta.» (cadena plana, no lista; no distingue si el usuario existe) |
 | 400 | `password_nueva` inválida | Validadores de Django en la clave (obligatoria, longitud, numérica, común, **similar al usuario**), en forma de lista por campo |
+| 400 | `username_nuevo` ausente/igual/repetido (con marca S24) | «El nuevo nombre de usuario es obligatorio.» / «Elige un nombre de usuario distinto al actual.» / «Ya existe un usuario con ese nombre.» (lista por campo) |
 | 400 | Faltan campos | «Este campo es obligatorio.» (por campo) |
 | 401 | Sesión expirada o sin cookies | Estándar de JWT |
 | 429 | Más de 5 intentos en la hora | «Demasiados intentos de cambio de contraseña. Intenta de nuevo en N minuto(s).» + `{"retry_after": N}` + cabecera **`Retry-After`** |
@@ -107,6 +122,37 @@ tokens nuevos) y **el refresh anterior deja de servir** (401 en
 - `validate_password` sin `user` no revisaba la similitud con el nombre
   de usuario; se pasa `context={'request': request}` en el serializer
   para que `UserAttributeSimilarityValidator` funcione.
+
+## 6. S24 — primer ingreso: cambio de credenciales (usuario + contraseña)
+
+Marca **`debe_cambiar_credenciales`** (migración `0005`), **independiente**
+de `debe_cambiar_clave`:
+
+- **Quién nace marcado**: toda alta por `POST /api/usuarios/`
+  (`UsuarioEscrituraSerializer.create`), la cuenta que crea
+  `manage.py crear_superusuario` (idempotente: no duplica si ya existe un
+  superusuario) y **todos los usuarios existentes** (backfill `TRUE` en la
+  migración 0005).
+- **Puerta**: mismo `DebeCambiarClave` de §2, con mensaje propio —
+  **403 «Debes cambiar tus credenciales antes de continuar.»** (el
+  literal de §1 se conserva intacto para `debe_cambiar_clave`). `/me`,
+  login, refresh y logout siguen libres.
+- **Cambio**: el mismo `POST /api/auth/cambiar-clave/` exige además
+  `username_nuevo` — **obligatorio, distinto del actual, único
+  (≤150, sin validador de formato**, igual que el alta de usuarios).
+  En un solo paso se guardan contraseña + usuario, se bajan **ambas**
+  marcas, se rota la sesión y se limpia el contador de intentos con
+  **ambos** nombres (antes y después del rename).
+- **Auditoría**: evento `CAMBIAR_CLAVE` con
+  `detalle={"username_anterior": …, "username_nuevo": …}` cuando hubo
+  rename.
+- **Frontend**: `Login` y `RutaProtegida` redirigen a `/cambiar-clave`
+  con cualquiera de las dos marcas; la pantalla muestra el campo
+  «Nombre de usuario nuevo» solo cuando `debe_cambiar_credenciales`
+  está activo (lema y título cambian a «credenciales»).
+- **`restablecer-clave`** (Semana 12) sigue marcando **solo**
+  `debe_cambiar_clave`: el administrador restablece la contraseña, no
+  el nombre de usuario.
 
 ## Coleccion de pruebas (Postman)
 

@@ -288,6 +288,8 @@ class DatosUsuarioSerializer(serializers.ModelSerializer):
             'permisos',
             # Semana 13 (HU-112): la interfaz redirige a /cambiar-clave
             'debe_cambiar_clave',
+            # S24: primer ingreso — también obliga a cambiar el usuario
+            'debe_cambiar_credenciales',
         )
 
     def get_nombre_completo(self, obj):
@@ -491,6 +493,9 @@ class UsuarioEscrituraSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
+        # S24: toda alta entra marcada — el primer ingreso obliga a
+        # elegir usuario y contraseña propios
+        validated_data['debe_cambiar_credenciales'] = True
         return Usuario.objects.create_user(**validated_data)
 
 
@@ -512,8 +517,8 @@ class RestablecerClaveSerializer(serializers.Serializer):
 
 
 class CambiarClaveSerializer(serializers.Serializer):
-    """Cambio de la propia contraseña (Semana 13, HU-112): exige la
-    contraseña actual y una nueva con los validadores de Django."""
+    """Cambio de la propia contraseña (Semana 13, HU-112) y, con la
+    marca S24 debe_cambiar_credenciales, también del usuario."""
 
     password_actual = serializers.CharField(
         write_only=True,
@@ -522,6 +527,12 @@ class CambiarClaveSerializer(serializers.Serializer):
     password_nueva = serializers.CharField(
         write_only=True,
         error_messages={'required': 'La contraseña nueva es obligatoria.'},
+    )
+    username_nuevo = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        max_length=150,
     )
 
     def validate_password_nueva(self, value):
@@ -536,3 +547,33 @@ class CambiarClaveSerializer(serializers.Serializer):
         except DjangoValidationError as exc:
             raise serializers.ValidationError(exc.messages)
         return value
+
+    def validate(self, attrs):
+        # S24: con la marca, el usuario nuevo es obligatorio y debe ser
+        # distinto y único; sin la marca se acepta si viene (rename propio)
+        peticion = self.context.get('request')
+        usuario = getattr(peticion, 'user', None) if peticion is not None else None
+        valor = (attrs.get('username_nuevo') or '').strip()
+        marcado = usuario is not None and getattr(
+            usuario, 'debe_cambiar_credenciales', False
+        )
+        if marcado and not valor:
+            raise serializers.ValidationError(
+                {'username_nuevo': 'El nuevo nombre de usuario es obligatorio.'}
+            )
+        if valor:
+            if usuario is not None and valor == usuario.username:
+                raise serializers.ValidationError(
+                    {'username_nuevo': 'Elige un nombre de usuario distinto al actual.'}
+                )
+            existentes = Usuario.objects.filter(username=valor)
+            if usuario is not None:
+                existentes = existentes.exclude(pk=usuario.pk)
+            if existentes.exists():
+                raise serializers.ValidationError(
+                    {'username_nuevo': 'Ya existe un usuario con ese nombre.'}
+                )
+            attrs['username_nuevo'] = valor
+        else:
+            attrs.pop('username_nuevo', None)
+        return attrs

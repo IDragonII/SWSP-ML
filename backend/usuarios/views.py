@@ -248,21 +248,24 @@ class CerrarSesionView(APIView):
 
 
 class CambiarClaveView(APIView):
-    """Cambio de la propia contraseña (HU-112, Semana 13, RF-73).
+    """Cambio de la propia contraseña (HU-112, Semana 13, RF-73) y, con
+    la marca S24 debe_cambiar_credenciales, también del usuario.
 
-    Exige la contraseña actual y una nueva con los validadores de Django.
-    Al guardar: cierra todas las sesiones abiertas (marca de sesión),
-    limpia la marca debe_cambiar_clave, borra el contador de intentos y
-    emite cookies nuevas (las anteriores quedaron invalidadas), para que
-    la interfaz siga dentro sin volver a entrar. Máximo 5 intentos por
-    usuario y hora (429 con los minutos a esperar).
+    Exige la contraseña actual y una nueva con los validadores de Django;
+    con la marca S24, además el username_nuevo (obligatorio, distinto y
+    único). Al guardar: cierra todas las sesiones abiertas (marca de
+    sesión), limpia las marcas de cambio obligatorio, borra el contador
+    de intentos y emite cookies nuevas (las anteriores quedaron
+    invalidadas), para que la interfaz siga dentro sin volver a entrar.
+    Máximo 5 intentos por usuario y hora (429 con los minutos a esperar).
     """
 
     permission_classes = (IsAuthenticated,)
 
     def post(self, request):
         usuario = request.user
-        permitido, restante = ratelimit.registrar_cambio_clave(usuario.username)
+        username_anterior = usuario.username
+        permitido, restante = ratelimit.registrar_cambio_clave(username_anterior)
         if not permitido:
             minutos = max(1, math.ceil(restante / 60))
             respuesta = Response(
@@ -287,10 +290,16 @@ class CambiarClaveView(APIView):
             raise ValidationError(
                 {'password_actual': 'La contraseña actual no es correcta.'}
             )
+        username_nuevo = (serializador.validated_data.get('username_nuevo') or '')
         with transaction.atomic():
             usuario.set_password(serializador.validated_data['password_nueva'])
             usuario.debe_cambiar_clave = False
-            usuario.save(update_fields=('password', 'debe_cambiar_clave'))
+            usuario.debe_cambiar_credenciales = False
+            campos = ['password', 'debe_cambiar_clave', 'debe_cambiar_credenciales']
+            if username_nuevo and username_nuevo != username_anterior:
+                usuario.username = username_nuevo
+                campos.append('username')
+            usuario.save(update_fields=campos)
             marcar_sesion_cambiada(usuario.pk)
             registrar_evento(
                 usuario=usuario,
@@ -298,10 +307,21 @@ class CambiarClaveView(APIView):
                 modulo='usuarios',
                 tabla='usuarios',
                 registro_id=usuario.pk,
+                detalle=(
+                    {'username_anterior': username_anterior,
+                     'username_nuevo': usuario.username}
+                    if 'username' in campos
+                    else None
+                ),
                 ip=ip_de_request(request),
             )
+        ratelimit.limpiar_cambio_clave(username_anterior)
         ratelimit.limpiar_cambio_clave(usuario.username)
-        logger.info('clave_cambiada id=%s', usuario.pk)
+        renombrado = 'username' in campos
+        logger.info(
+            'credenciales_cambiadas id=%s username=%s->%s',
+            usuario.pk, username_anterior, usuario.username,
+        )
         # La marca de sesión acaba de invalidar los tokens antiguos; los
         # nuevos esperan al segundo siguiente para no caer en esa misma
         # invalidación por iat con precisión de segundo (HU-113).
@@ -309,7 +329,10 @@ class CambiarClaveView(APIView):
         refresh = RefreshToken.for_user(usuario)
         response = Response(
             {
-                'detail': 'Contraseña actualizada.',
+                'detail': (
+                    'Credenciales actualizadas.' if renombrado
+                    else 'Contraseña actualizada.'
+                ),
                 'usuario': DatosUsuarioSerializer(usuario).data,
             }
         )

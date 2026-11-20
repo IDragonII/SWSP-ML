@@ -16,11 +16,11 @@ export async function cerrarSesion() {
 }
 
 // Semana 13 (HU-113): cambio de la propia contraseña; el backend devuelve
-// el usuario actualizado y rota las cookies de sesión
-export async function cambiarClave(password_actual, password_nueva) {
-  const { data } = await cliente.post('/auth/cambiar-clave/', {
-    password_actual,
-    password_nueva,
-  })
+// el usuario actualizado y rota las cookies de sesión. Con la marca S24
+// debe_cambiar_credenciales se envía además username_nuevo.
+export async function cambiarClave(password_actual, password_nueva, usernameNuevo) {
+  const cuerpo = { password_actual, password_nueva }
+  if (usernameNuevo) cuerpo.username_nuevo = usernameNuevo
+  const { data } = await cliente.post('/auth/cambiar-clave/', cuerpo)
   return data
 }

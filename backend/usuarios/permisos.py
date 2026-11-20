@@ -51,10 +51,10 @@ class TienePermiso(BasePermission):
         return codigo in permisos_de_peticion(request)
 
 
-# Rutas que siguen funcionando con debe_cambiar_clave en TRUE (Semana 13,
-# HU-112): entrar, renovar/cerrar la propia sesión, leer /me (para saber
-# que hay que cambiar la clave) y cambiarla. El resto de la API queda
-# cerrada con 403 hasta que se cambie.
+# Rutas que siguen funcionando con las marcas de cambio obligatorio en
+# TRUE (Semana 13, HU-112 + S24): entrar, renovar/cerrar la propia
+# sesión, leer /me (para saber que hay que cambiar) y cambiarlo. El
+# resto de la API queda cerrado con 403 hasta que se cambie.
 RUTAS_LIBRES_CAMBIO_CLAVE = (
     '/api/auth/login/',
     '/api/auth/refresh/',
@@ -65,13 +65,14 @@ RUTAS_LIBRES_CAMBIO_CLAVE = (
 
 
 class DebeCambiarClave(BasePermission):
-    """Puerta del cambio obligatorio de contraseña (HU-112, RF-73).
+    """Puerta del cambio obligatorio de credenciales (HU-112 + S24).
 
-    Si el usuario tiene debe_cambiar_clave en TRUE, solo pasan las rutas
-    de sesión/cambio; el resto responde 403 «Debes cambiar tu
-    contraseña…». Va ANTES de IsAuthenticated en
-    DEFAULT_PERMISSION_CLASSES: los anónimos y las rutas libres siguen
-    el resto de la cadena normal.
+    Con debe_cambiar_clave (Semana 13) solo contraseña; con
+    debe_cambiar_credenciales (S24, primer ingreso) usuario y
+    contraseña. En ambos casos solo pasan las rutas de sesión/cambio;
+    el resto responde 403 con el mensaje de su marca. Va ANTES de
+    IsAuthenticated en DEFAULT_PERMISSION_CLASSES: los anónimos y las
+    rutas libres siguen el resto de la cadena normal.
     """
 
     message = 'Debes cambiar tu contraseña antes de continuar.'
@@ -80,7 +81,17 @@ class DebeCambiarClave(BasePermission):
         user = request.user
         if not user or not user.is_authenticated:
             return True  # IsAuthenticated (la siguiente) se ocupa
+        if getattr(user, 'debe_cambiar_credenciales', False):
+            # Instancia por petición (APIView.get_permissions): el
+            # mensaje se puede ajustar aquí sin afectar a la otra marca
+            self.message = 'Debes cambiar tus credenciales antes de continuar.'
+            return self._ruta_libre(request)
         if not getattr(user, 'debe_cambiar_clave', False):
             return True
+        self.message = 'Debes cambiar tu contraseña antes de continuar.'
+        return self._ruta_libre(request)
+
+    @staticmethod
+    def _ruta_libre(request):
         ruta = request.path.rstrip('/')
         return any(ruta == ruta_libre.rstrip('/') for ruta_libre in RUTAS_LIBRES_CAMBIO_CLAVE)

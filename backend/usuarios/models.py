@@ -73,6 +73,11 @@ class Usuario(AbstractUser):
     debe_cambiar_clave = models.BooleanField(
         "debe cambiar contraseña", default=False, db_default=False
     )
+    # S24: primer ingreso — obliga a cambiar usuario Y contraseña (la
+    # marca vieja de la Semana 13 sigue siendo solo de contraseña)
+    debe_cambiar_credenciales = models.BooleanField(
+        "debe cambiar credenciales", default=False, db_default=False
+    )
     rol = models.ForeignKey(
         Rol, on_delete=models.PROTECT, related_name="usuarios", verbose_name="rol"
     )

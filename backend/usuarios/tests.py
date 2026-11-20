@@ -1668,3 +1668,232 @@ class RolAdminApiTests(TestCase):
             self.assertEqual(
                 faltantes_de_dependencias(codigos), [], msg=rol.nombre
             )
+
+
+# ---------------------------------------------------------------------- #
+# S24: primer ingreso — cambio obligatorio de credenciales (429 a 432)    #
+# ---------------------------------------------------------------------- #
+class CambioCredencialesApiTests(TestCase):
+    """Pruebas 429-432 (S24): toda alta nace con debe_cambiar_credenciales,
+    la puerta responde 403 con el mensaje de la marca (login y /me la
+    exponen, logout sigue permitido), el cambio exige username_nuevo
+    distinto y único, y crear_superusuario marca la cuenta sin duplicar
+    superusuarios."""
+
+    def setUp(self):
+        cache.clear()
+        self.administrador = Rol.objects.get(nombre="Administrador")
+        self.rol_coordinador = Rol.objects.get(nombre="Coordinador")
+        self.admin = Usuario.objects.create_superuser(
+            username="admin_s24", email="", password="AdminS242026!",
+            rol=self.administrador,
+        )
+        self.ocupado = Usuario.objects.create_user(
+            username="ocupado_s24", password="Ocupado2026!",
+            rol=self.rol_coordinador,
+        )
+
+    # ------------------------------------------------------------------ #
+    # helpers
+    # ------------------------------------------------------------------ #
+    def _entrar(self, usuario, clave):
+        self.assertEqual(_post_login(self.client, usuario, clave).status_code, 200)
+
+    def _json(self, respuesta):
+        return json.loads(respuesta.content.decode("utf-8"))
+
+    def _api(self, metodo, url, cuerpo=None):
+        kwargs = {"content_type": "application/json"}
+        if cuerpo is not None:
+            kwargs["data"] = json.dumps(cuerpo)
+        return getattr(self.client, metodo)(url, **kwargs)
+
+    def _datos_alta(self, **extra):
+        datos = {
+            "username": "nuevo_s24",
+            "password": "NuevaClave2026!",
+            "first_name": "Nora",
+            "last_name": "S24",
+            "rol": self.rol_coordinador.pk,
+        }
+        datos.update(extra)
+        return datos
+
+    def _marcar_credenciales(self):
+        self.admin.debe_cambiar_credenciales = True
+        self.admin.save(update_fields=("debe_cambiar_credenciales",))
+
+    # ------------------------------------------------------------------ #
+    # 429: el alta nace marcada; la puerta corta con el mensaje de la
+    # marca; /me la expone y el logout sigue permitido
+    # ------------------------------------------------------------------ #
+    def test_429_alta_marcada_puerta_me_y_logout(self):
+        self._entrar("admin_s24", "AdminS242026!")
+        respuesta = self._api("post", "/api/usuarios/", self._datos_alta())
+        self.assertEqual(respuesta.status_code, 201)
+        nuevo = Usuario.objects.get(username="nuevo_s24")
+        self.assertTrue(nuevo.debe_cambiar_credenciales)
+        self.assertFalse(nuevo.debe_cambiar_clave)
+
+        # El usuario nuevo entra; login expone la marca
+        entrada = _post_login(self.client, "nuevo_s24", "NuevaClave2026!")
+        self.assertEqual(entrada.status_code, 200)
+        self.assertTrue(entrada.json()["usuario"]["debe_cambiar_credenciales"])
+
+        # Puerta: el resto de la API queda en 403 con el mensaje de la marca
+        respuesta = self._api("get", "/api/productores/")
+        self.assertEqual(respuesta.status_code, 403)
+        self.assertEqual(
+            self._json(respuesta)["detail"],
+            "Debes cambiar tus credenciales antes de continuar.",
+        )
+        # /me sigue disponible y expone la marca
+        self.assertTrue(
+            self._json(self._api("get", "/api/auth/me/"))["usuario"][
+                "debe_cambiar_credenciales"
+            ]
+        )
+        # Y el logout sigue permitido (la sesión se puede cerrar)
+        cierre = self._api("post", "/api/auth/logout/")
+        self.assertEqual(cierre.status_code, 200)
+        self.assertEqual(self._json(cierre), {"detail": "Sesión cerrada."})
+
+    # ------------------------------------------------------------------ #
+    # 430: con la marca, username_nuevo es obligatorio, distinto y único
+    # ------------------------------------------------------------------ #
+    def test_430_username_nuevo_obligatorio_distinto_y_unico(self):
+        self._entrar("admin_s24", "AdminS242026!")
+        self._marcar_credenciales()
+        cuerpo_base = {
+            "password_actual": "AdminS242026!",
+            "password_nueva": "PropiaS242026!",
+        }
+
+        # Ausente: el cambio completo es obligatorio (no solo la clave)
+        respuesta = self._api(
+            "post", "/api/auth/cambiar-clave/", cuerpo_base
+        )
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertEqual(
+            self._json(respuesta)["username_nuevo"],
+            ["El nuevo nombre de usuario es obligatorio."],
+        )
+
+        # Igual al actual: debe ser distinto
+        respuesta = self._api(
+            "post", "/api/auth/cambiar-clave/",
+            {**cuerpo_base, "username_nuevo": "admin_s24"},
+        )
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertEqual(
+            self._json(respuesta)["username_nuevo"],
+            ["Elige un nombre de usuario distinto al actual."],
+        )
+
+        # Repetido: debe ser único
+        respuesta = self._api(
+            "post", "/api/auth/cambiar-clave/",
+            {**cuerpo_base, "username_nuevo": "ocupado_s24"},
+        )
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertEqual(
+            self._json(respuesta)["username_nuevo"],
+            ["Ya existe un usuario con ese nombre."],
+        )
+
+        # Nada cambió: sigue marcada y con la clave antigua
+        self.admin.refresh_from_db()
+        self.assertTrue(self.admin.debe_cambiar_credenciales)
+        self.assertTrue(self.admin.check_password("AdminS242026!"))
+        self.assertEqual(self.admin.username, "admin_s24")
+
+    # ------------------------------------------------------------------ #
+    # 431: el cambio completo renombra, baja las marcas, rota cookies y
+    # registra el rename en la auditoría
+    # ------------------------------------------------------------------ #
+    def test_431_cambio_completo_renombra_baja_marcas_y_registra(self):
+        self._entrar("admin_s24", "AdminS242026!")
+        self._marcar_credenciales()
+        self.admin.debe_cambiar_clave = True
+        self.admin.save(update_fields=("debe_cambiar_clave",))
+        refresco_viejo = self.client.cookies["sigpa_refresh"].value
+
+        respuesta = self._api(
+            "post", "/api/auth/cambiar-clave/",
+            {
+                "password_actual": "AdminS242026!",
+                "password_nueva": "PropiaS242026!",
+                "username_nuevo": "gerente_s24",
+            },
+        )
+        self.assertEqual(respuesta.status_code, 200)
+        cuerpo = self._json(respuesta)
+        self.assertEqual(cuerpo["detail"], "Credenciales actualizadas.")
+        self.assertEqual(cuerpo["usuario"]["username"], "gerente_s24")
+
+        self.admin.refresh_from_db()
+        self.assertEqual(self.admin.username, "gerente_s24")
+        self.assertTrue(self.admin.check_password("PropiaS242026!"))
+        self.assertFalse(self.admin.debe_cambiar_clave)
+        self.assertFalse(self.admin.debe_cambiar_credenciales)
+
+        # Cookies nuevas y la sesión anterior invalidada (HU-113)
+        self.assertNotEqual(
+            self.client.cookies["sigpa_refresh"].value, refresco_viejo
+        )
+        self.client.cookies["sigpa_refresh"] = refresco_viejo
+        self.assertEqual(self.client.post("/api/auth/refresh/").status_code, 401)
+
+        # La traza registra el rename completo
+        evento = Auditoria.objects.filter(accion="CAMBIAR_CLAVE").first()
+        self.assertIsNotNone(evento)
+        self.assertEqual(evento.usuario_id, self.admin.pk)
+        self.assertEqual(evento.detalle["username_anterior"], "admin_s24")
+        self.assertEqual(evento.detalle["username_nuevo"], "gerente_s24")
+
+        # El nombre viejo ya no entra; la sesión sigue abierta con la nueva
+        self.assertNotEqual(
+            _post_login(self.client, "admin_s24", "AdminS242026!").status_code,
+            200,
+        )
+        self.assertEqual(self._api("get", "/api/auth/me/").status_code, 200)
+
+    # ------------------------------------------------------------------ #
+    # 432: crear_superusuario marca la cuenta nueva y no duplica
+    # ------------------------------------------------------------------ #
+    def test_432_crear_superusuario_marca_y_no_duplica(self):
+        import os
+        from django.core.management import call_command
+        from unittest import mock
+
+        # Sin superusuarios (la cuenta del env hace de bootstrap)
+        self.admin.is_superuser = False
+        self.admin.save(update_fields=("is_superuser",))
+        with mock.patch.dict(
+            os.environ,
+            {"ADMIN_USERNAME": "root_s24", "ADMIN_PASSWORD": "RootS242026!"},
+        ):
+            call_command("crear_superusuario")
+        root = Usuario.objects.get(username="root_s24")
+        self.assertTrue(root.is_superuser)
+        self.assertTrue(root.debe_cambiar_credenciales)
+        self.assertTrue(root.check_password("RootS242026!"))
+
+        # Ya hay un superusuario: no crea otro con nombre distinto
+        with mock.patch.dict(
+            os.environ,
+            {"ADMIN_USERNAME": "otro_root", "ADMIN_PASSWORD": "Otro2026!"},
+        ):
+            call_command("crear_superusuario")
+        self.assertEqual(Usuario.objects.filter(is_superuser=True).count(), 1)
+        self.assertFalse(Usuario.objects.filter(username="otro_root").exists())
+
+        # Nombre ya existente: no lo toca (ni la contraseña)
+        with mock.patch.dict(
+            os.environ,
+            {"ADMIN_USERNAME": "root_s24", "ADMIN_PASSWORD": "OtraDistinta!"},
+        ):
+            call_command("crear_superusuario")
+        root.refresh_from_db()
+        self.assertTrue(root.check_password("RootS242026!"))
+        self.assertTrue(root.debe_cambiar_credenciales)

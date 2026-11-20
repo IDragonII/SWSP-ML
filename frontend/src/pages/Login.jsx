@@ -20,9 +20,9 @@ export default function Login() {
     setError(null)
     try {
       const datos = await iniciarSesion(usuario, clave)
-      // Semana 13 (HU-105): con contraseña provisional obligatoria, el
+      // Semana 13 (HU-105) + S24: con cambio obligatorio pendiente, el
       // primer destino es la pantalla de cambio (el resto corta el backend)
-      if (datos?.debe_cambiar_clave) {
+      if (datos?.debe_cambiar_clave || datos?.debe_cambiar_credenciales) {
         navegar('/cambiar-clave', { replace: true })
         return
       }
